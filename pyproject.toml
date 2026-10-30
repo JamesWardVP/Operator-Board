@@ -30,7 +30,7 @@ include = ["operator_board*"]
 "operator_board.led" = ["profiles/*.json"]
 "operator_board.surfaces" = ["*.json"]
 "operator_board.remote" = ["*.json"]
-"operator_board.ui" = ["*.png"]
+"operator_board.ui" = ["*.png", "*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

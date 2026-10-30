@@ -20,6 +20,7 @@ from operator_board.ui.pages.surfaces import SurfacesPage
 from operator_board.ui.pages.sync import SyncPage
 from operator_board.ui.pages.takes import TakesPage
 from operator_board.ui.theme import COLORS, STYLESHEET
+from operator_board.ui.widgets import scroll
 
 PAGES = [OperatePage, LevelsPage, TakesPage, ObjectsPage, DLSSPage, StagePage, DevicesPage, LEDSetupPage, SyncPage,
          AnalyticsPage, SurfacesPage, SettingsPage]
@@ -70,7 +71,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for cls in PAGES:
             page = cls(ctx, self)
             self.pages.append(page)
-            self.stack.addWidget(page)
+            # Pages scroll instead of forcing the window taller than a laptop screen.
+            self.stack.addWidget(scroll(page))
             self.nav.addItem(page.title)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
@@ -103,6 +105,10 @@ class MainWindow(QtWidgets.QMainWindow):
             title += f"  [Switchboard: {os.path.splitext(os.path.basename(self.ctx.switchboard_config))[0]}]"
         self.setWindowTitle(title)
 
+    def current_page(self):
+        index = self.stack.currentIndex()
+        return self.pages[index] if 0 <= index < len(self.pages) else None
+
     def notify(self, message: str, ok: bool = True) -> None:
         color = COLORS["text"] if ok else COLORS["err"]
         self.status_label.setStyleSheet(f"color: {color}; font-weight: {'400' if ok else '700'};")
@@ -113,13 +119,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_title()
         if topic == "action.invoked" and not payload.get("ok"):
             self.notify(payload.get("message", ""), False)
-        page = self.stack.currentWidget()
+        page = self.current_page()
         if page is not None:
             page.on_event(topic, payload)
 
     def _tick(self) -> None:
         self.clock.setText(time.strftime("%H:%M:%S  "))
-        page = self.stack.currentWidget()
+        page = self.current_page()
         if isinstance(page, OperatePage):
             page.refresh()
 

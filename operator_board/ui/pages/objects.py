@@ -17,6 +17,9 @@ def parse_value(text: str):
         return text
 
 
+VALUE_HINT = 'Value as JSON, e.g. 1.5  true  "text"  {"X":0,"Y":0,"Z":100}'
+
+
 class ObjectsPage(BasePage):
     title = "Remote Objects"
 
@@ -27,8 +30,7 @@ class ObjectsPage(BasePage):
         self.target = QtWidgets.QComboBox()
         for t in TARGET_CHOICES:
             self.target.addItem(t)
-        lay.addLayout(hbox(QtWidgets.QLabel("Apply changes to"), self.target, None,
-                           muted("Values are JSON: 1.5, true, \"text\", {\"X\":0,\"Y\":0,\"Z\":100}")))
+        lay.addLayout(hbox(QtWidgets.QLabel("Apply changes to"), self.target, None))
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(self._presets_tab(), "Remote Control Presets")
         tabs.addTab(self._actors_tab(), "Actor browser")
@@ -53,6 +55,7 @@ class ObjectsPage(BasePage):
         self.rows.itemSelectionChanged.connect(self._row_selected)
         right.add(self.rows)
         self.value = QtWidgets.QLineEdit()
+        self.value.setPlaceholderText(VALUE_HINT)
         read = QtWidgets.QPushButton("Read")
         read.clicked.connect(self._read_value)
         write = QtWidgets.QPushButton("Set")
@@ -139,6 +142,7 @@ class ObjectsPage(BasePage):
         self.props = make_table(["Property", "Type", "Description"])
         right.add(self.props)
         self.prop_value = QtWidgets.QLineEdit()
+        self.prop_value.setPlaceholderText(VALUE_HINT)
         read = QtWidgets.QPushButton("Read")
         read.clicked.connect(self._read_prop)
         write = QtWidgets.QPushButton("Set")
