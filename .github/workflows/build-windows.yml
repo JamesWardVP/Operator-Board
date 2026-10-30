@@ -33,7 +33,7 @@ jobs:
       - name: Build OperatorBoard.exe
         run: python packaging/build.py --hidapi
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: OperatorBoard-win64
           path: dist/OperatorBoard-*-win64.zip
