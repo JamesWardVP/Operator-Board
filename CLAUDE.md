@@ -24,6 +24,8 @@ Every brief item has a first implementation. See README.md for the feature list,
 - Run: `python -m operator_board` (`--headless`, `--no-hardware`, `--config path`, `--switchboard-config path`).
 - Windows executable: `python packaging/build.py --hidapi` builds `dist/OperatorBoard/OperatorBoard.exe` (+ `OperatorBoardConsole.exe`) with PyInstaller; CI (`.github/workflows/build-windows.yml`) builds on every push and attaches the zip to `v*` tag releases.
 - Work happens on the `Development` branch; `main` gets it through pull requests.
+- License: MIT (`LICENSE`); bundled components in `THIRD_PARTY_NOTICES.md`. Code signing is being applied for through **SignPath Foundation** (free for OSS). Their conditions are why the README has the "Code signing policy" and "Privacy policy" sections and uninstall steps, and why every release links to them. When approved, add the SignPath signing step to `.github/workflows/build-windows.yml` (sign both exes before zipping), with credentials in GitHub Secrets. Do not add proprietary components: SignPath requires everything to be open source.
+- README screenshots: `python docs/make_screenshots.py` renders `docs/images/*.png` from a simulated demo stage (needs a desktop session for fonts).
 - Example stage config: `config/example_stage.json` (uses simulated LED processors).
 - Tests: `python -m pytest`. The suite includes fake SwitchboardListener and HTTP servers, and an offscreen Qt smoke test (set `QT_QPA_PLATFORM=offscreen` on headless Linux).
 

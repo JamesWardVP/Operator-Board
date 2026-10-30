@@ -28,7 +28,7 @@ QPushButton:disabled { color: %(muted)s; }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit {
   background: %(panel2)s; border: 1px solid %(border)s; border-radius: 6px; padding: 4px 6px; min-height: 24px; }
 QTableWidget, QTreeWidget, QListWidget { background: %(panel)s; border: 1px solid %(border)s; gridline-color: %(border)s;
-  alternate-background-color: %(panel2)s; }
+  alternate-background-color: %(panel2)s; selection-background-color: %(accent)s; selection-color: white; }
 QHeaderView::section { background: %(panel2)s; border: none; padding: 6px; font-weight: 600; }
 QTabWidget::pane { border: 1px solid %(border)s; border-radius: 6px; }
 QTabBar::tab { background: %(panel)s; padding: 8px 16px; border-top-left-radius: 6px; border-top-right-radius: 6px; }

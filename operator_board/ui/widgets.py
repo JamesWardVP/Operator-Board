@@ -18,6 +18,7 @@ class Card(QtWidgets.QFrame):
         if title:
             label = QtWidgets.QLabel(title.upper())
             label.setObjectName("CardTitle")
+            label.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Maximum)
             self.layout_.addWidget(label)
 
     def add(self, widget) -> QtWidgets.QWidget:
