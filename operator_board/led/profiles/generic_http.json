@@ -1,0 +1,10 @@
+{
+  "id": "generic_http",
+  "name": "Generic HTTP",
+  "manufacturer": "Generic",
+  "transport": "http",
+  "default_port": 80,
+  "notes": "Send any HTTP request. Define each command in the processor's command overrides.",
+  "commands": {},
+  "test_patterns": []
+}

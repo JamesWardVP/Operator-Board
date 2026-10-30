@@ -1,0 +1,218 @@
+{
+  "id": "megapixel_helios",
+  "name": "Megapixel HELIOS",
+  "manufacturer": "Megapixel VR",
+  "transport": "http",
+  "default_port": 80,
+  "notes": "HELIOS public REST API (PATCH /api/v1/public, firmware 24.11+). Endpoints are documented; the JSON bodies follow the HELIOS data tree (dev.display.*) and should be verified against your firmware's API docs. Basic/Digest auth can be set in the processor options (username/password).",
+  "status_command": {
+    "method": "GET",
+    "path": "/api/v1/public"
+  },
+  "options": [
+    {
+      "name": "username",
+      "label": "Username",
+      "default": ""
+    },
+    {
+      "name": "password",
+      "label": "Password",
+      "default": ""
+    },
+    {
+      "name": "scheme",
+      "label": "Scheme (http/https)",
+      "default": "http"
+    }
+  ],
+  "commands": {
+    "blackout_on": {
+      "method": "PATCH",
+      "path": "/api/v1/public",
+      "json": {
+        "dev": {
+          "display": {
+            "blackout": true
+          }
+        }
+      },
+      "confidence": "partial"
+    },
+    "blackout_off": {
+      "method": "PATCH",
+      "path": "/api/v1/public",
+      "json": {
+        "dev": {
+          "display": {
+            "blackout": false
+          }
+        }
+      },
+      "confidence": "partial"
+    },
+    "freeze_on": {
+      "method": "PATCH",
+      "path": "/api/v1/public",
+      "json": {
+        "dev": {
+          "display": {
+            "freeze": true
+          }
+        }
+      },
+      "confidence": "assumed"
+    },
+    "freeze_off": {
+      "method": "PATCH",
+      "path": "/api/v1/public",
+      "json": {
+        "dev": {
+          "display": {
+            "freeze": false
+          }
+        }
+      },
+      "confidence": "assumed"
+    },
+    "test_pattern_off": {
+      "method": "PATCH",
+      "path": "/api/v1/public",
+      "json": {
+        "dev": {
+          "ingest": {
+            "testPattern": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      "confidence": "assumed"
+    },
+    "brightness": {
+      "method": "PATCH",
+      "path": "/api/v1/public",
+      "json": {
+        "dev": {
+          "display": {
+            "brightness": "{value}"
+          }
+        }
+      },
+      "confidence": "partial",
+      "value": {
+        "min": 0,
+        "max": 100,
+        "format": "int",
+        "unit": "%"
+      }
+    }
+  },
+  "test_patterns": [
+    {
+      "id": "red",
+      "label": "Red",
+      "commands": [
+        {
+          "method": "PATCH",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "red"
+                }
+              }
+            }
+          },
+          "confidence": "assumed"
+        }
+      ]
+    },
+    {
+      "id": "green",
+      "label": "Green",
+      "commands": [
+        {
+          "method": "PATCH",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "green"
+                }
+              }
+            }
+          },
+          "confidence": "assumed"
+        }
+      ]
+    },
+    {
+      "id": "blue",
+      "label": "Blue",
+      "commands": [
+        {
+          "method": "PATCH",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "blue"
+                }
+              }
+            }
+          },
+          "confidence": "assumed"
+        }
+      ]
+    },
+    {
+      "id": "white",
+      "label": "White",
+      "commands": [
+        {
+          "method": "PATCH",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "white"
+                }
+              }
+            }
+          },
+          "confidence": "assumed"
+        }
+      ]
+    },
+    {
+      "id": "grid",
+      "label": "Grid",
+      "commands": [
+        {
+          "method": "PATCH",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "grid"
+                }
+              }
+            }
+          },
+          "confidence": "assumed"
+        }
+      ]
+    }
+  ]
+}

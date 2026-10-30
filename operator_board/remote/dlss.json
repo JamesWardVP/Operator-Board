@@ -1,0 +1,36 @@
+{
+  "notes": "DLSS controls applied through the NVIDIA DLSS / Streamline plugins' Blueprint libraries, with console-variable fallbacks. Edit this file (or copy it to ~/.operator_board/dlss.json) if your plugin version uses different names.",
+  "detect": [
+    "/Script/DLSSBlueprint.Default__DLSSLibrary",
+    "/Script/StreamlineBlueprint.Default__StreamlineLibraryDLSSG"
+  ],
+  "controls": [
+    {
+      "id": "dlss_mode", "label": "DLSS Super Resolution", "kind": "choice",
+      "choices": ["Off", "Auto", "DLAA", "UltraQuality", "Quality", "Balanced", "Performance", "UltraPerformance"],
+      "default": "Quality",
+      "apply": {"type": "function", "object": "/Script/DLSSBlueprint.Default__DLSSLibrary", "function": "SetDLSSMode", "param": "DLSSMode"}
+    },
+    {
+      "id": "dlss_enable", "label": "DLSS Enabled (cvar)", "kind": "bool", "default": true,
+      "apply": {"type": "cvar", "name": "r.NGX.DLSS.Enable"}
+    },
+    {
+      "id": "frame_generation", "label": "Frame Generation (DLSS-FG)", "kind": "choice",
+      "choices": ["Off", "Auto", "On2X", "On3X", "On4X"], "default": "Off",
+      "apply": {"type": "function", "object": "/Script/StreamlineBlueprint.Default__StreamlineLibraryDLSSG", "function": "SetDLSSGMode", "param": "DLSSGMode"}
+    },
+    {
+      "id": "ray_reconstruction", "label": "Ray Reconstruction (cvar)", "kind": "bool", "default": false,
+      "apply": {"type": "cvar", "name": "r.NGX.DLSS.DenoiserMode"}
+    },
+    {
+      "id": "reflex", "label": "NVIDIA Reflex (cvar)", "kind": "bool", "default": false,
+      "apply": {"type": "cvar", "name": "r.Streamline.Reflex.Enable"}
+    },
+    {
+      "id": "screen_percentage", "label": "Screen Percentage", "kind": "slider", "min": 25, "max": 200, "default": 100,
+      "apply": {"type": "cvar", "name": "r.ScreenPercentage"}
+    }
+  ]
+}

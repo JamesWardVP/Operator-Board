@@ -1,0 +1,10 @@
+{
+  "id": "generic_osc",
+  "name": "Generic OSC",
+  "manufacturer": "Generic",
+  "transport": "osc",
+  "default_port": 8000,
+  "notes": "Send OSC messages over UDP: {\"address\": \"/wall/freeze\", \"args\": [1]}.",
+  "commands": {},
+  "test_patterns": []
+}

@@ -1,0 +1,10 @@
+{
+  "id": "generic_udp",
+  "name": "Generic UDP",
+  "manufacturer": "Generic",
+  "transport": "udp",
+  "default_port": 0,
+  "notes": "Send raw UDP text or hex datagrams.",
+  "commands": {},
+  "test_patterns": []
+}

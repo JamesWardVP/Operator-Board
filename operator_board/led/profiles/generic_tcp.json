@@ -1,0 +1,10 @@
+{
+  "id": "generic_tcp",
+  "name": "Generic TCP",
+  "manufacturer": "Generic",
+  "transport": "tcp",
+  "default_port": 0,
+  "notes": "Send raw TCP text or hex. Add 'checksum': 'novastar' for NovaStar-family frames.",
+  "commands": {},
+  "test_patterns": []
+}
