@@ -17,7 +17,7 @@ from typing import Deque, List, Optional, Set
 from operator_board.core.config import AppConfig
 from operator_board.core.events import EventBus
 from operator_board.devices.launcher import multiuser_server_spec, split_args
-from operator_board.listener.client import ListenerClient, decode_stdout
+from operator_board.listener.client import ListenerClient, client_for_device, decode_stdout
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class MultiUserServer:
         if device is None:
             self._start_local(spec.exe, spec.args)
         else:
-            self._start_remote(device.address, device.listener_port, spec.exe, spec.args)
+            self._start_remote(device, spec.exe, spec.args)
         self.running = True
         self.started_at = time.time()
         self._publish()
@@ -148,9 +148,9 @@ class MultiUserServer:
         self.log.append(f"< server exited ({code})")
         self._on_stopped()
 
-    def _start_remote(self, address: str, port: int, exe: str, args: str) -> None:
-        client = ListenerClient(address, port, on_message=self._on_remote_message,
-                                on_disconnect=self._on_remote_disconnect)
+    def _start_remote(self, device, exe: str, args: str) -> None:
+        client = client_for_device(device, self.config.project().ue_version, on_message=self._on_remote_message,
+                                   on_disconnect=self._on_remote_disconnect)
         client.connect()
         self._remote = client
         client.start_process(exe=exe, args=args, name=PROGRAM_NAME, caller="OperatorBoard",

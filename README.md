@@ -28,7 +28,7 @@ It uses the same building blocks as Switchboard: **SwitchboardListener** on each
 
 1. **Download** `OperatorBoard-<version>-win64.zip` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page and unzip it anywhere. Python does not need to be installed.
 2. **Run `OperatorBoard.exe`.**
-3. **Make sure SwitchboardListener is running** on every machine that runs Unreal (`Engine\Binaries\Win64\SwitchboardListener.exe`), as you would for Switchboard.
+3. **Make sure SwitchboardListener is running** on every machine that runs Unreal (`Engine\Binaries\Win64\SwitchboardListener.exe`), as you would for Switchboard. For UE 5.4 and later, Operator Board asks for each listener's password the first time it connects, just like Switchboard.
 4. **Open your stage** on the **Stage** page: pick an existing Switchboard config, or create a new one.
 5. **Add your LED processors** on the **LED Processors** page: choose the type and enter its IP address, as you would in Companion.
 6. Go to **Operate**, connect, and you're running.
@@ -71,7 +71,7 @@ Choose the processor type, enter its IP address and port, and the wall buttons d
 Every command shows how it was verified. Some come straight from the published Companion module sources; others should be checked against your processor's firmware before a show (see [docs/LED_PROCESSORS.md](docs/LED_PROCESSORS.md)). You can override any command per processor, and add new processor types as JSON profiles without changing any code.
 
 ### Devices: Unreal instances and groups
-Editors and nDisplay nodes are started through SwitchboardListener (port 2980) with the same command-line flags as Switchboard. Put them in groups that start and stop together, and check each device's log for its launch command line and process events. You can also import devices from any Switchboard config.
+Editors and nDisplay nodes are started through SwitchboardListener (port 2980) with the same command-line flags as Switchboard. Operator Board connects the way each engine's Switchboard does: an encrypted QUIC connection with the listener's password for UE 5.4 – 5.8, and plain TCP for 5.2 – 5.3, chosen automatically (or set per device). Listener passwords are saved in Windows Credential Manager and shared with Switchboard, so a machine you have already connected to from Switchboard needs no password, and if a listener's security key changes you are warned before connecting. Put them in groups that start and stop together, and check each device's log for its launch command line and process events. You can also import devices from any Switchboard config.
 
 ![Devices page with editor and nDisplay nodes running, groups and the device log](docs/images/devices.png)
 
@@ -127,7 +127,7 @@ Operator Board detects the engine version from `Engine/Build/Build.version` when
 
 | Feature | Needs |
 |---|---|
-| Start / stop instances, sync on nodes, analytics | SwitchboardListener running on each machine |
+| Start / stop instances, sync on nodes, analytics | SwitchboardListener running on each machine (port 2980: UDP for UE 5.4+, TCP for 5.2 – 5.3), with a password set in its window for UE 5.4+ |
 | Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`) |
 | Level loading, sub-levels, data layers, viewport cameras, Take Recorder | **Python Editor Script Plugin** in the editor |
 | DLSS page | NVIDIA DLSS / Streamline plugins |
@@ -209,7 +209,7 @@ Every change from anyone outside the team is reviewed before it is merged, and e
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
-Operator Board only connects to the machines and devices you configure: SwitchboardListener and Unreal's Remote Control API on your stage machines, your LED processors, and the sync tools you set up. Its HTTP API listens on this computer only (`127.0.0.1`) unless you change that in Settings. It has no telemetry, analytics reporting or update checks.
+Listener passwords you enter are kept in Windows Credential Manager on this computer, in the same entries Switchboard uses, and are only sent to that listener. Operator Board only connects to the machines and devices you configure: SwitchboardListener and Unreal's Remote Control API on your stage machines, your LED processors, and the sync tools you set up. Its HTTP API listens on this computer only (`127.0.0.1`) unless you change that in Settings. It has no telemetry, analytics reporting or update checks.
 
 ## License
 

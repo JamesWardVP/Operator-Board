@@ -31,7 +31,7 @@ Every brief item has a first implementation. See README.md for the feature list,
 
 ## Key decisions & research findings
 - **Single ActionRegistry** (`context.py`): the UI, Stream Deck, Companion HTTP API (`/api/action/<id>`) and hotkeys all invoke the same actions. Add new features as actions.
-- **Listener protocol** mirrors Switchboard's `message_protocol.py`: null-terminated JSON, `start` / `kill` / `keepalive` / `get sync status`, program name `"unreal"`.
+- **Listener protocol** mirrors Switchboard's `message_protocol.py`: null-terminated JSON, `start` / `kill` / `keepalive` / `get sync status`, program name `"unreal"`. **UE 5.4+ listeners use QUIC over UDP 2980 with a password** (TCP 2980 is closed); 5.2-5.3 use TCP. Checked against Switchboard 5.2/5.6/5.8 sources and a real 5.8 listener (handshake, `authenticate` reply, wrong-password rejection). Replies echo ids as FGuid strings, so compare ids with `protocol.same_id`. Passwords are shared with Switchboard through Windows Credential Manager (`Switchboard_<host>`), verified by reading an entry written by Operator Board with Switchboard's own code. See docs/ARCHITECTURE.md.
 - **Remote Control** (port 30010) is used for everything inside Unreal. Editor-only operations run Python through `ExecutePythonCommandEx` and return JSON via an `OPB_RESULT:` print marker. These need the Python Editor Script Plugin.
 - **LED protocols** (researched against Bitfocus Companion module sources):
   - NovaStar: binary TCP 5200 (VX Pro: 15200). Checksum = sum(bytes[2:]) + 0x5555, as LE uint16. Display-mode frames come from source. The MCTRL "Normal" frame was corrected to `…00 01 00 02 01 00 00` (matches published checksum D6 59). Test-pattern frames use byte 3 = 00 (Red verified).
@@ -44,7 +44,7 @@ Every brief item has a first implementation. See README.md for the feature list,
 
 ## Not yet verified (top priorities for real-world testing)
 1. LED commands marked partial or assumed, on real Brompton, HELIOS and NovaStar hardware.
-2. The listener protocol against a real SwitchboardListener for each UE version (5.2–5.8), including whether newer versions require authentication.
+2. Starting/stopping Unreal through a real listener after a successful password login (5.8 handshake and login replies are verified; a full start was only tested against the fake QUIC listener), and the TCP protocol against real 5.2/5.3 listeners.
 3. Python snippets in `remote/scripts.py` (sub-level visibility getter, Take Recorder API) inside a real editor.
 4. Concert log patterns for the multi-user client count.
 5. Opening an Operator Board-created config in the Switchboard UI itself on 5.2–5.7 (5.8 was checked through Switchboard's own loader, not by clicking through its window).

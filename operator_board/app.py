@@ -19,6 +19,7 @@ def _setup_logging(verbose: bool) -> None:
         handlers.append(logging.FileHandler(os.path.join(log_dir, "operator_board.log"), encoding="utf-8"))
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=handlers,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("quic").setLevel(logging.WARNING)  # aioquic logs every connection at INFO
 
 
 def main(argv=None) -> int:

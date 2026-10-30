@@ -116,3 +116,106 @@ class RecordingHTTPServer:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
+
+
+class FakeQuicListener(FakeListener):
+    """UE 5.4+ style listener: QUIC (ALPN ue-switchboard), self-signed certificate, password login.
+
+    Answers 'authenticate' like the real listener ("bAuthenticated": "true"/"false" plus a
+    JWT after a password login), then behaves like FakeListener.
+    """
+
+    def __init__(self, password="secret", stdout_lines=None):
+        import asyncio
+        import datetime
+        import os
+        import tempfile
+
+        from aioquic.asyncio.server import serve
+        from aioquic.quic.configuration import QuicConfiguration
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.x509.oid import NameOID
+
+        self.password = password
+        self.jwt = "jwt-token-123"
+        self.received = []
+        self.auth_attempts = []
+        self.stdout_lines = stdout_lines or []
+        self.exit_code = 0
+
+        key = ec.generate_private_key(ec.SECP256R1())
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "FAKE-NODE")])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+                .serial_number(x509.random_serial_number()).not_valid_before(now - datetime.timedelta(days=1))
+                .not_valid_after(now + datetime.timedelta(days=30)).sign(key, hashes.SHA256()))
+        self.fingerprint = cert.fingerprint(hashes.SHA256()).hex()
+        tmp = tempfile.mkdtemp(prefix="fakequic_")
+        cert_path, key_path = os.path.join(tmp, "cert.pem"), os.path.join(tmp, "key.pem")
+        with open(cert_path, "wb") as fh:
+            fh.write(cert.public_bytes(serialization.Encoding.PEM))
+        with open(key_path, "wb") as fh:
+            fh.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                       serialization.NoEncryption()))
+
+        config = QuicConfiguration(alpn_protocols=["ue-switchboard"], is_client=False)
+        config.idle_timeout = 5.0
+        config.load_cert_chain(cert_path, key_path)
+
+        self.loop = asyncio.new_event_loop()
+        ready = threading.Event()
+        holder = {}
+
+        async def start():
+            holder["server"] = await serve("127.0.0.1", 0, configuration=config, stream_handler=self._stream)
+            ready.set()
+
+        def run():
+            asyncio.set_event_loop(self.loop)
+            self.loop.run_until_complete(start())
+            self.loop.run_forever()
+
+        threading.Thread(target=run, daemon=True).start()
+        ready.wait(5)
+        self.server = holder["server"]
+        self.port = self.server._transport.get_extra_info("sockname")[1]
+
+    def _stream(self, reader, writer):
+        import asyncio
+        asyncio.ensure_future(self._serve_stream(reader, writer))
+
+    async def _serve_stream(self, reader, writer):
+        import asyncio
+        authed = False
+        while True:
+            try:
+                raw = await reader.readuntil(b"\x00")
+            except (asyncio.IncompleteReadError, ConnectionError):
+                return
+            msg = json.loads(raw[:-1])
+            if msg["command"] == "authenticate":
+                self.auth_attempts.append(msg)
+                authed = msg.get("password") == self.password or msg.get("jwt") == self.jwt
+                # The real listener echoes ids as Unreal FGuid strings (uppercase hex, no dashes).
+                fguid = msg["id"].replace("-", "").upper()
+                reply = {"command": "authenticate", "id": fguid, "bAuthenticated": "true" if authed else "false"}
+                if authed and "password" in msg:
+                    reply["jwt"] = self.jwt
+                self._send(writer, reply)
+                if authed:
+                    self._send(writer, {"command": "state", "version": "5.8.0", "runningProcesses": []})
+                continue
+            if not authed:
+                continue
+            if msg["command"] not in ("keepalive", "disconnect"):
+                self.received.append(msg)
+            self._handle(writer, msg)
+
+    def _send(self, writer, msg):
+        writer.write(json.dumps(msg).encode() + b"\x00")
+
+    def close(self):
+        self.loop.call_soon_threadsafe(self.server.close)
+        self.loop.call_soon_threadsafe(self.loop.stop)

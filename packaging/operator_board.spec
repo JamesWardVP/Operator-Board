@@ -4,14 +4,14 @@
 # Build with: python packaging/build.py
 import os
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 HERE = os.path.abspath(SPECPATH)
 ROOT = os.path.dirname(HERE)
 ICON = os.path.join(HERE, "operator_board.ico")
 
 datas = collect_data_files("operator_board", includes=["**/*.json", "**/*.png", "**/*.svg"])
-hidden = []
+hidden = collect_submodules("aioquic") + ["pylsqpack"]  # UE 5.4+ listener connections (QUIC)
 try:  # optional Stream Deck support
     import StreamDeck  # noqa: F401
     hidden += ["StreamDeck", "PIL"]

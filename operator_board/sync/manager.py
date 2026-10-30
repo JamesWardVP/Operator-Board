@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Optional
 
 from operator_board.core.config import AppConfig, SyncJobConfig
 from operator_board.core.events import EventBus
-from operator_board.listener.client import ListenerClient, decode_stdout
+from operator_board.listener.client import client_for_device, decode_stdout
 from operator_board.sync.providers import PROVIDERS
 
 
@@ -100,7 +100,7 @@ class SyncManager:
                 state["out"].append(str(msg.get("error", "listener refused")))
                 done.set()
 
-        client = ListenerClient(dev.address, dev.listener_port, on_message=on_msg)
+        client = client_for_device(dev, self.config.project().ue_version, on_message=on_msg)
         client.connect()
         try:
             quoted = " ".join(f'"{a}"' if " " in a else a for a in args)
