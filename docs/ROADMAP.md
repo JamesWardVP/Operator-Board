@@ -11,6 +11,9 @@ These are ideas, not commitments. The README lists only what is available today.
 - Per-processor zones, such as wall versus ceiling freeze.
 
 ## Switchboard parity
+- Watch the open Switchboard config for changes made in Switchboard and reload automatically.
+- Edit more Switchboard settings (per-device command lines, roles, logging, Insights) from Operator Board.
+- Set Switchboard's last-opened config (`user_settings.json`) from Operator Board.
 - SwitchboardListener authentication for engine versions that require it.
 - Changelist / build sync and "Build" actions as in Switchboard.
 - Full Unreal log streaming per device.
@@ -54,6 +57,7 @@ These are ideas, not commitments. The README lists only what is available today.
 ## General
 - Role-based "lock" mode, so only Freeze, Blackout and Record are available during takes.
 - Multiple stage profiles and a quick stage switcher.
-- Installer / packaged executable for Windows.
+- Windows installer (Start menu shortcut, file association for `.opboard`) and code signing for the executable.
+- Auto-update check against GitHub Releases.
 - Web/tablet remote UI served by the API server.
 - Localisation.

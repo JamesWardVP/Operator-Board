@@ -6,12 +6,14 @@ operator_board/
   context.py             AppContext: builds every service and registers ALL operator actions
   qt.py                  PySide6 / PySide2 shim (only UI code imports Qt)
   core/
-    config.py            AppConfig dataclasses -> one JSON file (~/.operator_board/config.json)
+    config.py            AppConfig dataclasses (the whole stage + machine settings)
+    stage.py             ConfigStore: where the stage lives (standalone, or Switchboard config + .opboard sidecar)
+    switchboard_config.py  find Switchboard config folders; read, create and merge Switchboard configs
     serde.py             dataclass <-> dict (tolerant of unknown/missing keys)
     actions.py           ActionRegistry: id -> handler (+ params, toggle state)
     events.py            thread-safe pub/sub EventBus
     ue_versions.py       UE 5.2-5.8 table, Build.version detection
-    switchboard_import.py  import devices from a Switchboard config
+    switchboard_import.py  compatibility re-export of switchboard_config
   listener/              SwitchboardListener protocol (null-terminated JSON over TCP 2980) + client
   devices/               launch command lines (editor / nDisplay / MU server) + DeviceManager
   multiuser/             MU server (local subprocess or via listener) + log-based client tracking
@@ -22,6 +24,30 @@ operator_board/
   surfaces/              surface layouts (JSON), controller, Stream Deck backend, HTTP API for Companion
   ui/                    main window, theme, widgets, generic dataclass forms, one module per page
 ```
+
+## Packaging
+`packaging/build.py` runs PyInstaller with `packaging/operator_board.spec`, producing `dist/OperatorBoard/` with
+`OperatorBoard.exe` (no console) and `OperatorBoardConsole.exe` (console) sharing one runtime, plus a zip.
+The workflow `.github/workflows/build-windows.yml` tests and builds on every push and attaches the zip to
+releases for `v*` tags. When frozen, logging also goes to `~/.operator_board/logs/operator_board.log`.
+
+## Stage storage
+| Mode | Files |
+|---|---|
+| Standalone | `~/.operator_board/config.json` holds everything. |
+| Switchboard config | `<configs>/<Name>.json` (Switchboard owns it), `<configs>/<Name>.opboard` (Operator Board's per-stage settings), and `~/.operator_board/config.json` for machine settings (`surfaces`, `ui`, `switchboard`). |
+
+- Switchboard lists configs with `rglob('*.json')` in its configs folder, so the sidecar must never end in `.json`.
+- Switchboard's `Config.save()` rebuilds the file from its in-memory model, so it drops keys it does not know.
+  Operator Board therefore never adds its own keys to the Switchboard file.
+- On save the Switchboard file is re-read and only mapped keys are merged (`merge_into_switchboard`), so edits
+  made in Switchboard meanwhile survive. Mapped: `project_name`, `uproject`, `engine_dir`, `current_level`,
+  `muserver_server_name/session_name/slate_mode/clean_history/command_line_arguments`, and the `Unreal` /
+  `nDisplay` devices (`address`, `autojoin_mu_server`, `port`, `fullscreen`, `settings.ndisplay_cfg_file`).
+- Switchboard keeps the listener `port` per device type and drops per-device values when it saves; the
+  sidecar keeps a non-default per-device port.
+- Switching stage copies the new `AppConfig` into the existing object (`stage.copy_into`), because every service
+  holds a reference to it, then calls `reload_all()`.
 
 ## Principles
 - **One action registry.** Every operator operation is an action (`led.freeze`, `group.start`, `camera.recall`, …). The UI buttons, Stream Deck keys, Companion HTTP calls and hotkeys all call `ctx.actions.invoke(id, **params)`. A new feature becomes available on every surface by registering it once in `context.py`.

@@ -21,7 +21,9 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 Every brief item has a first implementation. See README.md for the feature list, docs/ARCHITECTURE.md for structure, docs/LED_PROCESSORS.md for protocol research, and docs/ROADMAP.md for future ideas.
 
 - Python + Qt (PySide6, with a PySide2 fallback through `operator_board/qt.py`), so it can also run in Switchboard's own Python venv.
-- Run: `python -m operator_board` (`--headless`, `--no-hardware`, `--config path`).
+- Run: `python -m operator_board` (`--headless`, `--no-hardware`, `--config path`, `--switchboard-config path`).
+- Windows executable: `python packaging/build.py --hidapi` builds `dist/OperatorBoard/OperatorBoard.exe` (+ `OperatorBoardConsole.exe`) with PyInstaller; CI (`.github/workflows/build-windows.yml`) builds on every push and attaches the zip to `v*` tag releases.
+- Work happens on the `Development` branch; `main` gets it through pull requests.
 - Example stage config: `config/example_stage.json` (uses simulated LED processors).
 - Tests: `python -m pytest`. The suite includes fake SwitchboardListener and HTTP servers, and an offscreen Qt smoke test (set `QT_QPA_PLATFORM=offscreen` on headless Linux).
 
@@ -36,12 +38,14 @@ Every brief item has a first implementation. See README.md for the feature list,
   - Every command has a `confidence` field that the UI shows. **Nothing has been tested on real hardware yet.**
 - Multi-user client counting parses server logs with configurable regexes. The exact Concert log wording has not been verified against a real server.
 - DLSS controls are data-driven in `remote/dlss.json` (DLSSLibrary.SetDLSSMode, StreamlineLibraryDLSSG.SetDLSSGMode, plus cvars).
+- **Switchboard configs** (`core/switchboard_config.py`, `core/stage.py`, Stage page): Operator Board opens/creates/saves the real Switchboard config files in Switchboard's own folder (`<Engine>/Plugins/VirtualProduction/Switchboard/Source/Switchboard/configs`, `SWITCHBOARD_CONFIG_DIR` from 5.6). Format checked against the 5.2, 5.6 and 5.8 sources and real 5.8 configs. Operator Board-only settings go in a `<name>.opboard` sidecar (never `.json`: Switchboard rglobs `*.json`). Only mapped keys are merged, so real configs round-trip unchanged. A config created by Operator Board was loaded by Switchboard 5.8's own `Config` + `DeviceManager` successfully; Switchboard dropped the per-device listener `port` on save (it is per device type), so the sidecar keeps it.
 
 ## Not yet verified (top priorities for real-world testing)
 1. LED commands marked partial or assumed, on real Brompton, HELIOS and NovaStar hardware.
 2. The listener protocol against a real SwitchboardListener for each UE version (5.2–5.8), including whether newer versions require authentication.
 3. Python snippets in `remote/scripts.py` (sub-level visibility getter, Take Recorder API) inside a real editor.
 4. Concert log patterns for the multi-user client count.
+5. Opening an Operator Board-created config in the Switchboard UI itself on 5.2–5.7 (5.8 was checked through Switchboard's own loader, not by clicking through its window).
 
 ## Conventions
 - Keep Python 3.9 compatible: no `match`, no `X | Y` type unions at runtime, no walrus.
