@@ -1,6 +1,7 @@
 """Main window: navigation sidebar, pages, status bar and global stage hotkeys."""
 from __future__ import annotations
 
+import os
 import time
 
 from operator_board import __version__
@@ -14,12 +15,13 @@ from operator_board.ui.pages.levels import LevelsPage
 from operator_board.ui.pages.objects import ObjectsPage
 from operator_board.ui.pages.operate import OperatePage
 from operator_board.ui.pages.settings import SettingsPage
+from operator_board.ui.pages.stage import StagePage
 from operator_board.ui.pages.surfaces import SurfacesPage
 from operator_board.ui.pages.sync import SyncPage
 from operator_board.ui.pages.takes import TakesPage
 from operator_board.ui.theme import COLORS, STYLESHEET
 
-PAGES = [OperatePage, LevelsPage, TakesPage, ObjectsPage, DLSSPage, DevicesPage, LEDSetupPage, SyncPage,
+PAGES = [OperatePage, LevelsPage, TakesPage, ObjectsPage, DLSSPage, StagePage, DevicesPage, LEDSetupPage, SyncPage,
          AnalyticsPage, SurfacesPage, SettingsPage]
 
 # Stage hotkeys work from any page.
@@ -32,7 +34,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.ctx = ctx
         self.skip_save_on_close = False
-        self.setWindowTitle(f"Operator Board {__version__} — {ctx.config.active_project}")
+        self._update_title()
         self.resize(1500, 950)
         self.setStyleSheet(STYLESHEET)
 
@@ -83,6 +85,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._timer.timeout.connect(self._tick)
         self._timer.start(1000)
         self._tick()
+        if ctx.store.load_error:
+            self.notify(ctx.store.load_error, False)
+
+    def _update_title(self) -> None:
+        title = f"Operator Board {__version__} — {self.ctx.config.active_project}"
+        if self.ctx.switchboard_config:
+            title += f"  [Switchboard: {os.path.splitext(os.path.basename(self.ctx.switchboard_config))[0]}]"
+        self.setWindowTitle(title)
 
     def notify(self, message: str, ok: bool = True) -> None:
         color = COLORS["text"] if ok else COLORS["err"]
@@ -90,8 +100,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_label.setText(time.strftime("%H:%M:%S  ") + message)
 
     def _on_event(self, topic: str, payload: dict) -> None:
-        if topic == "project.changed":
-            self.setWindowTitle(f"Operator Board {__version__} — {payload.get('project')}")
+        if topic in ("project.changed", "stage.changed"):
+            self._update_title()
         if topic == "action.invoked" and not payload.get("ok"):
             self.notify(payload.get("message", ""), False)
         page = self.stack.currentWidget()

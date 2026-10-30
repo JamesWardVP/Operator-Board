@@ -1,7 +1,7 @@
 import json
 
 from operator_board.core.config import AppConfig, DeviceConfig, LEDProcessorConfig, load_config, save_config
-from operator_board.core.switchboard_import import parse_switchboard_config
+from operator_board.core.switchboard_config import parse_switchboard_config
 from operator_board.core.ue_versions import SUPPORTED_VERSIONS, detect_engine_version, get_version_info
 
 
@@ -38,9 +38,9 @@ def test_detect_engine_version(tmp_path):
 
 def test_switchboard_import():
     data = {"project_name": "Stage", "uproject": "D:/P/P.uproject", "engine_dir": "C:/UE_5.5",
-            "devices": {"Unreal": {"Editor": {"address": "10.0.0.1", "kwargs": {}}},
-                        "nDisplay": {"Wall": {"address": "10.0.0.2",
-                                              "kwargs": {"ndisplay_cfg_file": "D:/P/wall.ndisplay"}}},
+            "devices": {"Unreal": {"Editor": {"address": "10.0.0.1"}},
+                        "nDisplay": {"settings": {"ndisplay_cfg_file": "D:/P/wall.ndisplay"},
+                                     "Wall": {"address": "10.0.0.2"}},
                         "LiveLinkFace": {"Phone": {"address": "10.0.0.9"}}}}
     project, devices = parse_switchboard_config(data)
     assert project.uproject_path == "D:/P/P.uproject"

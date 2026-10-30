@@ -8,8 +8,9 @@ from typing import Any, Dict, List, Optional
 
 from operator_board.analytics.metrics import MetricStore
 from operator_board.core.actions import ActionParam, ActionRegistry, ActionResult
-from operator_board.core.config import AppConfig, load_config, save_config
+from operator_board.core.config import AppConfig
 from operator_board.core.events import EventBus
+from operator_board.core.stage import ConfigStore, copy_into
 from operator_board.devices.manager import DeviceManager
 from operator_board.led.manager import LEDManager
 from operator_board.multiuser.server import MultiUserServer
@@ -34,7 +35,8 @@ def _errors_result(label: str, errors: List[str]) -> ActionResult:
 class AppContext:
     def __init__(self, config: Optional[AppConfig] = None, config_path: Optional[str] = None) -> None:
         self.config_path = config_path
-        self.config = config or load_config(config_path)
+        self.store = ConfigStore(config_path)
+        self.config = config or self.store.load()
         self.bus = EventBus()
         self.actions = ActionRegistry(self.bus)
         self.targets = TargetResolver(self.config)
@@ -94,7 +96,39 @@ class AppContext:
             p.close()
 
     def save(self) -> str:
-        return save_config(self.config, self.config_path)
+        return self.store.save(self.config)
+
+    # ---- stage (Switchboard config) switching ----------------------------------------------
+    @property
+    def switchboard_config(self) -> str:
+        return self.config.switchboard.active_config
+
+    def _switch_to(self, new: AppConfig) -> None:
+        copy_into(self.config, new)
+        self.multiuser.tracker = self.multiuser._new_tracker()
+        self.level_cache = []
+        self.selected_level = 0
+        self.reload_all()
+        self.bus.publish("project.changed", project=self.config.active_project)
+        self.bus.publish("stage.changed", switchboard_config=self.switchboard_config)
+
+    def open_switchboard_config(self, path: str) -> None:
+        if self.switchboard_config:
+            self.save()
+        self._switch_to(self.store.open_switchboard(self.config, path))
+
+    def new_switchboard_config(self, path: str, project_name: str, uproject: str, engine_dir: str,
+                               copy_current: bool = True) -> None:
+        if self.switchboard_config:
+            self.save()
+        self._switch_to(self.store.create_switchboard(self.config, path, project_name, uproject, engine_dir,
+                                                      copy_current))
+
+    def save_switchboard_config_as(self, path: str) -> None:
+        self._switch_to(self.store.save_as_switchboard(self.config, path))
+
+    def close_switchboard_config(self) -> None:
+        self._switch_to(self.store.close_switchboard(self.config))
 
     def reload_all(self) -> None:
         """Re-read configuration-driven services after the config was edited."""

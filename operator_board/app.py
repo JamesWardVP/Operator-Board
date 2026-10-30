@@ -11,6 +11,8 @@ from operator_board import __version__
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="operator-board", description="Operator Board for Unreal Engine Switchboard")
     parser.add_argument("--config", help="Path to a configuration file (default ~/.operator_board/config.json)")
+    parser.add_argument("--switchboard-config", metavar="PATH",
+                        help="Open this Switchboard config (.json) as the stage")
     parser.add_argument("--no-hardware", action="store_true", help="Do not open Stream Deck hardware")
     parser.add_argument("--headless", action="store_true",
                         help="Run without UI: only the HTTP API and control surfaces (for a stage rack PC)")
@@ -22,6 +24,13 @@ def main(argv=None) -> int:
 
     from operator_board.context import AppContext
     ctx = AppContext(config_path=args.config)
+    if args.switchboard_config:
+        try:
+            ctx.open_switchboard_config(args.switchboard_config)
+        except (OSError, ValueError, TypeError) as exc:
+            logging.error("Could not open Switchboard config %s: %s", args.switchboard_config, exc)
+    elif ctx.store.load_error:
+        logging.warning(ctx.store.load_error)
     ctx.start_services(enable_hardware=not args.no_hardware)
 
     if args.headless:

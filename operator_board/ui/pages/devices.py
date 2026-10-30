@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from operator_board.core.config import ROLES, DeviceConfig, GroupConfig
-from operator_board.core.switchboard_import import import_switchboard_config
+from operator_board.core.switchboard_config import default_config_dir, import_switchboard_config
 from operator_board.qt import QtWidgets
 from operator_board.ui.forms import edit_dataclass, unique_name_validator
 from operator_board.ui.pages.base import BasePage
@@ -106,7 +106,8 @@ class DevicesPage(BasePage):
             self.background(lambda fn=fn, n=dev.name: fn(n), what=f"{op} {dev.name}")
 
     def _import(self) -> None:
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Switchboard config", "", "Switchboard config (*.json)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Switchboard config", default_config_dir(self.ctx.config),
+                                                        "Switchboard config (*.json)")
         if not path:
             return
         try:
