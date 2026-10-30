@@ -1,0 +1,43 @@
+{
+  "id": "novastar_vx",
+  "name": "NovaStar VX / NovaPro (VX4S, VX6S, NovaPro HD...)",
+  "manufacturer": "NovaStar",
+  "transport": "tcp",
+  "default_port": 5200,
+  "notes": "NovaStar binary protocol over TCP 5200 using the generic display-mode frames from the Bitfocus Companion 'novastar-controller' module. VX Pro series listens on port 15200. VX600/VX1000/VX6S have model-specific frames - override commands if your unit does not respond.",
+  "commands": {
+    "normal": {
+      "hex": "55 AA 00 00 FE 00 00 00 00 00 01 00 50 00 20 02 01 00 00",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "freeze_on": {
+      "hex": "55 AA 00 00 FE 00 00 00 00 00 01 00 50 00 20 02 01 00 01",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "freeze_off": {
+      "ref": "normal"
+    },
+    "blackout_on": {
+      "hex": "55 AA 00 00 FE 00 00 00 00 00 01 00 50 00 20 02 01 00 02",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "blackout_off": {
+      "ref": "normal"
+    },
+    "brightness": {
+      "hex": "55 AA 00 00 FE FF 01 FF FF FF 01 00 01 00 00 02 01 00 {value}",
+      "checksum": "novastar",
+      "confidence": "source",
+      "value": {
+        "min": 0,
+        "max": 255,
+        "format": "hex_byte",
+        "unit": "%"
+      }
+    }
+  },
+  "test_patterns": []
+}

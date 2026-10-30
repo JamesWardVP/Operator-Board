@@ -1,0 +1,180 @@
+{
+  "id": "brompton_tessera",
+  "name": "Brompton Tessera (SX40 / S8 / M2 / T1 / G1)",
+  "manufacturer": "Brompton Technology",
+  "transport": "http",
+  "default_port": 80,
+  "notes": "HTTP API used by the Bitfocus Companion 'brompton-tessera' module: GET /api/<path>?set=<value>. Enable the processor's network API in Tessera. The on/off value format (true/false) is assumed - verify on your firmware.",
+  "status_command": {
+    "method": "GET",
+    "path": "/api/"
+  },
+  "commands": {
+    "freeze_on": {
+      "method": "GET",
+      "path": "/api/override/freeze/enabled?set=true",
+      "confidence": "partial"
+    },
+    "freeze_off": {
+      "method": "GET",
+      "path": "/api/override/freeze/enabled?set=false",
+      "confidence": "partial"
+    },
+    "blackout_on": {
+      "method": "GET",
+      "path": "/api/override/blackout/enabled?set=true",
+      "confidence": "partial"
+    },
+    "blackout_off": {
+      "method": "GET",
+      "path": "/api/override/blackout/enabled?set=false",
+      "confidence": "partial"
+    },
+    "test_pattern_off": {
+      "method": "GET",
+      "path": "/api/override/test-pattern/enabled?set=false",
+      "confidence": "partial"
+    },
+    "brightness": {
+      "method": "GET",
+      "path": "/api/output/global-colour/brightness?set={value}",
+      "confidence": "partial",
+      "value": {
+        "min": 0,
+        "max": 10000,
+        "format": "int",
+        "unit": "nits"
+      }
+    }
+  },
+  "test_patterns": [
+    {
+      "id": "brompton",
+      "label": "Brompton",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=brompton",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "red",
+      "label": "Red",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=red",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "green",
+      "label": "Green",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=green",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "blue",
+      "label": "Blue",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=blue",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "white",
+      "label": "White",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=white",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "black",
+      "label": "Black",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=black",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "grid",
+      "label": "Grid",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=grid",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "smpte-bars",
+      "label": "SMPTE Bars",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=smpte-bars",
+          "confidence": "partial"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "partial"
+        }
+      ]
+    }
+  ]
+}

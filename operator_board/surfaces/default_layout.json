@@ -1,0 +1,307 @@
+{
+  "name": "Operator Board Default",
+  "model": "streamdeck_15",
+  "pages": [
+    {
+      "name": "Main",
+      "buttons": {
+        "0": {
+          "action": "led.freeze",
+          "label": "FREEZE\nWALL",
+          "params": {},
+          "color": "#1c4f7a",
+          "active_color": "#1fa2ff"
+        },
+        "1": {
+          "action": "led.blackout",
+          "label": "BLACKOUT\nWALL",
+          "params": {},
+          "color": "#3a1414",
+          "active_color": "#e03131"
+        },
+        "2": {
+          "action": "led.restore",
+          "label": "WALL\nNORMAL",
+          "params": {},
+          "color": "#1e3b24",
+          "active_color": "#d9480f"
+        },
+        "3": {
+          "action": "led.test_pattern_next",
+          "label": "TEST\nPATTERN",
+          "params": {},
+          "color": "#4a3b12",
+          "active_color": "#fab005"
+        },
+        "4": {
+          "action": "led.test_pattern_off",
+          "label": "PATTERN\nOFF",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "5": {
+          "action": "devices.start_all",
+          "label": "START\nALL",
+          "params": {},
+          "color": "#1e3b24",
+          "active_color": "#2f9e44"
+        },
+        "6": {
+          "action": "devices.stop_all",
+          "label": "STOP\nALL",
+          "params": {},
+          "color": "#3a1414",
+          "active_color": "#d9480f"
+        },
+        "7": {
+          "action": "multiuser.toggle",
+          "label": "MULTI-\nUSER",
+          "params": {},
+          "color": "#2d1f4a",
+          "active_color": "#7950f2"
+        },
+        "8": {
+          "action": "takes.toggle_record",
+          "label": "RECORD",
+          "params": {},
+          "color": "#3a1414",
+          "active_color": "#e03131"
+        },
+        "9": {
+          "action": "takes.next_take",
+          "label": "TAKE +1",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "10": {
+          "action": "level.prev",
+          "label": "◀ LEVEL",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "11": {
+          "action": "level.load_selected",
+          "label": "LOAD\nLEVEL",
+          "params": {},
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "12": {
+          "action": "level.next",
+          "label": "LEVEL ▶",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "13": {
+          "action": "surface.prev_page",
+          "label": "◀ PAGE",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "14": {
+          "action": "surface.next_page",
+          "label": "PAGE ▶",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        }
+      }
+    },
+    {
+      "name": "Cameras",
+      "buttons": {
+        "0": {
+          "action": "camera.recall",
+          "label": "CAM 1",
+          "params": {
+            "preset": "Camera 1"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "1": {
+          "action": "camera.recall",
+          "label": "CAM 2",
+          "params": {
+            "preset": "Camera 2"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "2": {
+          "action": "camera.recall",
+          "label": "CAM 3",
+          "params": {
+            "preset": "Camera 3"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "3": {
+          "action": "camera.recall",
+          "label": "CAM 4",
+          "params": {
+            "preset": "Camera 4"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "4": {
+          "action": "camera.recall",
+          "label": "CAM 5",
+          "params": {
+            "preset": "Camera 5"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "5": {
+          "action": "camera.recall",
+          "label": "CAM 6",
+          "params": {
+            "preset": "Camera 6"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "6": {
+          "action": "camera.recall",
+          "label": "CAM 7",
+          "params": {
+            "preset": "Camera 7"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "7": {
+          "action": "camera.recall",
+          "label": "CAM 8",
+          "params": {
+            "preset": "Camera 8"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "8": {
+          "action": "camera.recall",
+          "label": "CAM 9",
+          "params": {
+            "preset": "Camera 9"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "9": {
+          "action": "camera.recall",
+          "label": "CAM 10",
+          "params": {
+            "preset": "Camera 10"
+          },
+          "color": "#12324a",
+          "active_color": "#d9480f"
+        },
+        "10": {
+          "action": "camera.capture_next",
+          "label": "SAVE\nCAM",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "13": {
+          "action": "surface.prev_page",
+          "label": "◀ PAGE",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "14": {
+          "action": "surface.next_page",
+          "label": "PAGE ▶",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        }
+      }
+    },
+    {
+      "name": "System",
+      "buttons": {
+        "0": {
+          "action": "devices.connect_all",
+          "label": "CONNECT\nALL",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "1": {
+          "action": "devices.disconnect_all",
+          "label": "DISCON.\nALL",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "2": {
+          "action": "devices.restart_all",
+          "label": "RESTART\nALL",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "5": {
+          "action": "multiuser.start",
+          "label": "MU\nSTART",
+          "params": {},
+          "color": "#2d1f4a",
+          "active_color": "#d9480f"
+        },
+        "6": {
+          "action": "multiuser.stop",
+          "label": "MU\nSTOP",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "8": {
+          "action": "sync.run_all",
+          "label": "SYNC\nALL",
+          "params": {},
+          "color": "#4a3b12",
+          "active_color": "#d9480f"
+        },
+        "9": {
+          "action": "takes.rate_good",
+          "label": "GOOD\nTAKE",
+          "params": {},
+          "color": "#1e3b24",
+          "active_color": "#d9480f"
+        },
+        "10": {
+          "action": "takes.rate_ng",
+          "label": "NG\nTAKE",
+          "params": {},
+          "color": "#3a1414",
+          "active_color": "#d9480f"
+        },
+        "13": {
+          "action": "surface.prev_page",
+          "label": "◀ PAGE",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "14": {
+          "action": "surface.next_page",
+          "label": "PAGE ▶",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        }
+      }
+    }
+  ]
+}

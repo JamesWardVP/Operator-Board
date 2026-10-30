@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "projects": [
+    {
+      "name": "Stage Project",
+      "uproject_path": "D:/Projects/Stage/Stage.uproject",
+      "engine_dir": "C:/Program Files/Epic Games/UE_5.6",
+      "ue_version": "5.6",
+      "default_map": "/Game/Maps/Stage_Main",
+      "ndisplay_config": "D:/Projects/Stage/Config/Volume.ndisplay"
+    },
+    {
+      "name": "Car Commercial",
+      "uproject_path": "D:/Projects/Car/Car.uproject",
+      "engine_dir": "C:/Program Files/Epic Games/UE_5.6",
+      "ue_version": "5.6",
+      "default_map": "",
+      "ndisplay_config": ""
+    }
+  ],
+  "active_project": "Stage Project",
+  "devices": [
+    {
+      "name": "Editor",
+      "address": "192.168.10.10",
+      "role": "editor",
+      "listener_port": 2980,
+      "platform": "Win64",
+      "enabled": true,
+      "ndisplay_node": "",
+      "fullscreen": true,
+      "rc_enabled": true,
+      "rc_port": 30010,
+      "join_multiuser": true,
+      "extra_args": "",
+      "uproject_path_override": "",
+      "engine_dir_override": ""
+    },
+    {
+      "name": "Node_Wall_L",
+      "address": "192.168.10.21",
+      "role": "ndisplay",
+      "listener_port": 2980,
+      "platform": "Win64",
+      "enabled": true,
+      "ndisplay_node": "Wall_L",
+      "fullscreen": true,
+      "rc_enabled": true,
+      "rc_port": 30010,
+      "join_multiuser": true,
+      "extra_args": "",
+      "uproject_path_override": "",
+      "engine_dir_override": ""
+    },
+    {
+      "name": "Node_Wall_R",
+      "address": "192.168.10.22",
+      "role": "ndisplay",
+      "listener_port": 2980,
+      "platform": "Win64",
+      "enabled": true,
+      "ndisplay_node": "Wall_R",
+      "fullscreen": true,
+      "rc_enabled": true,
+      "rc_port": 30010,
+      "join_multiuser": true,
+      "extra_args": "",
+      "uproject_path_override": "",
+      "engine_dir_override": ""
+    },
+    {
+      "name": "Node_Ceiling",
+      "address": "192.168.10.23",
+      "role": "ndisplay",
+      "listener_port": 2980,
+      "platform": "Win64",
+      "enabled": true,
+      "ndisplay_node": "Ceiling",
+      "fullscreen": true,
+      "rc_enabled": true,
+      "rc_port": 30010,
+      "join_multiuser": true,
+      "extra_args": "",
+      "uproject_path_override": "",
+      "engine_dir_override": ""
+    }
+  ],
+  "groups": [
+    {
+      "name": "Render Nodes",
+      "devices": [
+        "Node_Wall_L",
+        "Node_Wall_R",
+        "Node_Ceiling"
+      ],
+      "color": "#3d8bfd"
+    },
+    {
+      "name": "Editors",
+      "devices": [
+        "Editor"
+      ],
+      "color": "#7950f2"
+    }
+  ],
+  "multiuser": {
+    "server_name": "OperatorBoard_MU",
+    "session_name": "VP_Session",
+    "host": "Editor",
+    "use_slate_server": false,
+    "clean_history": false,
+    "extra_args": "",
+    "udp_unicast_endpoint": "",
+    "udp_static_endpoints": "",
+    "client_join_pattern": "(?i)(?:client|user|endpoint)\\s+'?(?P<name>[^']*?)'?\\s.*?(?:joined|connected to) (?:the )?session",
+    "client_leave_pattern": "(?i)(?:client|user|endpoint)\\s+'?(?P<name>[^']*?)'?\\s.*?(?:left|disconnected from) (?:the )?session"
+  },
+  "led_processors": [
+    {
+      "name": "Wall Processor A",
+      "profile_id": "simulator",
+      "host": "192.168.0.100",
+      "port": 0,
+      "enabled": true,
+      "options": {},
+      "command_overrides": {}
+    },
+    {
+      "name": "Wall Processor B",
+      "profile_id": "simulator",
+      "host": "192.168.0.100",
+      "port": 0,
+      "enabled": true,
+      "options": {},
+      "command_overrides": {}
+    },
+    {
+      "name": "Ceiling (Brompton)",
+      "profile_id": "brompton_tessera",
+      "host": "192.168.20.31",
+      "port": 0,
+      "enabled": false,
+      "options": {},
+      "command_overrides": {}
+    }
+  ],
+  "remote_control": {
+    "timeout_s": 3.0,
+    "primary_target": "Editor",
+    "level_load_mode": "editor"
+  },
+  "cameras": [
+    {
+      "name": "Camera 1",
+      "target": "viewport",
+      "location": [
+        0,
+        0,
+        170
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Camera 2",
+      "target": "viewport",
+      "location": [
+        300,
+        -120,
+        160
+      ],
+      "rotation": [
+        0,
+        35,
+        0
+      ]
+    },
+    {
+      "name": "Wide",
+      "target": "viewport",
+      "location": [
+        -600,
+        0,
+        250
+      ],
+      "rotation": [
+        -5,
+        0,
+        0
+      ]
+    }
+  ],
+  "sync_jobs": [
+    {
+      "name": "Content to nodes",
+      "provider": "freefilesync",
+      "params": {
+        "exe": "C:/Program Files/FreeFileSync/FreeFileSync.exe",
+        "batch_file": "D:/Sync/StageContent.ffs_batch"
+      },
+      "targets": [
+        "Node_Wall_L",
+        "Node_Wall_R",
+        "Node_Ceiling"
+      ]
+    }
+  ],
+  "takes": {
+    "slate": "Scene_01",
+    "take": 1,
+    "description": "",
+    "auto_increment": true,
+    "record_with_take_recorder": true,
+    "take_log_path": ""
+  },
+  "surfaces": {
+    "layout_path": "",
+    "streamdeck_enabled": true,
+    "streamdeck_brightness": 60,
+    "api_server_enabled": true,
+    "api_bind": "127.0.0.1",
+    "api_port": 8765,
+    "api_token": ""
+  },
+  "ui": {
+    "confirm_blackout": false,
+    "confirm_stop_all": true,
+    "metrics_poll_s": 2.0
+  },
+  "favourite_properties": []
+}

@@ -1,0 +1,81 @@
+{
+  "id": "simulator",
+  "name": "Simulator (no hardware)",
+  "manufacturer": "Operator Board",
+  "transport": "simulator",
+  "default_port": 0,
+  "notes": "A virtual processor for training and rehearsal. Commands are logged, not sent.",
+  "commands": {
+    "freeze_on": {
+      "sim": "freeze_on",
+      "confidence": "source"
+    },
+    "freeze_off": {
+      "sim": "freeze_off",
+      "confidence": "source"
+    },
+    "blackout_on": {
+      "sim": "blackout_on",
+      "confidence": "source"
+    },
+    "blackout_off": {
+      "sim": "blackout_off",
+      "confidence": "source"
+    },
+    "test_pattern_off": {
+      "sim": "test_pattern_off",
+      "confidence": "source"
+    },
+    "brightness": {
+      "sim": "brightness",
+      "confidence": "source"
+    }
+  },
+  "test_patterns": [
+    {
+      "id": "red",
+      "label": "Red",
+      "commands": [
+        {
+          "sim": "red"
+        }
+      ]
+    },
+    {
+      "id": "green",
+      "label": "Green",
+      "commands": [
+        {
+          "sim": "green"
+        }
+      ]
+    },
+    {
+      "id": "blue",
+      "label": "Blue",
+      "commands": [
+        {
+          "sim": "blue"
+        }
+      ]
+    },
+    {
+      "id": "white",
+      "label": "White",
+      "commands": [
+        {
+          "sim": "white"
+        }
+      ]
+    },
+    {
+      "id": "grid",
+      "label": "Grid",
+      "commands": [
+        {
+          "sim": "grid"
+        }
+      ]
+    }
+  ]
+}

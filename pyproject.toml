@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "operator-board"
+dynamic = ["version"]
+description = "Operator-friendly Virtual Production control surface for Unreal Engine Switchboard"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+ui = ["PySide6>=6.4"]
+streamdeck = ["streamdeck>=0.9.5", "pillow>=9"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+operator-board = "operator_board.app:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "operator_board.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["operator_board*"]
+
+[tool.setuptools.package-data]
+"operator_board.led" = ["profiles/*.json"]
+"operator_board.surfaces" = ["*.json"]
+"operator_board.remote" = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,148 @@
+{
+  "id": "novastar_mctrl",
+  "name": "NovaStar MCTRL (MCTRL300 / 600 / 660 / 4K / R5)",
+  "manufacturer": "NovaStar",
+  "transport": "tcp",
+  "default_port": 5200,
+  "notes": "NovaStar binary protocol over TCP 5200 (frames taken from the Bitfocus Companion 'novastar-controller' module). NovaStar checksum is appended automatically. Blackout uses the 'Black' display mode, so blackout and freeze are mutually exclusive on these units.",
+  "commands": {
+    "normal": {
+      "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 00 01 00 02 01 00 00",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "freeze_on": {
+      "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 02 01 00 02 01 00 FF",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "freeze_off": {
+      "ref": "normal"
+    },
+    "blackout_on": {
+      "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 00 01 00 02 01 00 FF",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "blackout_off": {
+      "ref": "normal"
+    },
+    "test_pattern_off": {
+      "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 00",
+      "checksum": "novastar",
+      "confidence": "partial"
+    },
+    "brightness": {
+      "hex": "55 AA 00 00 FE FF 01 FF FF FF 01 00 01 00 00 02 01 00 {value}",
+      "checksum": "novastar",
+      "confidence": "source",
+      "value": {
+        "min": 0,
+        "max": 255,
+        "format": "hex_byte",
+        "unit": "%"
+      }
+    }
+  },
+  "test_patterns": [
+    {
+      "id": "red",
+      "label": "Red",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 02",
+          "checksum": "novastar",
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "green",
+      "label": "Green",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 03",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "blue",
+      "label": "Blue",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 04",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "white",
+      "label": "White",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 05",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "horizontal",
+      "label": "Horizontal Lines",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 06",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "vertical",
+      "label": "Vertical Lines",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 07",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "diagonal",
+      "label": "Diagonal Lines",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 08",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "grayscale",
+      "label": "Gray Scale",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 09",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    },
+    {
+      "id": "aging",
+      "label": "Aging (All)",
+      "commands": [
+        {
+          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 0A",
+          "checksum": "novastar",
+          "confidence": "partial"
+        }
+      ]
+    }
+  ]
+}
