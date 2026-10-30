@@ -21,7 +21,7 @@ def test_main_window_pages(tmp_path):
     for i in range(window.nav.count()):
         window.nav.setCurrentRow(i)
         app.processEvents()
-        window.stack.currentWidget().refresh()
+        window.current_page().refresh()
     ctx.actions.invoke("led.freeze")
     window.pages[0].refresh()
     assert window.pages[0].freeze_btn.text() == "FREEZE"

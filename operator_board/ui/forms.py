@@ -9,6 +9,25 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 from operator_board.qt import QtWidgets, exec_
 
 
+# Words that read badly when a field name is simply capitalised.
+_LABEL_WORDS = {"udp": "UDP", "ndisplay": "nDisplay", "uproject": ".uproject", "api": "API", "ip": "IP",
+                "dir": "folder", "args": "arguments", "rc": "Remote Control", "mu": "multi-user", "id": "ID",
+                "json": "JSON", "dlss": "DLSS", "ui": "UI", "url": "URL"}
+
+
+def nice_label(field_name: str) -> str:
+    """'udp_unicast_endpoint' -> 'UDP unicast endpoint', 'engine_dir_override' -> 'Engine folder override'."""
+    words = [_LABEL_WORDS.get(w, w) for w in field_name.split("_")]
+    first = words[0]
+    if first == first.lower():
+        words[0] = first[:1].upper() + first[1:]
+    return " ".join(words)
+
+
+# Width of the label column, so forms stacked on one page line up.
+FORM_LABEL_WIDTH = 230
+
+
 class DataclassForm(QtWidgets.QWidget):
     """Edits a dataclass instance in place.
 
@@ -33,13 +52,17 @@ class DataclassForm(QtWidgets.QWidget):
                 continue
             widget, row = self._make_widget(f.name, getattr(obj, f.name))
             self.widgets[f.name] = widget
-            form.addRow(self.labels.get(f.name, f.name.replace("_", " ").capitalize()), row)
+            label = QtWidgets.QLabel(self.labels.get(f.name, nice_label(f.name)))
+            label.setMinimumWidth(FORM_LABEL_WIDTH)
+            form.addRow(label, row)
 
     def _make_widget(self, name: str, value: Any):
         hint = self.hints.get(name)
         if name in self.choices:
             combo = QtWidgets.QComboBox()
             combo.setEditable(False)
+            combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(12)
             opts = self.choices[name]
             opts = opts() if callable(opts) else opts
             for opt in opts:
@@ -71,6 +94,7 @@ class DataclassForm(QtWidgets.QWidget):
             edit.setToolTip("Comma separated list" if typing.get_origin(hint) is list else "JSON object")
             return edit, edit
         edit = QtWidgets.QLineEdit(str(value))
+        edit.setCursorPosition(0)  # long paths show their start, not their end
         if name in self.browse:
             btn = QtWidgets.QPushButton("Browse…")
             btn.clicked.connect(lambda: self._browse(edit, self.browse[name]))
@@ -130,7 +154,7 @@ def edit_dataclass(parent, title: str, obj: Any, validate: Optional[Callable[[An
     """Show a modal editor for obj. Returns True if the user saved (obj is modified in place)."""
     dialog = QtWidgets.QDialog(parent)
     dialog.setWindowTitle(title)
-    dialog.setMinimumWidth(520)
+    dialog.setMinimumWidth(680)
     lay = QtWidgets.QVBoxLayout(dialog)
     work = dataclasses.replace(obj)
     form = DataclassForm(work, **form_kwargs)

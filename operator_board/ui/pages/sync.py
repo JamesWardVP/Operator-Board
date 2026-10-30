@@ -14,7 +14,7 @@ class JobDialog(QtWidgets.QDialog):
     def __init__(self, parent, job: SyncJobConfig, device_names) -> None:
         super().__init__(parent)
         self.setWindowTitle("Sync job")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(680)
         self.job = job
         lay = QtWidgets.QVBoxLayout(self)
         top = QtWidgets.QFormLayout()
@@ -53,10 +53,10 @@ class JobDialog(QtWidgets.QDialog):
         prov = PROVIDERS[self.provider.currentData()]
         for f in prov.fields:
             edit = QtWidgets.QLineEdit(str(self.job.params.get(f.name, f.default)))
+            edit.setCursorPosition(0)
             self.edits[f.name] = edit
             if f.kind in ("file", "path"):
-                b = QtWidgets.QPushButton("…")
-                b.setFixedWidth(36)
+                b = QtWidgets.QPushButton("Browse…")
                 b.clicked.connect(lambda _=False, e=edit, k=f.kind: self._browse(e, k))
                 self.fields_form.addRow(f.label, hbox(edit, b))
             else:

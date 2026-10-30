@@ -256,6 +256,8 @@ class LevelsPage(BasePage):
         card.add(self.cams)
         self.cam_target = QtWidgets.QComboBox()
         self.cam_target.setEditable(True)
+        self.cam_target.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.cam_target.setMinimumContentsLength(24)
         self.cam_target.addItem("viewport")
         find = QtWidgets.QPushButton("Find camera actors")
         find.clicked.connect(self._find_cameras)
@@ -263,7 +265,12 @@ class LevelsPage(BasePage):
         self.cam_name.setPlaceholderText("New position name")
         capture = QtWidgets.QPushButton("Save current position")
         capture.clicked.connect(self._capture)
-        card.add_layout(hbox(QtWidgets.QLabel("Target"), self.cam_target, find, self.cam_name, capture))
+        target_row = hbox(QtWidgets.QLabel("Target"), self.cam_target, find)
+        target_row.setStretch(1, 1)
+        name_row = hbox(QtWidgets.QLabel("Name"), self.cam_name, capture)
+        name_row.setStretch(1, 1)
+        card.add_layout(target_row)
+        card.add_layout(name_row)
         btns = []
         for label, fn in [("Recall", self._recall), ("Edit", self._edit_cam), ("Remove", self._remove_cam),
                           ("Move up", lambda: self._move_cam(-1)), ("Move down", lambda: self._move_cam(1))]:

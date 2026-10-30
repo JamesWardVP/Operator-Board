@@ -10,7 +10,7 @@ HERE = os.path.abspath(SPECPATH)
 ROOT = os.path.dirname(HERE)
 ICON = os.path.join(HERE, "operator_board.ico")
 
-datas = collect_data_files("operator_board", includes=["**/*.json", "**/*.png"])
+datas = collect_data_files("operator_board", includes=["**/*.json", "**/*.png", "**/*.svg"])
 hidden = []
 try:  # optional Stream Deck support
     import StreamDeck  # noqa: F401

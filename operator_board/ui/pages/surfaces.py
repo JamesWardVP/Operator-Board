@@ -33,8 +33,10 @@ class SurfacesPage(BasePage):
         ren_page.clicked.connect(self._rename_page)
         del_page = QtWidgets.QPushButton("Delete page")
         del_page.clicked.connect(self._delete_page)
-        deck.add_layout(hbox(QtWidgets.QLabel("Device"), self.model, QtWidgets.QLabel("Page"), self.page_combo,
-                             add_page, ren_page, del_page))
+        self.page_combo.setMinimumContentsLength(10)
+        self.page_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        deck.add_layout(hbox(QtWidgets.QLabel("Device"), self.model, None))
+        deck.add_layout(hbox(QtWidgets.QLabel("Page"), self.page_combo, add_page, ren_page, del_page, None))
         self.live = QtWidgets.QCheckBox("Live mode (pressing a key runs its action)")
         deck.add(self.live)
         self.grid_holder = QtWidgets.QWidget()
@@ -63,6 +65,9 @@ class SurfacesPage(BasePage):
         edit = Card("Key binding")
         form = QtWidgets.QFormLayout()
         self.action = QtWidgets.QComboBox()
+        # Size by a fixed length, not by the longest action name, so the page can shrink.
+        self.action.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.action.setMinimumContentsLength(18)
         self.action.addItem("(none)", "")
         for a in ctx.actions.all():
             self.action.addItem(f"{a.category} › {a.label}", a.id)
@@ -220,6 +225,7 @@ class SurfacesPage(BasePage):
         while self.grid.count():
             w = self.grid.takeAt(0).widget()
             if w:
+                w.hide()  # deleteLater is deferred; hide now so old keys never show behind new ones
                 w.deleteLater()
         for i in range(lay.key_count):
             b = self._page().button(i)
