@@ -43,3 +43,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/OperatorBoard-*-win64.zip
+          append_body: true
+          body: |
+
+            ---
+            **Download** the `OperatorBoard-...-win64.zip` file below, unzip it and run `OperatorBoard.exe`. Python is not needed.
+
+            [Code signing policy](https://github.com/JamesWardVP/Operator-Board#code-signing-policy) · [Privacy policy](https://github.com/JamesWardVP/Operator-Board#privacy-policy) · [License](https://github.com/JamesWardVP/Operator-Board/blob/main/LICENSE)

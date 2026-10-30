@@ -7,6 +7,7 @@ name = "operator-board"
 dynamic = ["version"]
 description = "Operator-friendly Virtual Production control surface for Unreal Engine Switchboard"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.9"
 dependencies = []
 

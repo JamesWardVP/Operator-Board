@@ -37,6 +37,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_title()
         self.resize(1500, 950)
         self.setStyleSheet(STYLESHEET)
+        # Selections and sliders use the system accent colour unless the palette says otherwise.
+        app = QtWidgets.QApplication.instance()
+        palette = app.palette()
+        roles = [QtGui.QPalette.Highlight] + ([QtGui.QPalette.Accent] if hasattr(QtGui.QPalette, "Accent") else [])
+        for group in (QtGui.QPalette.Active, QtGui.QPalette.Inactive):
+            for role in roles:
+                palette.setColor(group, role, QtGui.QColor(COLORS["accent"]))
+            palette.setColor(group, QtGui.QPalette.HighlightedText, QtGui.QColor("white"))
+        app.setPalette(palette)
 
         central = QtWidgets.QWidget()
         lay = QtWidgets.QHBoxLayout(central)

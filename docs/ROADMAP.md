@@ -57,7 +57,8 @@ These are ideas, not commitments. The README lists only what is available today.
 ## General
 - Role-based "lock" mode, so only Freeze, Blackout and Record are available during takes.
 - Multiple stage profiles and a quick stage switcher.
-- Windows installer (Start menu shortcut, file association for `.opboard`) and code signing for the executable.
+- Windows installer (Start menu shortcut, file association for `.opboard`).
+- Signed releases through SignPath Foundation (applied for).
 - Auto-update check against GitHub Releases.
 - Web/tablet remote UI served by the API server.
 - Localisation.

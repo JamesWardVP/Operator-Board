@@ -1,10 +1,113 @@
-# Operator-Board
+# Operator Board
 
-An easy-to-use, operator-friendly Virtual Production front end for Unreal Engine **Switchboard**, built for running Unreal Engine on LED volume stages.
+**Big, clear stage controls for Unreal Engine virtual production.**
 
-Operator Board talks to the same **SwitchboardListener** and **Remote Control API** that Switchboard uses. It can run alongside Switchboard or on its own, and it presents everyday stage operations as large, readable controls.
+[![Windows build](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml/badge.svg)](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Version:** 0.2.0
+**Version:** 0.2.0 · **Unreal Engine 5.2 – 5.8** · **Windows**
+
+![Operator Board's Operate page: LED wall controls, Unreal instances, multi-user, project and level, take and camera positions](docs/images/operate.png)
+
+## Welcome
+
+Running an LED volume means watching many things at once: the wall, the render nodes, the multi-user session, the level, the take. Unreal Engine's **Switchboard** can do all of it, but it was built for technicians setting a stage up, not for an operator running a shoot.
+
+**Operator Board** puts everyday stage operations on one screen of large, readable buttons:
+
+- **Freeze or black out the LED wall** in one press, straight on the LED processor.
+- **Start and stop** the editor and every nDisplay node, one at a time or in groups.
+- **Run the multi-user session** and see who is connected.
+- **Change level**, toggle lighting sub-levels and **recall camera positions**.
+- **Slate and record takes**, with a take log.
+- Drive it all from a **Stream Deck** or **Bitfocus Companion**.
+
+It uses the same building blocks as Switchboard: **SwitchboardListener** on each machine and the **Remote Control API** inside Unreal. It even reads and writes **Switchboard's own config files**, so the two tools can share one stage setup. Switchboard does not need to be open.
+
+## Getting started
+
+1. **Download** `OperatorBoard-<version>-win64.zip` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page and unzip it anywhere. Python does not need to be installed.
+2. **Run `OperatorBoard.exe`.**
+3. **Make sure SwitchboardListener is running** on every machine that runs Unreal (`Engine\Binaries\Win64\SwitchboardListener.exe`), as you would for Switchboard.
+4. **Open your stage** on the **Stage** page: pick an existing Switchboard config, or create a new one.
+5. **Add your LED processors** on the **LED Processors** page: choose the type and enter its IP address, as you would in Companion.
+6. Go to **Operate**, connect, and you're running.
+
+Want to try it without any hardware? Choose the **Simulator** LED processor type. Every wall command is logged instead of sent, which is handy for training.
+
+## A tour of Operator Board
+
+### Operate: the whole stage on one page
+Freeze, blackout and test patterns for the wall; start and stop every Unreal instance or group; the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
+
+When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
+
+![Operate page with the WALL FROZEN banner and the Freeze button lit](docs/images/operate_frozen.png)
+
+### Stage: share configs with Switchboard
+Open, create and save **Switchboard config files**, the same files Switchboard lists. By default Operator Board looks in the folder Switchboard itself uses for the chosen engine (`Engine\Plugins\VirtualProduction\Switchboard\Source\Switchboard\configs`, or `SWITCHBOARD_CONFIG_DIR`), and you can pick any other folder.
+
+![Stage page listing Switchboard configs, with one open](docs/images/stage.png)
+
+- A config made or changed here opens in Switchboard, and the other way round.
+- Operator Board writes only the project, engine, editor and nDisplay devices, nDisplay config and multi-user settings. Every other Switchboard setting is kept exactly as it was.
+- Operator Board's own settings for that stage (LED processors, groups, cameras, takes, sync jobs, Remote Control) go in a matching `<config>.opboard` file next to it, which Switchboard ignores.
+- Switchboard rewrites a config whenever you change a setting in it, so avoid editing the same config in both programs at the same time.
+
+### LED Processors: Companion-style setup
+Choose the processor type, enter its IP address and port, and the wall buttons drive every processor at once.
+
+![LED Processors page with processors, test controls and command definitions](docs/images/led_processors.png)
+
+| Processor | Connection | Freeze | Blackout | Test patterns | Brightness |
+|---|---|---|---|---|---|
+| Brompton Tessera (SX40 / S8 / M2 / T1 / G1) | HTTP :80 | ✅ | ✅ | ✅ | ✅ |
+| Megapixel HELIOS | HTTP :80 (REST) | ✅ | ✅ | ✅ | ✅ |
+| NovaStar MCTRL (300 / 600 / 660 / 4K / R5) | TCP :5200 | ✅ | ✅ | ✅ | ✅ |
+| NovaStar VX / NovaPro | TCP :5200 | ✅ | ✅ | – | ✅ |
+| Generic HTTP / TCP / UDP / OSC | user defined | ✅ | ✅ | ✅ | ✅ |
+| Simulator (no hardware, for training) | – | ✅ | ✅ | ✅ | ✅ |
+
+Every command shows how it was verified. Some come straight from the published Companion module sources; others should be checked against your processor's firmware before a show (see [docs/LED_PROCESSORS.md](docs/LED_PROCESSORS.md)). You can override any command per processor, and add new processor types as JSON profiles without changing any code.
+
+### Devices: Unreal instances and groups
+Editors and nDisplay nodes are started through SwitchboardListener (port 2980) with the same command-line flags as Switchboard. Put them in groups that start and stop together, and check each device's log for its launch command line and process events. You can also import devices from any Switchboard config.
+
+![Devices page with editor and nDisplay nodes running, groups and the device log](docs/images/devices.png)
+
+### Multi-user
+Start and stop the multi-user (Concert) server on this machine or on any listener machine, as a console or Slate server. Name the server and session; editors and nodes join automatically. The connected-client count and names come from the server log, and the log patterns can be changed.
+
+### Levels & Cameras
+Manage several projects and switch between them, or find `.uproject` files on disk. Levels are listed from the project's Content folder or from the editor through Remote Control. Load a level in the editor, change level on the nodes at runtime, or relaunch the nDisplay nodes on the new level. Show or hide **streaming sub-levels** (for example, lighting setups) and toggle **World Partition data layers**. **Camera positions** capture and recall the editor viewport or any camera or nDisplay root actor.
+
+![Levels & Cameras page with projects and the levels in the active project](docs/images/levels.png)
+
+### Takes
+Slate, take number and description with auto-increment. Recording drives **Take Recorder** in the primary editor, and every take goes into a persistent log with Good, Circle and NG ratings and notes. The log exports to CSV.
+
+![Takes page with the slate, the Record button and the take log](docs/images/takes.png)
+
+### Analytics
+Live CPU, GPU, GPU clock, GPU temperature and memory for every running instance, plus the running-instance and multi-user client counts. Graphs cover 1 minute to 1 hour, next to a raw sample table, the last raw listener payload and CSV export.
+
+![Analytics page graphing CPU and GPU use for a render node](docs/images/analytics.png)
+
+### Control Surfaces: Stream Deck and Companion
+Drive an **Elgato Stream Deck** directly (Mini, 15-key / MK.2, XL, +, Neo), with several pages and live key colours. A default layout is included; edit it on the on-screen deck, and **save it to or load it from a file** to take it to another machine. **Bitfocus Companion** (Generic HTTP module), or anything else that can send HTTP, can call any action through the local HTTP API, with an optional token.
+
+![Control Surfaces page with the Stream Deck layout editor](docs/images/control_surfaces.png)
+
+On Windows, quit the Elgato Stream Deck app first, because only one program can own the device.
+
+### Remote Objects and DLSS
+- **Remote Objects:** browse **Remote Control Presets**, read and set exposed properties and call exposed functions on the editor, the nodes or everything. An actor browser lists actors and lets you inspect and change their properties.
+- **DLSS:** DLSS Super Resolution mode, Frame Generation, Ray Reconstruction, Reflex and Screen Percentage, applied to the editor, the nodes or all instances, with plugin detection. The controls are defined in `dlss.json`, so a change in the plugin's API only needs a JSON edit.
+
+### File Sync
+Run sync jobs with **FreeFileSync** batch jobs, **Perforce**, **Git**, **Robocopy** or a custom command, on this machine or on the render nodes through their listeners, with a history of results and output.
+
+![File Sync page with sync jobs](docs/images/file_sync.png)
 
 ## Supported Unreal Engine versions
 
@@ -20,85 +123,14 @@ Operator Board talks to the same **SwitchboardListener** and **Remote Control AP
 
 Operator Board detects the engine version from `Engine/Build/Build.version` when you choose an engine folder.
 
-## Features
+## What Unreal needs
 
-### Operate dashboard
-- **LED wall:** one-touch **Freeze**, **Blackout** and **Wall Normal**, a test pattern picker, a live status banner ("WALL FROZEN") and a status chip for each processor.
-- **Unreal instances:** connect, start and stop every instance, a group, or a single device, with live state for each one.
-- **Multi-user:** name and start the server, and see how many clients are connected and who they are.
-- **Project & level:** pick the project and level and load it.
-- **Takes:** slate and take display with a big Record button.
-- **Camera positions:** one-touch recall of saved positions.
-- **Stage hotkeys** work from any page: F9 Freeze · F10 Blackout · F11 Wall normal · F12 Record · Ctrl+Shift+S Start all.
-
-### LED processor control
-Choose the processor type, enter its IP address and port (the same way you would in Bitfocus Companion), and the wall controls drive every processor at once.
-
-| Processor | Connection | Freeze | Blackout | Test patterns | Brightness |
-|---|---|---|---|---|---|
-| Brompton Tessera (SX40 / S8 / M2 / T1 / G1) | HTTP :80 | ✅ | ✅ | ✅ | ✅ |
-| Megapixel HELIOS | HTTP :80 (REST) | ✅ | ✅ | ✅ | ✅ |
-| NovaStar MCTRL (300 / 600 / 660 / 4K / R5) | TCP :5200 | ✅ | ✅ | ✅ | ✅ |
-| NovaStar VX / NovaPro | TCP :5200 | ✅ | ✅ | – | ✅ |
-| Generic HTTP / TCP / UDP / OSC | user defined | ✅ | ✅ | ✅ | ✅ |
-| Simulator (no hardware, for training) | – | ✅ | ✅ | ✅ | ✅ |
-
-Each command is labelled in the app with how it was verified. Some commands come straight from the published Companion module sources; others still need a check against your processor's firmware. See [docs/LED_PROCESSORS.md](docs/LED_PROCESSORS.md). You can override any command per processor, and you can add new processor types as JSON profiles without changing any code.
-
-### Switchboard configs
-- Open, create and save **Switchboard config files**, the same files Switchboard uses. By default Operator Board looks in the folder Switchboard itself uses (`Engine/Plugins/VirtualProduction/Switchboard/Source/Switchboard/configs` for the chosen engine, or `SWITCHBOARD_CONFIG_DIR`); any other folder can be chosen.
-- A config created or changed in Operator Board opens in Switchboard, and the other way round. Only the project, engine, Unreal and nDisplay devices, nDisplay config and multi-user settings are written; every other Switchboard setting is kept as it is.
-- Operator Board's own settings for each config (LED processors, groups, cameras, takes, sync jobs, Remote Control) are saved in a matching `<config>.opboard` file next to it, which Switchboard ignores.
-- Open a config at start-up with `--switchboard-config "C:\Stages\Stage.json"`.
-
-### Unreal instances (Switchboard functionality)
-- Editor and nDisplay node devices launched through SwitchboardListener (port 2980), using the same command-line flags as Switchboard.
-- Device groups that start and stop together; start, stop or restart everything.
-- Import devices from an existing Switchboard config file.
-- A per-device log with the launch command line and process events.
-
-### Multi-user
-- Start and stop the multi-user (Concert) server locally or on any listener machine, with a choice of console or Slate server.
-- Name the server and session; editors and nodes join automatically.
-- Live connected-client count and names, taken from the server log. The log patterns are configurable.
-
-### Levels, sub-levels & cameras
-- Manage several projects and switch between them; find `.uproject` files on disk.
-- List a project's levels from its Content folder, or from the editor through Remote Control.
-- Load a level in the editor, change level on nodes at runtime, or relaunch the nDisplay nodes on the new level.
-- Show or hide **streaming sub-levels** (for example, lighting setups) in the editor and on render nodes, and toggle **World Partition data layers**.
-- **Saved camera positions:** capture and recall the editor viewport or any camera / nDisplay root actor.
-
-### Takes
-- Slate, take number and description, with auto-increment.
-- Drives **Take Recorder** in the primary editor.
-- Persistent take log with Good, Circle and NG ratings and notes; CSV export.
-
-### Remote objects
-- Browse **Remote Control Presets** and read or set exposed properties and call exposed functions on the editor, the nodes or everything.
-- Actor browser: list actors, inspect their properties, and read or set values.
-
-### DLSS
-- DLSS Super Resolution mode, Frame Generation, Ray Reconstruction, Reflex and Screen Percentage, applied to the editor, the nodes or all instances.
-- Plugin detection. Controls are defined in `dlss.json`, so a change in the plugin's API only needs a JSON edit.
-
-### File sync
-- Sync jobs using **FreeFileSync** batch jobs, **Perforce**, **Git**, **Robocopy** or a custom command.
-- Run on this machine or on render nodes through their listeners; keeps a result history and output.
-
-### Analytics
-- Live CPU, GPU, GPU clock, GPU temperature and memory for each running instance, plus multi-user client and running-instance counts.
-- Graphs over 1 min, 5 min, 15 min or 1 hour, a raw sample table, the last raw listener payload, and CSV export.
-
-### Control surfaces
-- **Elgato Stream Deck** driven directly (Mini, 15-key / MK.2, XL, +, Neo), with multiple pages and live key colours.
-- A default layout is included. You can edit layouts in the app and **save them to or load them from an external JSON file** to use on another machine.
-- An on-screen virtual deck with a live mode.
-- **Local HTTP API** for **Bitfocus Companion** (Generic HTTP module) or any HTTP-capable surface, with an optional token.
-
-### Configuration
-- Work from a Switchboard config (see above) or from a standalone stage kept in `~/.operator_board/config.json`, with import and export.
-- Headless mode (`--headless`): the API and Stream Deck only, with no window.
+| Feature | Needs |
+|---|---|
+| Start / stop instances, sync on nodes, analytics | SwitchboardListener running on each machine |
+| Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`) |
+| Level loading, sub-levels, data layers, viewport cameras, Take Recorder | **Python Editor Script Plugin** in the editor |
+| DLSS page | NVIDIA DLSS / Streamline plugins |
 
 ## Installation
 
@@ -107,7 +139,6 @@ Each command is labelled in the app with how it was verified. Some commands come
 Download `OperatorBoard-<version>-win64.zip` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page, unzip it anywhere and run **`OperatorBoard.exe`**.
 
 - `OperatorBoardConsole.exe` is the same program with a console window, for `--headless` on a rack PC or for troubleshooting.
-- Switchboard does not need to be open. Each machine that runs Unreal needs **SwitchboardListener** running (`Engine\Binaries\Win64\SwitchboardListener.exe`), as it does for Switchboard.
 - Settings live in `%USERPROFILE%\.operator_board\`, with a log in its `logs` folder.
 
 ### From source
@@ -121,29 +152,32 @@ pip install -r requirements.txt
 python -m operator_board
 ```
 
-Optional direct Stream Deck support:
-
-```bash
-pip install streamdeck pillow
-```
-
-On Windows, quit the Elgato Stream Deck app first, because only one program can own the device.
+For direct Stream Deck support, also run `pip install streamdeck pillow`.
 
 **Running with Switchboard's own Python:** `scripts\run_with_switchboard_python.bat "C:\Program Files\Epic Games\UE_5.6"` uses the Python environment that ships with Switchboard, so nothing extra is installed. PySide2 (UE 5.2/5.3) and PySide6 are both supported.
 
-## Requirements in Unreal
+### Command line
 
-| Feature | Needs |
+| Option | What it does |
 |---|---|
-| Launch / stop instances, sync on nodes, analytics | SwitchboardListener running on each machine |
-| Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`) |
-| Level loading, sub-levels, data layers, viewport cameras, Take Recorder | **Python Editor Script Plugin** in the editor |
-| DLSS page | NVIDIA DLSS / Streamline plugins |
+| `--switchboard-config PATH` | Open this Switchboard config (`.json`) as the stage. |
+| `--headless` | No window: only the HTTP API and Stream Deck, for a stage rack PC. |
+| `--no-hardware` | Do not open Stream Deck hardware. |
+| `--config PATH` | Use another Operator Board settings file. |
+| `--verbose` | More detailed logging. |
+
+### Uninstalling
+
+Operator Board does not install anything into Windows.
+
+1. Close Operator Board and delete the folder you unzipped.
+2. To remove its settings and logs too, delete `%USERPROFILE%\.operator_board\`.
+3. If you used Switchboard configs, the matching `.opboard` files next to them can be deleted. Switchboard does not use them.
 
 ## Development
 
 ```bash
-pip install pytest
+pip install -e .[ui,dev]
 python -m pytest
 ```
 
@@ -154,6 +188,31 @@ pip install -e .[ui,build,streamdeck]
 python packaging/build.py --hidapi
 ```
 
-GitHub Actions runs the tests and this build on every push, and attaches the zip to a GitHub Release when a `v*` tag is pushed.
+GitHub Actions runs the tests and this build on every push, and attaches the zip to a GitHub Release when a `v*` tag is pushed. The test suite includes fake SwitchboardListener and HTTP peers and an offscreen UI smoke test. The screenshots above are made with `python docs/make_screenshots.py`. The project layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-The test suite includes fake SwitchboardListener and HTTP peers, and an offscreen UI smoke test. The project layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Work happens on the `Development` branch and reaches `main` through pull requests.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+Signed Windows releases start once SignPath Foundation has approved the project; until then, releases are unsigned. Only `OperatorBoard.exe` and `OperatorBoardConsole.exe` built by this repository's GitHub Actions workflow from its own source code are signed.
+
+**Team roles**
+
+- Committers and reviewers: [JamesWardVP](https://github.com/JamesWardVP)
+- Approvers: [JamesWardVP](https://github.com/JamesWardVP)
+
+Every change from anyone outside the team is reviewed before it is merged, and every signing request is approved by an approver.
+
+## Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+Operator Board only connects to the machines and devices you configure: SwitchboardListener and Unreal's Remote Control API on your stage machines, your LED processors, and the sync tools you set up. Its HTTP API listens on this computer only (`127.0.0.1`) unless you change that in Settings. It has no telemetry, analytics reporting or update checks.
+
+## License
+
+Operator Board is released under the [MIT License](LICENSE). The Windows release includes open-source components under their own licenses, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Unreal Engine, Switchboard and SwitchboardListener are products of Epic Games, Inc. Operator Board is an independent project and is not affiliated with or endorsed by Epic Games, Brompton Technology, Megapixel VR, NovaStar, Elgato or Bitfocus.

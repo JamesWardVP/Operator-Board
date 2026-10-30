@@ -53,6 +53,11 @@ running (Engine\\Binaries\\Win64\\SwitchboardListener.exe), as it does for Switc
 
 Settings: %USERPROFILE%\\.operator_board\\   Log: %USERPROFILE%\\.operator_board\\logs\\
 Documentation: https://github.com/JamesWardVP/Operator-Board
+
+To uninstall, delete this folder (and %USERPROFILE%\.operator_board\ to remove settings).
+
+Operator Board is MIT licensed (LICENSE.txt). Bundled open-source components and their
+licenses are listed in THIRD_PARTY_NOTICES.md.
 """
 
 
@@ -93,6 +98,8 @@ def main() -> int:
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as fh:
         fh.write(QUICK_START.format(version=__version__))
     shutil.copytree(os.path.join(ROOT, "config"), os.path.join(out, "examples"), dirs_exist_ok=True)
+    for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+        shutil.copy(os.path.join(ROOT, name), os.path.join(out, name if name != "LICENSE" else "LICENSE.txt"))
     archive = shutil.make_archive(os.path.join(DIST, f"OperatorBoard-{__version__}-win64"), "zip", DIST,
                                   "OperatorBoard")
     print(f"Built {out}\nArchive {archive}")
