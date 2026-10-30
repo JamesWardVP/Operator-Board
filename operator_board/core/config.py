@@ -152,6 +152,14 @@ class UIConfig:
 
 
 @dataclass
+class SwitchboardLinkConfig:
+    # Folder holding Switchboard configs. Empty = the folder Switchboard itself uses.
+    config_dir: str = ""
+    # Switchboard config (.json) that is the current stage. Empty = standalone stage.
+    active_config: str = ""
+
+
+@dataclass
 class AppConfig:
     schema_version: int = CONFIG_SCHEMA_VERSION
     projects: List[ProjectConfig] = field(default_factory=lambda: [ProjectConfig()])
@@ -166,6 +174,7 @@ class AppConfig:
     takes: TakesConfig = field(default_factory=TakesConfig)
     surfaces: SurfacesConfig = field(default_factory=SurfacesConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    switchboard: SwitchboardLinkConfig = field(default_factory=SwitchboardLinkConfig)
     favourite_properties: List[Dict[str, str]] = field(default_factory=list)
 
     # ---- helpers -------------------------------------------------------

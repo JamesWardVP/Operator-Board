@@ -4,7 +4,7 @@ An easy-to-use, operator-friendly Virtual Production front end for Unreal Engine
 
 Operator Board talks to the same **SwitchboardListener** and **Remote Control API** that Switchboard uses. It can run alongside Switchboard or on its own, and it presents everyday stage operations as large, readable controls.
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 
 ## Supported Unreal Engine versions
 
@@ -44,6 +44,12 @@ Choose the processor type, enter its IP address and port (the same way you would
 | Simulator (no hardware, for training) | – | ✅ | ✅ | ✅ | ✅ |
 
 Each command is labelled in the app with how it was verified. Some commands come straight from the published Companion module sources; others still need a check against your processor's firmware. See [docs/LED_PROCESSORS.md](docs/LED_PROCESSORS.md). You can override any command per processor, and you can add new processor types as JSON profiles without changing any code.
+
+### Switchboard configs
+- Open, create and save **Switchboard config files**, the same files Switchboard uses. By default Operator Board looks in the folder Switchboard itself uses (`Engine/Plugins/VirtualProduction/Switchboard/Source/Switchboard/configs` for the chosen engine, or `SWITCHBOARD_CONFIG_DIR`); any other folder can be chosen.
+- A config created or changed in Operator Board opens in Switchboard, and the other way round. Only the project, engine, Unreal and nDisplay devices, nDisplay config and multi-user settings are written; every other Switchboard setting is kept as it is.
+- Operator Board's own settings for each config (LED processors, groups, cameras, takes, sync jobs, Remote Control) are saved in a matching `<config>.opboard` file next to it, which Switchboard ignores.
+- Open a config at start-up with `--switchboard-config "C:\Stages\Stage.json"`.
 
 ### Unreal instances (Switchboard functionality)
 - Editor and nDisplay node devices launched through SwitchboardListener (port 2980), using the same command-line flags as Switchboard.
@@ -91,10 +97,20 @@ Each command is labelled in the app with how it was verified. Some commands come
 - **Local HTTP API** for **Bitfocus Companion** (Generic HTTP module) or any HTTP-capable surface, with an optional token.
 
 ### Configuration
-- One JSON configuration file for the whole stage, with import and export.
+- Work from a Switchboard config (see above) or from a standalone stage kept in `~/.operator_board/config.json`, with import and export.
 - Headless mode (`--headless`): the API and Stream Deck only, with no window.
 
 ## Installation
+
+### Windows (no Python needed)
+
+Download `OperatorBoard-<version>-win64.zip` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page, unzip it anywhere and run **`OperatorBoard.exe`**.
+
+- `OperatorBoardConsole.exe` is the same program with a console window, for `--headless` on a rack PC or for troubleshooting.
+- Switchboard does not need to be open. Each machine that runs Unreal needs **SwitchboardListener** running (`Engine\Binaries\Win64\SwitchboardListener.exe`), as it does for Switchboard.
+- Settings live in `%USERPROFILE%\.operator_board\`, with a log in its `logs` folder.
+
+### From source
 
 Requires Python 3.9 or newer.
 
@@ -130,5 +146,14 @@ On Windows, quit the Elgato Stream Deck app first, because only one program can 
 pip install pytest
 python -m pytest
 ```
+
+Build the Windows executables (`dist/OperatorBoard/` and a zip):
+
+```bash
+pip install -e .[ui,build,streamdeck]
+python packaging/build.py --hidapi
+```
+
+GitHub Actions runs the tests and this build on every push, and attaches the zip to a GitHub Release when a `v*` tag is pushed.
 
 The test suite includes fake SwitchboardListener and HTTP peers, and an offscreen UI smoke test. The project layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
