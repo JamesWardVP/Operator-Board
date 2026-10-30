@@ -17,7 +17,7 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 10. Keep a list of **potential future features**, but NOT in the README. The **README lists only currently available features and the supported UE versions (5.2 → 5.8)**.
 11. Hosted on GitHub as `JamesWardVP/Operator-Board`.
 
-## Current state (v0.1.0)
+## Current state (v0.2.0)
 Every brief item has a first implementation. See README.md for the feature list, docs/ARCHITECTURE.md for structure, docs/LED_PROCESSORS.md for protocol research, and docs/ROADMAP.md for future ideas.
 
 - Python + Qt (PySide6, with a PySide2 fallback through `operator_board/qt.py`), so it can also run in Switchboard's own Python venv.

@@ -4,7 +4,7 @@ An easy-to-use, operator-friendly Virtual Production front end for Unreal Engine
 
 Operator Board talks to the same **SwitchboardListener** and **Remote Control API** that Switchboard uses. It can run alongside Switchboard or on its own, and it presents everyday stage operations as large, readable controls.
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 
 ## Supported Unreal Engine versions
 
