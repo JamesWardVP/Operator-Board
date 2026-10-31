@@ -37,7 +37,7 @@ def same_id(a: Any, b: Any) -> bool:
 
 
 def keepalive() -> Tuple[str, bytes]:
-    return _new("keepalive")
+    return _new("keep alive")  # with a space, as in Switchboard's message_protocol.py (5.2 - 5.8)
 
 
 def start_process(

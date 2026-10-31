@@ -59,6 +59,8 @@ def test_device_lifecycle_against_fake_listener():
         mgr.stop("N1")
         assert wait_until(lambda: n1.state == "connected", 3)
         assert ("N1", "running") in states
+        time.sleep(1.3)  # at least one keepalive
+        assert listener.unknown == []  # every command is one the real listener understands
     finally:
         mgr.disconnect_all()
         listener.close()
@@ -69,3 +71,19 @@ def test_unreachable_listener_reports_error():
     mgr.connect("Ed")
     rt = mgr.get("Ed")
     assert rt.state == "error" and "Cannot reach listener" in rt.last_error
+
+
+def test_connect_and_disconnect_one_device_by_action():
+    from operator_board.context import AppContext
+    listener = FakeListener()
+    ctx = AppContext(_config(listener.port))
+    try:
+        ok = ctx.actions.invoke("devices.connect", device="N1")
+        assert ok.ok and ctx.devices.get("N1").state == "connected"
+        assert ctx.devices.get("Ed").state == "disconnected"  # only the chosen device
+        assert ctx.actions.invoke("devices.disconnect", device="N1").ok
+        rt = ctx.devices.get("N1")
+        assert rt.state == "disconnected" and rt.client is None
+    finally:
+        ctx.shutdown()
+        listener.close()

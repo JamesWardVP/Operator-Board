@@ -38,7 +38,7 @@ Want to try it without any hardware? Choose the **Simulator** LED processor type
 ## A tour of Operator Board
 
 ### Operate: the whole stage on one page
-Freeze, blackout and test patterns for the wall; start and stop every Unreal instance or group; the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
+Freeze, blackout and test patterns for the wall; connect to, start and stop every Unreal instance (each machine has its own Connect / Disconnect button, and there is a Disconnect all), or a whole group; the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
 
 When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
 

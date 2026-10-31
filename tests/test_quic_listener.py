@@ -118,6 +118,9 @@ def test_device_manager_over_quic(listener, memory_credentials):
     mgr.start("Node")
     assert wait_until(lambda: rt.state == "running", 5), (rt.state, rt.last_error, listener.received)
     assert any(m["command"] == "start" for m in listener.received)
+    import time
+    time.sleep(1.3)  # at least one keepalive
+    assert listener.unknown == []  # every command is one the real listener understands
     mgr.disconnect_all()
 
 

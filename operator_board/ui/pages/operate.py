@@ -18,12 +18,19 @@ class DeviceTile(QtWidgets.QFrame):
         self.label = QtWidgets.QLabel(name)
         self.label.setStyleSheet("font-weight: 700;")
         self.state = muted("")
+        self.state.setWordWrap(True)
+        self.link = QtWidgets.QPushButton("Connect")
+        self.link.setFixedWidth(120)
+        self.link.setToolTip("Connect to or disconnect from this machine's SwitchboardListener. "
+                             "Disconnecting does not stop Unreal.")
+        self.link.clicked.connect(self._toggle_link)
         self.btn = QtWidgets.QPushButton("Start")
         self.btn.setFixedWidth(80)
         self.btn.clicked.connect(self._toggle)
         lay.addWidget(self.dot)
         lay.addWidget(self.label)
         lay.addWidget(self.state, 1)
+        lay.addWidget(self.link)
         lay.addWidget(self.btn)
 
     def update_from(self, rt) -> None:
@@ -31,6 +38,14 @@ class DeviceTile(QtWidgets.QFrame):
         role = "nDisplay " + (rt.config.ndisplay_node or "") if rt.config.role == "ndisplay" else "Editor"
         self.state.setText(f"{role} · {rt.state}" + (f" · {rt.last_error}" if rt.state == "error" else ""))
         self.btn.setText("Stop" if rt.state in ("running", "starting") else "Start")
+        connected = rt.client is not None and rt.client.connected
+        self.link.setEnabled(rt.state != "connecting")
+        self.link.setText("Connecting…" if rt.state == "connecting" else "Disconnect" if connected else "Connect")
+
+    def _toggle_link(self) -> None:
+        rt = self.page.ctx.devices.get(self.name)
+        connected = rt is not None and rt.client is not None and rt.client.connected
+        self.page.invoke("devices.disconnect" if connected else "devices.connect", device=self.name)
 
     def _toggle(self) -> None:
         rt = self.page.ctx.devices.get(self.name)
@@ -76,14 +91,17 @@ class OperatePage(BasePage):
         # --- Unreal instances ---------------------------------------------------
         inst = Card("Unreal Instances")
         connect_all = QtWidgets.QPushButton("Connect all")
+        disconnect_all = QtWidgets.QPushButton("Disconnect all")
+        disconnect_all.setToolTip("Close every listener connection. Unreal keeps running.")
         start_all = QtWidgets.QPushButton("▶ Start all")
         stop_all = QtWidgets.QPushButton("■ Stop all")
         connect_all.clicked.connect(lambda: self.invoke("devices.connect_all"))
+        disconnect_all.clicked.connect(lambda: self.invoke("devices.disconnect_all"))
         start_all.clicked.connect(lambda: self.invoke("devices.start_all"))
         stop_all.clicked.connect(lambda: self.invoke("devices.stop_all"))
         for b in (start_all, stop_all):
             b.setMinimumHeight(44)
-        inst.add_layout(hbox(connect_all, start_all, stop_all))
+        inst.add_layout(hbox(connect_all, disconnect_all, start_all, stop_all))
         self.groups_box = QtWidgets.QVBoxLayout()
         inst.add_layout(self.groups_box)
         self.devices_box = QtWidgets.QVBoxLayout()

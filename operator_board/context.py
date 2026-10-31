@@ -268,6 +268,10 @@ class AppContext:
         a.add("devices.start_all", "Start all", "Devices", lambda: dev.start_all(), state=lambda: bool(dev.running()))
         a.add("devices.stop_all", "Stop all", "Devices", dev.stop_all, confirm=self.config.ui.confirm_stop_all)
         a.add("devices.restart_all", "Restart all", "Devices", lambda: dev.restart_all())
+        a.add("devices.connect", "Connect device", "Devices", lambda device: dev.connect(device),
+              params=[ActionParam("device", "Device", "choice", choices_provider=device_names)])
+        a.add("devices.disconnect", "Disconnect device", "Devices", lambda device: dev.disconnect(device),
+              params=[ActionParam("device", "Device", "choice", choices_provider=device_names)])
         a.add("devices.start", "Start device", "Devices", lambda device: dev.start(device),
               params=[ActionParam("device", "Device", "choice", choices_provider=device_names)])
         a.add("devices.stop", "Stop device", "Devices", lambda device: dev.stop(device),

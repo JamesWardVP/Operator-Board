@@ -43,8 +43,18 @@ def demo_context():
     ctx = AppContext(cfg)
     now = time.time()
 
+    class _ShownAsConnected:
+        """Stands in for a listener connection; nothing is sent anywhere."""
+        connected = True
+        transport = "quic"
+
+        def disconnect(self, reason=""):
+            self.connected = False
+
     # Unreal instances running for a while
     for i, rt in enumerate(ctx.devices.devices()):
+        rt.client = _ShownAsConnected()
+        rt.transport = "quic"
         rt.state = "running"
         rt.started_at = now - 3600 - i * 420
         rt.listener_version = "5.6"

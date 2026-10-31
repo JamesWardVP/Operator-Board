@@ -7,6 +7,15 @@ import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Every command Switchboard 5.8's message_protocol.py sends. The real listener logs
+# "Could not parse message" for anything else, so the fakes record such commands in .unknown.
+KNOWN_COMMANDS = {
+    "authenticate", "disconnect", "fixExeFlags", "free binary", "get sync status", "keep alive", "kill",
+    "minimize windows", "receive file", "redeploy listener", "refresh mosaics", "send file",
+    "set inactive timeout", "start live log stream", "start", "stop live log stream", "vcs init",
+    "vcs report revision", "vcs sync",
+}
+
 
 class FakeListener:
     """Minimal SwitchboardListener: acks 'start', reports program started/ended, answers sync status."""
@@ -18,6 +27,7 @@ class FakeListener:
         self.sock.listen(5)
         self.port = self.sock.getsockname()[1]
         self.received = []
+        self.unknown = []
         self.stdout_lines = stdout_lines or []
         self.exit_code = 0
         self._conns = []
@@ -49,7 +59,9 @@ class FakeListener:
             while b"\x00" in buf:
                 raw, buf = buf.split(b"\x00", 1)
                 msg = json.loads(raw)
-                if msg["command"] != "keepalive":
+                if msg["command"] not in KNOWN_COMMANDS:
+                    self.unknown.append(msg["command"])
+                if msg["command"] != "keep alive":
                     self.received.append(msg)
                 self._handle(conn, msg)
 
@@ -142,6 +154,7 @@ class FakeQuicListener(FakeListener):
         self.jwt = "jwt-token-123"
         self.received = []
         self.auth_attempts = []
+        self.unknown = []
         self.stdout_lines = stdout_lines or []
         self.exit_code = 0
 
@@ -212,7 +225,9 @@ class FakeQuicListener(FakeListener):
                 continue
             if not authed:
                 continue
-            if msg["command"] not in ("keepalive", "disconnect"):
+            if msg["command"] not in KNOWN_COMMANDS:
+                self.unknown.append(msg["command"])
+            if msg["command"] not in ("keep alive", "disconnect"):
                 self.received.append(msg)
             self._handle(writer, msg)
 
