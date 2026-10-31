@@ -1,6 +1,7 @@
 """Reusable operator widgets."""
 from __future__ import annotations
 
+import math
 import time
 from typing import List, Optional, Sequence, Tuple
 
@@ -51,6 +52,76 @@ class BigButton(QtWidgets.QPushButton):
             f"QPushButton:hover {{ border-color: {self.active_color}; }}")
 
 
+class RecordButton(BigButton):
+    """Record / Stop button that plays Take Recorder's countdown on itself.
+
+    Each number pops in large and shrinks and fades as its second runs out, then "GO!" flashes
+    as recording really starts. ``remaining`` returns the seconds left (0 = not counting down).
+    """
+
+    GO_S = 0.7
+
+    def __init__(self, remaining, height: int = 60, parent=None) -> None:
+        super().__init__("● RECORD", COLORS["err"], height=height, parent=parent)
+        self._remaining = remaining
+        self._go_until = 0.0
+        self._counting = False
+        self._recording = False
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self._tick)
+
+    def show_state(self, recording: bool, counting_down: bool) -> None:
+        if self._counting and not counting_down and recording:
+            self._go_until = time.monotonic() + self.GO_S
+        self._counting = counting_down
+        self._recording = recording
+        busy = counting_down or time.monotonic() < self._go_until
+        self.setText("" if busy else ("■ STOP" if recording else "● RECORD"))
+        self.setToolTip("Cancel the countdown" if counting_down else "")
+        self.set_active(recording and not counting_down)
+        if busy and not self._timer.isActive():
+            self._timer.start(16)
+        self.update()
+
+    def _tick(self) -> None:
+        if not self._counting and time.monotonic() >= self._go_until:
+            self._timer.stop()
+            self.setText("■ STOP" if self._recording else "● RECORD")
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().paintEvent(event)
+        now = time.monotonic()
+        if self._counting:
+            left = max(0.0, float(self._remaining()))
+            number = max(1, int(math.ceil(left)))
+            text, phase = str(number), min(1.0, max(0.0, number - left))  # 0 when the number appears, 1 at its end
+            colour = QtGui.QColor("#ffd43b")
+        elif now < self._go_until:
+            text, phase = "GO!", 1.0 - (self._go_until - now) / self.GO_S
+            colour = QtGui.QColor("#69db7c")
+        else:
+            return
+        pop = 1.0 - (1.0 - phase) ** 3  # ease out: fast pop, slow settle
+        scale = 1.6 - 0.6 * pop
+        alpha = 1.0 if phase < 0.6 else max(0.0, 1.0 - (phase - 0.6) / 0.4)
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setOpacity(alpha)
+        font = QtGui.QFont(self.font())
+        font.setPixelSize(max(10, int(self.height() * 0.55 * scale)))
+        font.setWeight(QtGui.QFont.Weight.Black if hasattr(QtGui.QFont, "Weight") else QtGui.QFont.Black)
+        path = QtGui.QPainterPath()
+        metrics = QtGui.QFontMetrics(font)
+        width = metrics.horizontalAdvance(text) if hasattr(metrics, "horizontalAdvance") else metrics.width(text)
+        path.addText((self.width() - width) / 2.0, (self.height() + metrics.capHeight()) / 2.0, font, text)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#000000"), max(2.0, font.pixelSize() / 10.0), Qt.SolidLine,
+                                  Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(colour)
+        painter.drawPath(path)
+        painter.end()
+
+
 class StateDot(QtWidgets.QLabel):
     def __init__(self, state: str = "disconnected", parent=None) -> None:
         super().__init__(parent)
@@ -61,6 +132,105 @@ class StateDot(QtWidgets.QLabel):
         color = STATE_COLORS.get(state, state if state.startswith("#") else "#495057")
         self.setStyleSheet(f"background: {color}; border-radius: 7px;")
         self.setToolTip(state)
+
+
+class HazardOverlay(QtWidgets.QWidget):
+    """Greys out a card with crossed hazard tape and a message, e.g. "LED wall unavailable".
+
+    Sits on top of ``target`` (usually a Card) and follows its size. ``show_message`` sets the
+    text and buttons; ``hide`` removes it.
+    """
+
+    TAPE_YELLOW = QtGui.QColor("#f5c400")
+    TAPE_BLACK = QtGui.QColor("#16181c")
+
+    def __init__(self, target: QtWidgets.QWidget) -> None:
+        super().__init__(target)
+        self.target = target
+        target.installEventFilter(self)
+        self.setAttribute(Qt.WA_StyledBackground, False)
+        self.panel = QtWidgets.QFrame(self)
+        self.panel.setObjectName("HazardPanel")
+        self.panel.setStyleSheet(
+            f"QFrame#HazardPanel {{ background: #121417; border: 2px solid {self.TAPE_YELLOW.name()};"
+            " border-radius: 10px; }")
+        lay = QtWidgets.QVBoxLayout(self.panel)
+        lay.setContentsMargins(20, 14, 20, 14)
+        lay.setSpacing(6)
+        self.title = QtWidgets.QLabel()
+        self.title.setAlignment(Qt.AlignCenter)
+        self.title.setStyleSheet(f"color: {self.TAPE_YELLOW.name()}; font-size: 18px; font-weight: 900;"
+                                 " letter-spacing: 1px;")
+        self.text = QtWidgets.QLabel()
+        self.text.setAlignment(Qt.AlignCenter)
+        self.text.setWordWrap(True)
+        self.text.setStyleSheet(f"color: {COLORS['text']};")
+        self.buttons = QtWidgets.QHBoxLayout()
+        self.buttons.setSpacing(8)
+        lay.addWidget(self.title)
+        lay.addWidget(self.text)
+        lay.addLayout(self.buttons)
+        self.hide()
+
+    def show_message(self, title: str, text: str, buttons: Sequence[Tuple[str, object]] = ()) -> None:
+        self.title.setText(title)
+        self.text.setText(text)
+        clear_layout(self.buttons)
+        self.buttons.addStretch(1)
+        for label, callback in buttons:
+            button = QtWidgets.QPushButton(label)
+            button.clicked.connect(callback)
+            self.buttons.addWidget(button)
+        self.buttons.addStretch(1)
+        self._place()
+        self.show()
+        self.raise_()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+        if obj is self.target and event.type() in (QtCore.QEvent.Resize, QtCore.QEvent.Show):
+            self._place()
+        return False
+
+    def _place(self) -> None:
+        self.setGeometry(self.target.rect())
+        hint = self.panel.sizeHint()
+        width = min(max(hint.width(), 420), max(200, self.width() - 40))
+        height = self.panel.heightForWidth(width) if self.panel.hasHeightForWidth() else hint.height()
+        height = max(height, hint.height())
+        self.panel.setGeometry((self.width() - width) // 2, (self.height() - height) // 2, width, height)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(QtCore.QRectF(self.rect()), 10, 10)
+        p.setClipPath(path)
+        p.fillRect(self.rect(), QtGui.QColor(10, 11, 13, 190))  # grey the card out
+        w, h = self.width(), self.height()
+        angle = 18 if w > 2 * h else 30
+        for sign in (1, -1):  # two tapes crossing in an X
+            p.save()
+            p.translate(w / 2, h / 2)
+            p.rotate(sign * angle)
+            self._tape(p, length=int((w ** 2 + h ** 2) ** 0.5) + 40, thickness=30)
+            p.restore()
+        p.end()
+
+    def _tape(self, p: QtGui.QPainter, length: int, thickness: int) -> None:
+        band = QtCore.QRectF(-length / 2, -thickness / 2, length, thickness)
+        p.fillRect(band, self.TAPE_YELLOW)
+        p.save()
+        p.setClipRect(band)
+        p.setPen(Qt.NoPen)
+        p.setBrush(self.TAPE_BLACK)
+        stripe = thickness
+        x = -length / 2 - thickness
+        while x < length / 2 + thickness:
+            p.drawPolygon(QtGui.QPolygonF([
+                QtCore.QPointF(x, thickness / 2), QtCore.QPointF(x + stripe / 2, thickness / 2),
+                QtCore.QPointF(x + stripe / 2 + thickness, -thickness / 2), QtCore.QPointF(x + thickness, -thickness / 2)]))
+            x += stripe
+        p.restore()
 
 
 class Banner(QtWidgets.QLabel):

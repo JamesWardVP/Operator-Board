@@ -81,6 +81,9 @@ class MultiUserConfig:
     clean_history: bool = False
     # Start the server automatically when an editor or node that joins multi-user is started.
     auto_start: bool = True
+    # Move to the next session name (VP_Session -> VP_Session_2) whenever the server is stopped,
+    # and when it starts with a session of that name still on it.
+    auto_increment_session: bool = True
     extra_args: str = ""
     udp_unicast_endpoint: str = ""
     udp_static_endpoints: str = ""
@@ -109,6 +112,9 @@ class RemoteControlConfig:
     primary_target: str = ""
     # How "Load level" behaves: editor | nodes (console 'open') | relaunch (restart nDisplay nodes on the map) | all
     level_load_mode: str = "editor"
+    # Remote Control blocks remote Python, console commands and (5.8) most function calls by default.
+    # Operator Board needs them, so it allows them on the editors and nodes it launches.
+    allow_remote_features: bool = True
 
 
 @dataclass
@@ -134,6 +140,13 @@ class TakesConfig:
     description: str = ""
     auto_increment: bool = True
     record_with_take_recorder: bool = True
+    # Optional Take Preset asset (e.g. /Game/Takes/StagePreset) loaded into Take Recorder before each
+    # recording, so it always has its sources. Empty = use whatever the Take Recorder panel has.
+    take_preset: str = ""
+    # When Take Recorder has no sources, add the stage camera (the nDisplay ICVFX camera, else a cine
+    # camera in the level) and record. take_camera names a specific actor (its label) instead.
+    auto_add_camera: bool = True
+    take_camera: str = ""
     take_log_path: str = ""
 
 

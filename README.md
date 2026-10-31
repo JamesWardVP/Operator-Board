@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/logo.png" alt="Operator Board logo" width="160"></p>
+
 # Operator Board
 
 **Big, clear stage controls for Unreal Engine virtual production.**
@@ -5,7 +7,7 @@
 [![Windows build](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml/badge.svg)](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Version:** 0.2.3 · **Unreal Engine 5.2 – 5.8** · **Windows**
+**Version:** 0.3.0 · **Unreal Engine 5.2 – 5.8** · **Windows**
 
 ![Operator Board's Operate page: LED wall controls, Unreal instances, multi-user, project and level, take and camera positions](docs/images/operate.png)
 
@@ -19,7 +21,7 @@ Running an LED volume means watching many things at once: the wall, the render n
 - **Start and stop** the editor and every nDisplay node, one at a time or in groups.
 - **Run the multi-user session** and see who is connected.
 - **Change level**, toggle lighting sub-levels and **recall camera positions**.
-- **Slate and record takes**, with a take log.
+- **Slate and record takes**, with a take log, timecode and genlock status.
 - Drive it all from a **Stream Deck** or **Bitfocus Companion**.
 
 It uses the same building blocks as Switchboard: **SwitchboardListener** on each machine and the **Remote Control API** inside Unreal. It even reads and writes **Switchboard's own config files**, so the two tools can share one stage setup. Switchboard does not need to be open.
@@ -40,7 +42,7 @@ Want to try it without any hardware? Choose the **Simulator** LED processor type
 ### Operate: the whole stage on one page
 Freeze, blackout and test patterns for the wall; connect to, start and stop every Unreal instance (each machine has its own Connect / Disconnect button, and there is a Disconnect all), or a whole group; the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
 
-Blackout asks for confirmation by default, so the wall cannot be blacked out by accident (Settings > Confirm before blackout). When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
+If no LED processor is set up, or none can be reached, the LED Wall section is greyed out behind hazard tape with what to do (set up, retry, or use anyway); Operator Board checks processors when it starts and while any is offline. Blackout asks for confirmation by default, so the wall cannot be blacked out by accident (Settings > Confirm before blackout). When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
 
 ![Operate page with the WALL FROZEN banner and the Freeze button lit](docs/images/operate_frozen.png)
 
@@ -76,7 +78,7 @@ Editors and nDisplay nodes are started through SwitchboardListener (port 2980) w
 ![Devices page with editor and nDisplay nodes running, groups and the device log](docs/images/devices.png)
 
 ### Multi-user
-Start and stop the multi-user (Concert) server on this machine or on any listener machine, as a console or Slate server. Name the server and session; editors and nodes join automatically. With **Auto start multi-user** (on by default) the server is started first whenever an editor or node that joins multi-user is launched. If the server refuses clients because its session belongs to another project, Operator Board says so and how to fix it. The connected-client count and names come from the server log, and the log patterns can be changed.
+Start and stop the multi-user (Concert) server on this machine or on any listener machine, as a console or Slate server. Name the server and session; editors and nodes join automatically. With **Auto start multi-user** (on by default) the server is started first whenever an editor or node that joins multi-user is launched. Sessions are numbered: every time the server is stopped the session name moves on (VP_Session, VP_Session_2, VP_Session_3…), and if the server starts with a session of that name still on it (a server stopped by force keeps its sessions), Operator Board moves to the next free name and warns clearly that this is a new session, not the previous one. Turn off **Number sessions** in Settings > Multi-user server to keep one name. If the server refuses clients because its session belongs to another project, Operator Board says so and how to fix it. The connected-client count and names come from the server log, and the log patterns can be changed.
 
 ### Levels & Cameras
 Manage several projects and switch between them, or find `.uproject` files on disk. Levels are listed from the project's Content folder or from the editor through Remote Control. Load a level in the editor, change level on the nodes at runtime, or relaunch the nDisplay nodes on the new level. Show or hide **streaming sub-levels** (for example, lighting setups) and toggle **World Partition data layers**. **Camera positions** capture and recall the editor viewport or any camera or nDisplay root actor.
@@ -84,7 +86,7 @@ Manage several projects and switch between them, or find `.uproject` files on di
 ![Levels & Cameras page with projects and the levels in the active project](docs/images/levels.png)
 
 ### Takes
-Slate, take number and description with auto-increment. Recording drives **Take Recorder** in the primary editor, and every take goes into a persistent log with Good, Circle and NG ratings and notes. The log exports to CSV.
+Scene (slate) name, take number and description with auto-increment. Type a new scene name or jump straight to any take number on the Operate page (or use Take − / Take +); changes show straight away in the editor's Take Recorder panel. Recording drives **Take Recorder** in the primary editor, which records the **sources** set in its panel (cameras, actors and so on). Save them as a Take Preset and enter its path in Settings > Takes, and every recording uses it. If the take is empty, Operator Board adds the stage camera and records: the nDisplay setup's ICVFX camera, otherwise the cine camera in the level (or the actor named in Settings > Takes > Take camera), and says which one it added. Pressing Record plays Take Recorder's own countdown (its Countdown setting) on the Record button, and the button only switches to recording once Unreal really is recording; pressing it during the countdown cancels the take. **Save take** (Operate and Takes pages) saves a recorded take in the editor; in a multi-user session it also writes the take into the project on the editor's PC (persists it) without sending anything more to the other machines or the LED wall. While a multi-user session is running it also warns when the take's files would pass the 259-character Windows path limit (long paths off), which Unreal reports as "Unable to open a file for writing". The Take card shows the primary editor's **timecode** and the stage's **genlock** (from each machine's NVIDIA sync board through its listener, as in Switchboard, or else the editor's custom time step); either reads **No data** when there is nothing to show. Every take goes into a persistent log with Good, Circle and NG ratings and notes; the log exports to CSV.
 
 ![Takes page with the slate, the Record button and the take log](docs/images/takes.png)
 
@@ -128,7 +130,7 @@ Operator Board detects the engine version from `Engine/Build/Build.version` when
 | Feature | Needs |
 |---|---|
 | Start / stop instances, sync on nodes, analytics | SwitchboardListener running on each machine (port 2980: UDP for UE 5.4+, TCP for 5.2 – 5.3), with a password set in its window for UE 5.4+ |
-| Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`) |
+| Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`). Unreal's Remote Control blocks remote Python, console commands and (5.8) most function calls by default; Operator Board allows them on the editors and nodes **it starts** (Settings > Remote Control). For an editor started another way, enable them in Project Settings > Plugins > Remote Control > Security. |
 | Level loading, sub-levels, data layers, viewport cameras, Take Recorder | **Python Editor Script Plugin** in the editor |
 | DLSS page | NVIDIA DLSS / Streamline plugins |
 

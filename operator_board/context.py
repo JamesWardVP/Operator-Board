@@ -19,6 +19,7 @@ from operator_board.remote.dlss import DLSSService
 from operator_board.remote.levels import LevelInfo, LevelService
 from operator_board.remote.objects import ObjectService
 from operator_board.remote.takes import TakeManager
+from operator_board.remote.timing import TimingMonitor
 from operator_board.remote.targets import TargetResolver
 from operator_board.surfaces.api_server import ApiServer
 from operator_board.surfaces.controller import SurfaceController
@@ -50,6 +51,7 @@ class AppContext:
         self.objects = ObjectService(self.config, self.targets)
         self.dlss = DLSSService(self.targets)
         self.takes = TakeManager(self.config, self.bus, self.targets)
+        self.timing = TimingMonitor(self.targets, self.devices)
         self.sync = SyncManager(self.config, self.bus)
         self.metrics = MetricStore()
         self.level_cache: List[LevelInfo] = []
@@ -58,6 +60,7 @@ class AppContext:
         self.api: Optional[ApiServer] = None
         self.streamdeck = None
         self._stop = threading.Event()
+        self.bus.subscribe("multiuser.session_renamed", lambda _t, _p: self._save_quietly())
         self.bus.subscribe("device.metrics", lambda _t, p: self.metrics.add_raw(p["name"], p.get("metrics") or {}))
         self._register_actions()
 
@@ -86,9 +89,12 @@ class AppContext:
                 self.streamdeck = StreamDeckBackend(self.surface, self.bus, s.streamdeck_brightness)
                 self.streamdeck.start()
         threading.Thread(target=self._metrics_loop, daemon=True, name="metrics-poll").start()
+        threading.Thread(target=self._led_monitor, daemon=True, name="led-monitor").start()
+        self.timing.start()
 
     def shutdown(self) -> None:
         self._stop.set()
+        self.timing.stop()
         if self.api:
             self.api.stop()
         if self.streamdeck:
@@ -113,6 +119,13 @@ class AppContext:
 
     def save(self) -> str:
         return self.store.save(self.config)
+
+    def _save_quietly(self) -> None:
+        """Keep a setting changed by Operator Board itself (the next session name) across restarts."""
+        try:
+            self.save()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not save the configuration: %s", exc)
 
     # ---- stage (Switchboard config) switching ----------------------------------------------
     @property
@@ -151,6 +164,20 @@ class AppContext:
         self.devices.reload()
         self.led.reload()
         self.bus.publish("config.changed")
+
+    LED_CHECK_S = 15.0
+
+    def _led_monitor(self) -> None:
+        """Check LED processors at start-up, then while any is not confirmed reachable, so the
+        Operate page can show when the wall cannot be controlled (and clear it when it can)."""
+        first = True
+        while first or not self._stop.wait(self.LED_CHECK_S):
+            first = False
+            try:
+                if any(p.state.online is not True for p in self.led.active()):
+                    self.led.check_all()
+            except Exception:
+                log.exception("LED connection check failed")
 
     def _metrics_loop(self) -> None:
         while not self._stop.wait(max(0.5, self.config.ui.metrics_poll_s)):
@@ -306,12 +333,24 @@ class AppContext:
               params=[ActionParam("group", "Group", "choice", choices_provider=group_names)])
 
         # Multi-user
-        a.add("multiuser.start", "Start multi-user server", "Multi-User", lambda server_name="", session_name="":
-              mu.start(server_name or None, session_name or None), state=lambda: mu.running,
+        def start_mu(server_name="", session_name="") -> ActionResult:
+            mu.start(server_name or None, session_name or None)
+            if mu.session_warning:
+                return ActionResult(False, f"Multi-user server started. Warning: {mu.session_warning}")
+            return ActionResult(True, f"Multi-user server started (session '{self.config.multiuser.session_name}')")
+
+        def stop_mu() -> ActionResult:
+            mu.stop()
+            if self.config.multiuser.auto_increment_session:
+                return ActionResult(True, f"Multi-user server stopped; the next session will be "
+                                          f"'{self.config.multiuser.session_name}'")
+            return ActionResult(True, "Multi-user server stopped")
+
+        a.add("multiuser.start", "Start multi-user server", "Multi-User", start_mu, state=lambda: mu.running,
               params=[ActionParam("server_name", "Server name"), ActionParam("session_name", "Session name")])
-        a.add("multiuser.stop", "Stop multi-user server", "Multi-User", mu.stop)
+        a.add("multiuser.stop", "Stop multi-user server", "Multi-User", stop_mu)
         a.add("multiuser.toggle", "Multi-user server (toggle)", "Multi-User",
-              lambda: mu.stop() if mu.running else mu.start(), state=lambda: mu.running)
+              lambda: stop_mu() if mu.running else start_mu(), state=lambda: mu.running)
 
         # Levels & projects
         level_paths = lambda: [l.path for l in self.level_cache]
@@ -345,17 +384,36 @@ class AppContext:
         a.add("camera.capture_next", "Save current viewport as new camera", "Cameras", capture_next)
 
         # Takes
+        def start_take() -> ActionResult:
+            errors = takes.start()
+            label = f"Recording: {takes.notice}" if takes.notice else "Recording"
+            if takes.warning and not errors:
+                return ActionResult(False, f"{label}. Warning: {takes.warning}")
+            return _errors_result(label, errors)
+
+        def stop_take() -> ActionResult:
+            label = "Countdown cancelled" if takes.counting_down else "Stopped"
+            return _errors_result(label, takes.stop())
+
+        def save_take(index=None) -> ActionResult:
+            return ActionResult(True, takes.save_take(None if index in (None, "") else int(index)))
+
         a.add("takes.toggle_record", "Record (toggle)", "Takes",
-              lambda: _errors_result("Recording" if not takes.recording else "Stopped", takes.toggle()),
+              lambda: stop_take() if takes.recording else start_take(),
               state=lambda: takes.recording)
-        a.add("takes.start", "Start recording", "Takes", lambda: _errors_result("Recording", takes.start()))
-        a.add("takes.stop", "Stop recording", "Takes", lambda: _errors_result("Stopped", takes.stop()))
+        a.add("takes.start", "Start recording", "Takes", start_take)
+        a.add("takes.stop", "Stop recording", "Takes", stop_take)
+        a.add("takes.save_last", "Save last take", "Takes", save_take)
+        a.add("takes.save", "Save take", "Takes", save_take,
+              params=[ActionParam("index", "Take log row (0 = first)", "int")])
         a.add("takes.next_take", "Take +1", "Takes", lambda: takes.increment(1))
         a.add("takes.prev_take", "Take -1", "Takes", lambda: takes.increment(-1))
         a.add("takes.rate_good", "Mark last take good", "Takes", lambda: takes.rate_last("good"))
         a.add("takes.rate_ng", "Mark last take NG", "Takes", lambda: takes.rate_last("ng"))
-        a.add("takes.set_slate", "Set slate", "Takes", lambda slate: takes.set_slate(slate),
-              params=[ActionParam("slate", "Slate")])
+        a.add("takes.set_slate", "Set scene (slate)", "Takes", lambda slate: takes.set_slate(slate),
+              params=[ActionParam("slate", "Scene / slate name")])
+        a.add("takes.set_take", "Set take number", "Takes", lambda take: takes.set_take(int(take)),
+              params=[ActionParam("take", "Take number", "int")])
 
         # DLSS
         a.add("dlss.set", "Set DLSS option", "DLSS",

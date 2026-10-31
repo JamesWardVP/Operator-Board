@@ -37,19 +37,27 @@ class SettingsPage(BasePage):
                 labels={"host": "Run server on", "use_slate_server": "Use Slate (GUI) server",
                         "auto_start": "Auto start multi-user (start the server before Unreal)",
                         "clean_history": "Clean history (forget saved sessions on next start)",
+                        "auto_increment_session": "Number sessions (next session name after every stop, "
+                                                  "and when the name is still on the server)",
                         "client_join_pattern": "Client joined log pattern (regex)",
                         "client_leave_pattern": "Client left log pattern (regex)"})
         section("Remote Control", cfg.remote_control, choices={
             "primary_target": editors,
             "level_load_mode": ["editor", "nodes", "relaunch", "all"]},
-            labels={"primary_target": "Primary editor", "timeout_s": "Request timeout (s)"})
+            labels={"primary_target": "Primary editor", "timeout_s": "Request timeout (s)",
+                    "allow_remote_features": "Allow Take Recorder, levels and cameras on launched instances "
+                                             "(remote Python and console commands)"})
         section("Control surfaces & API", cfg.surfaces,
                 labels={"api_bind": "API bind address (0.0.0.0 = all networks)", "api_token": "API token (optional)",
                         "layout_path": "Surface layout file"}, browse={"layout_path": "file"})
         section("Operator interface", cfg.ui, labels={"metrics_poll_s": "Metrics poll interval (s)",
                                                       "confirm_blackout": "Confirm before blackout",
                                                       "confirm_stop_all": "Confirm before Stop all"})
-        section("Takes", cfg.takes, browse={"take_log_path": "file"})
+        section("Takes", cfg.takes, browse={"take_log_path": "file"},
+                labels={"take_preset": "Take preset (optional asset path, e.g. /Game/Takes/StagePreset)",
+                        "auto_add_camera": "If the take is empty, add the stage camera and record",
+                        "take_camera": "Take camera (optional actor name; default: nDisplay ICVFX / cine camera)",
+                        "record_with_take_recorder": "Record with Take Recorder in the primary editor"})
 
         save = QtWidgets.QPushButton("Save settings")
         save.setMinimumHeight(44)

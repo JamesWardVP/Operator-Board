@@ -1,10 +1,16 @@
 """Main operator dashboard: LED wall, Unreal instances, multi-user, level, takes and cameras at a glance."""
 from __future__ import annotations
 
-from operator_board.qt import QtCore, QtWidgets, Qt
+from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
-from operator_board.ui.widgets import Banner, BigButton, Card, StateDot, clear_layout, hbox, muted, scroll
+from operator_board.ui.widgets import (Banner, BigButton, Card, HazardOverlay, RecordButton, StateDot, clear_layout,
+                                       hbox, muted, scroll)
+
+
+def _restyle(label: QtWidgets.QLabel, css: str) -> None:
+    if label.styleSheet() != css:  # restyling re-polishes the widget; the timing labels update 10x a second
+        label.setStyleSheet(css)
 
 
 class DeviceTile(QtWidgets.QFrame):
@@ -87,6 +93,11 @@ class OperatePage(BasePage):
         self.proc_row = QtWidgets.QHBoxLayout()
         wall.add_layout(self.proc_row)
         grid.addWidget(wall, 1, 0, 1, 3)
+        self.wall_controls = [self.freeze_btn, self.blackout_btn, self.normal_btn, self.pattern_combo,
+                              self.pattern_btn, self.pattern_off_btn]
+        self.wall_overlay = HazardOverlay(wall)
+        self._wall_state = None      # None (usable), "none" (no processor) or "offline:<names>"
+        self._wall_dismissed = None  # a state the operator chose to "use anyway"
 
         # --- Unreal instances ---------------------------------------------------
         inst = Card("Unreal Instances")
@@ -136,6 +147,11 @@ class OperatePage(BasePage):
         mu.add_layout(hbox(self.mu_count, muted("connected clients"), None))
         self.mu_clients = muted("")
         mu.add(self.mu_clients)
+        self.mu_warning = QtWidgets.QLabel()
+        self.mu_warning.setWordWrap(True)
+        self.mu_warning.setStyleSheet(f"color: {COLORS['warn']}; font-weight: 600;")
+        self.mu_warning.hide()
+        mu.add(self.mu_warning)
         mu.layout_.addStretch(1)
         grid.addWidget(mu, 2, 2)
 
@@ -163,16 +179,56 @@ class OperatePage(BasePage):
         takes = Card("Take")
         self.take_label = QtWidgets.QLabel("")
         self.take_label.setObjectName("Big")
-        self.rec_btn = BigButton("● RECORD", COLORS["err"], height=60)
+        self.rec_btn = RecordButton(ctx.takes.countdown_remaining, height=60)
         self.rec_btn.clicked.connect(lambda: self.invoke("takes.toggle_record"))
+        self.save_take_btn = QtWidgets.QPushButton("Save last take")
+        self.save_take_btn.setToolTip("Save the last recorded take in the editor. In a multi-user session it is also "
+                                      "written into the project on the editor's PC, without sending anything more "
+                                      "to the other machines or the wall.")
+        self.save_take_btn.clicked.connect(lambda: self.invoke("takes.save_last"))
+        self.scene_edit = QtWidgets.QLineEdit()
+        self.scene_edit.setPlaceholderText("Scene name")
+        self.scene_edit.setToolTip("Scene (slate) name. Press Enter to apply; a new scene starts at its next "
+                                   "unused take.")
+        self.scene_edit.editingFinished.connect(self._scene_changed)
+        self.take_edit = QtWidgets.QLineEdit()  # not a QSpinBox: styled spin boxes clip their text
+        self.take_edit.setValidator(QtGui.QIntValidator(1, 9999, self.take_edit))
+        self.take_edit.setAlignment(Qt.AlignCenter)
+        self.take_edit.setToolTip("Take number: type any number and press Enter")
+        self.take_edit.editingFinished.connect(self._take_changed)
         minus = QtWidgets.QPushButton("Take −")
         plus = QtWidgets.QPushButton("Take +")
         minus.clicked.connect(lambda: self.invoke("takes.prev_take"))
         plus.clicked.connect(lambda: self.invoke("takes.next_take"))
+        self.take_controls = [self.scene_edit, self.take_edit, minus, plus]
         takes.add(self.take_label)
-        takes.add_layout(hbox(minus, plus))
+        scene_row = hbox(QtWidgets.QLabel("Scene"), self.scene_edit)
+        scene_row.setStretch(1, 1)
+        takes.add_layout(scene_row)
+        take_row = hbox(minus, self.take_edit, plus)
+        for i in range(3):
+            take_row.setStretch(i, 1)
+        takes.add_layout(take_row)
         takes.add(self.rec_btn)
+        takes.add(self.save_take_btn)
+        # Timecode from the primary editor and genlock from the listeners; "No data" when unknown.
+        self.tc_value = QtWidgets.QLabel()
+        self.tc_value.setObjectName("Timecode")
+        self.tc_value.setToolTip("The primary editor's engine timecode (read over Remote Control every second)")
+        self.tc_rate = muted("")
+        self.genlock_value = QtWidgets.QLabel()
+        self.genlock_value.setWordWrap(True)
+        self.genlock_value.setToolTip("Genlock from each running machine's NVIDIA sync board (as Switchboard shows "
+                                      "it), else the editor's custom time step")
+        timing = QtWidgets.QFormLayout()
+        timing.addRow("Timecode", hbox(self.tc_value, self.tc_rate, None))
+        timing.addRow("Genlock", self.genlock_value)
+        takes.add_layout(timing)
         grid.addWidget(takes, 4, 0)
+        self._timing_timer = QtCore.QTimer(self)
+        self._timing_timer.timeout.connect(self._update_timing)
+        self._timing_timer.start(100)
+        self._update_timing()
 
         # --- Cameras --------------------------------------------------------------
         cams = Card("Camera Positions")
@@ -195,6 +251,68 @@ class OperatePage(BasePage):
             self.invoke("multiuser.start", server_name=self.mu_server.text().strip(),
                         session_name=self.mu_session.text().strip())
 
+    # ---- LED wall availability ------------------------------------------------------
+    def _wall_unavailable(self):
+        """None if the wall controls can be used, else a state key for the overlay."""
+        active = self.ctx.led.active()
+        if not active:
+            return "none"
+        if all(p.state.online is False for p in active):
+            return "offline:" + ", ".join(p.name for p in active)
+        return None
+
+    def _update_wall_overlay(self) -> None:
+        state = self._wall_unavailable()
+        if state == self._wall_state:
+            return
+        self._wall_state = state
+        blocked = state is not None and state != self._wall_dismissed
+        for control in self.wall_controls:
+            control.setEnabled(not blocked)
+        if not blocked:
+            self.wall_overlay.hide()
+            return
+        setup = ("Set up LED processors", self._open_led_setup)
+        if state == "none":
+            self.wall_overlay.show_message(
+                "LED WALL CONTROL UNAVAILABLE",
+                "No LED processor is set up. Add your processor (type and IP address) to use Freeze, "
+                "Blackout and test patterns from here.", [setup])
+        else:
+            names = state.split(":", 1)[1]
+            self.wall_overlay.show_message(
+                "LED PROCESSORS NOT CONNECTED",
+                f"{names} could not be reached. Check the network and the IP address and port.",
+                [("Retry connection", self._retry_led), setup, ("Use anyway", self._use_wall_anyway)])
+
+    def _open_led_setup(self) -> None:
+        titles = [p.title for p in self.window_.pages]
+        if "LED Processors" in titles:
+            self.window_.nav.setCurrentRow(titles.index("LED Processors"))
+
+    def _retry_led(self) -> None:
+        self.background(self.ctx.led.check_all, lambda _r: self.refresh(), "LED connection check")
+
+    def _use_wall_anyway(self) -> None:
+        """Lift the overlay for this state; it comes back if the state changes."""
+        self._wall_dismissed = self._wall_state
+        self._wall_state = "dismissed"  # force the next update to re-evaluate
+        self._update_wall_overlay()
+
+    def _scene_changed(self) -> None:
+        name = self.scene_edit.text().strip()
+        if not name:
+            self.scene_edit.setText(self.ctx.config.takes.slate)
+        elif name != self.ctx.config.takes.slate:
+            self.invoke("takes.set_slate", done=lambda _r: self.save_config(), slate=name)
+
+    def _take_changed(self) -> None:
+        text = self.take_edit.text().strip()
+        if not text.isdigit() or int(text) < 1:
+            self.take_edit.setText(str(self.ctx.config.takes.take))
+        elif int(text) != self.ctx.config.takes.take:
+            self.invoke("takes.set_take", done=lambda _r: self.save_config(), take=int(text))
+
     def _auto_mu_changed(self, on: bool) -> None:
         if self.ctx.config.multiuser.auto_start != on:
             self.ctx.config.multiuser.auto_start = on
@@ -213,6 +331,37 @@ class OperatePage(BasePage):
             self.ctx.selected_level = index
 
     # ---- refresh -----------------------------------------------------------------
+    NO_DATA = "No data"
+
+    def on_event(self, topic: str, payload) -> None:
+        super().on_event(topic, payload)
+        if topic == "multiuser.session_renamed" and payload.get("reason") == "exists":
+            # Hard to miss on purpose: the operator may expect the previous session's work to be there.
+            box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, "New multi-user session",
+                                        payload.get("warning") or "", QtWidgets.QMessageBox.Ok, self)
+            box.setInformativeText("Editors and nDisplay nodes started now join the new session. To carry on in "
+                                   "the old one instead, type its name in the Session box and turn off "
+                                   "'Number sessions' in Settings > Multi-user server.")
+            box.setAttribute(Qt.WA_DeleteOnClose)
+            box.open()
+
+    def _update_timing(self) -> None:
+        if not self.isVisible() and self.tc_value.text():
+            return
+        tc = self.ctx.timing.timecode()
+        recording = self.ctx.takes.recording
+        self.tc_value.setText(tc or self.NO_DATA)
+        self.tc_rate.setText(self.ctx.timing.rate_text() if tc else "")
+        if tc is None:
+            _restyle(self.tc_value, f"color: {COLORS['muted']};")
+        else:
+            _restyle(self.tc_value, f"color: {COLORS['err'] if recording else COLORS['text']}; font-size: 22px; "
+                                    "font-weight: 700; font-family: Consolas, 'Courier New', monospace;")
+        text, ok = self.ctx.timing.genlock()
+        colour = COLORS["muted"] if text is None else {True: COLORS["ok"], False: COLORS["err"]}.get(ok, COLORS["warn"])
+        self.genlock_value.setText(text or self.NO_DATA)
+        _restyle(self.genlock_value, f"color: {colour}; font-weight: {600 if text else 400};")
+
     def refresh(self) -> None:
         led = self.ctx.led
         self.freeze_btn.set_active(led.frozen)
@@ -251,6 +400,7 @@ class OperatePage(BasePage):
                                                              "#2f9e44" if st.online else "#3d8bfd")
             chip.setStyleSheet(f"background: {color}; border-radius: 10px; padding: 4px; color: white;")
             chip.setToolTip(st.last_error or st.last_command or "No commands sent yet")
+        self._update_wall_overlay()
 
         # devices & groups
         devices = self.ctx.devices.devices()
@@ -302,6 +452,8 @@ class OperatePage(BasePage):
             self.mu_clients.setText(", ".join(mu.clients) or mu.last_error or "Waiting for clients to join")
         else:
             self.mu_clients.setText(mu.last_error or "Server not running")
+        self.mu_warning.setText(f"⚠ {mu.session_warning}" if mu.session_warning else "")
+        self.mu_warning.setVisible(bool(mu.session_warning))
 
         # project & levels
         projects = [p.name for p in self.ctx.config.projects]
@@ -326,8 +478,17 @@ class OperatePage(BasePage):
         # takes
         t = self.ctx.config.takes
         self.take_label.setText(f"{t.slate}  ·  T{t.take:03d}")
-        self.rec_btn.setText("■ STOP" if self.ctx.takes.recording else "● RECORD")
-        self.rec_btn.set_active(self.ctx.takes.recording)
+        if not self.scene_edit.hasFocus() and self.scene_edit.text() != t.slate:
+            self.scene_edit.setText(t.slate)
+        if not self.take_edit.hasFocus() and self.take_edit.text() != str(t.take):
+            self.take_edit.setText(str(t.take))
+        for control in self.take_controls:  # no renaming or renumbering mid-take
+            control.setEnabled(not self.ctx.takes.recording)
+        self.rec_btn.show_state(self.ctx.takes.recording, self.ctx.takes.counting_down)
+        last = self.ctx.takes.log.takes[-1] if self.ctx.takes.log.takes else None
+        self.save_take_btn.setEnabled(last is not None and not self.ctx.takes.recording
+                                      and self.ctx.config.takes.record_with_take_recorder)
+        self.save_take_btn.setText(f"Save last take ({last.slate} T{last.take:03d})" if last else "Save last take")
 
         # cameras
         if self._changed("cameras", [c.name for c in self.ctx.config.cameras]):

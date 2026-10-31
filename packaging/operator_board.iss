@@ -34,6 +34,9 @@ PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=operator_board.ico
+; The wizard's pictures: the black-and-white logo (packaging/make_icon.py), not Inno Setup's own.
+WizardImageFile=wizard_image_0.bmp,wizard_image_1.bmp,wizard_image_2.bmp
+WizardSmallImageFile=wizard_small_0.bmp,wizard_small_1.bmp,wizard_small_2.bmp
 UninstallDisplayIcon={app}\OperatorBoard.exe
 UninstallDisplayName=Operator Board
 WizardStyle=modern

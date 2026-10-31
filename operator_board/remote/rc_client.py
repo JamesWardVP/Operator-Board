@@ -19,6 +19,16 @@ class RemoteControlError(Exception):
     pass
 
 
+# Remote Control's own refusals -> what to do about them.
+_BLOCKED = ("cannot be accessed remotely", "is not allowed by remote control settings",
+            "Executing console commands remotely is not enabled")
+BLOCKED_HELP = ("Unreal's Remote Control settings blocked this. Instances started from Operator Board allow it "
+                "automatically (Settings > Remote Control). For an editor started another way, enable "
+                "'Enable Remote Python Execution', 'Allow Console Command Remote Execution' and (UE 5.8) "
+                "'Allow Any Remote Function Call' in Project Settings > Plugins > Remote Control > Security "
+                "(tick 'Restrict Server Access' first to make the first two editable), then restart the editor.")
+
+
 class RemoteControlClient:
     def __init__(self, host: str, port: int = 30010, timeout: float = 3.0) -> None:
         self.host = host
@@ -38,6 +48,8 @@ class RemoteControlClient:
                 text = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            if any(marker in detail for marker in _BLOCKED):
+                raise RemoteControlError(f"{BLOCKED_HELP} (Unreal said: {detail.strip()[:200]})") from exc
             raise RemoteControlError(f"{method} {path} -> HTTP {exc.code} {detail[:300]}") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise RemoteControlError(f"Remote Control unreachable at {self.base_url}: {exc}") from exc
@@ -127,9 +139,13 @@ class RemoteControlClient:
             text = str(entry.get("Output", "")) if isinstance(entry, dict) else str(entry)
             if text.startswith(RESULT_MARKER):
                 try:
-                    return json.loads(text[len(RESULT_MARKER):])
+                    value = json.loads(text[len(RESULT_MARKER):])
                 except ValueError:
                     return text[len(RESULT_MARKER):]
+                # python_result_wrapper turns an exception inside Unreal into {'error': ...}
+                if isinstance(value, dict) and set(value) == {"error"}:
+                    raise RemoteControlError(str(value["error"]))
+                return value
         return result.get("CommandResult")
 
 

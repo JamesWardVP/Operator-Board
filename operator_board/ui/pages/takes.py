@@ -5,8 +5,7 @@ import time
 
 from operator_board.qt import QtWidgets
 from operator_board.ui.pages.base import BasePage
-from operator_board.ui.theme import COLORS
-from operator_board.ui.widgets import BigButton, Card, hbox, make_table, muted, set_row
+from operator_board.ui.widgets import Card, RecordButton, hbox, make_table, muted, set_row
 
 RATINGS = [("", ""), ("Good", "good"), ("Circle", "circle"), ("NG", "ng")]
 
@@ -46,14 +45,15 @@ class TakesPage(BasePage):
         ctl.add(self.big)
         self.timer_label = muted("")
         ctl.add(self.timer_label)
-        self.rec = BigButton("● RECORD", COLORS["err"], height=100)
+        self.rec = RecordButton(ctx.takes.countdown_remaining, height=100)
         self.rec.clicked.connect(self._record)
         ctl.add(self.rec)
         ctl.layout_.addStretch(1)
         lay.addWidget(ctl, 1)
 
         logc = Card("Take log")
-        self.table = make_table(["Slate", "Take", "Description", "Level", "Start", "Duration", "Rating", "Notes"])
+        self.table = make_table(["Slate", "Take", "Description", "Level", "Start", "Duration", "Rating", "Notes",
+                                 "Saved"])
         logc.add(self.table)
         self.rating = QtWidgets.QComboBox()
         for label, value in RATINGS:
@@ -64,7 +64,11 @@ class TakesPage(BasePage):
         rate.clicked.connect(self._rate)
         export = QtWidgets.QPushButton("Export CSV…")
         export.clicked.connect(self._export)
-        logc.add_layout(hbox(self.rating, self.notes, rate, export))
+        self.save_btn = QtWidgets.QPushButton("Save take")
+        self.save_btn.setToolTip("Save the selected take (or the last one) in the editor; in a multi-user session also "
+                                 "write it into the project on the editor's PC")
+        self.save_btn.clicked.connect(self._save_take)
+        logc.add_layout(hbox(self.rating, self.notes, rate, self.save_btn, export))
         logc.add(muted(f"Take log is saved automatically to {ctx.takes.log_path}"))
         lay.addWidget(logc, 2)
 
@@ -90,6 +94,14 @@ class TakesPage(BasePage):
         for r in rows:
             self.ctx.takes.rate(r, self.rating.currentData(), self.notes.text())
 
+    def _save_take(self) -> None:
+        rows = sorted({i.row() for i in self.table.selectedIndexes()})
+        if rows:
+            for r in rows:
+                self.invoke("takes.save", index=r)
+        else:
+            self.invoke("takes.save_last")
+
     def _export(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export take log", "take_log.csv", "CSV (*.csv)")
         if path:
@@ -98,7 +110,10 @@ class TakesPage(BasePage):
 
     def _tick(self) -> None:
         cur = self.ctx.takes.current
-        self.timer_label.setText(f"Recording {time.time() - cur.started:,.0f}s" if cur else "")
+        if self.ctx.takes.counting_down:
+            self.timer_label.setText("Take Recorder countdown…")
+        else:
+            self.timer_label.setText(f"Recording {time.time() - cur.started:,.0f}s" if cur else "")
 
     def refresh(self) -> None:
         s = self.ctx.config.takes
@@ -106,12 +121,11 @@ class TakesPage(BasePage):
         if not self.slate.hasFocus():
             self.slate.setText(s.slate)
         self.big.setText(f"{s.slate} · T{s.take:03d}")
-        rec = self.ctx.takes.recording
-        self.rec.setText("■ STOP" if rec else "● RECORD")
-        self.rec.set_active(rec)
+        self.rec.show_state(self.ctx.takes.recording, self.ctx.takes.counting_down)
         self.table.setRowCount(0)
         for i, t in enumerate(self.ctx.takes.log.takes):
             set_row(self.table, i, [t.slate, t.take, t.description, t.level.split("/")[-1],
                                     time.strftime("%H:%M:%S", time.localtime(t.started)) if t.started else "",
-                                    f"{t.duration_s:.1f}s", t.rating, t.notes])
+                                    f"{t.duration_s:.1f}s", t.rating, t.notes,
+                                    {"persisted": "Saved to project", "saved": "Saved"}.get(t.saved, "")])
         self.table.scrollToBottom()

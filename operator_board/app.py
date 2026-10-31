@@ -61,7 +61,10 @@ def main(argv=None) -> int:
     from operator_board.ui.main_window import MainWindow
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Operator Board")
-    app.setWindowIcon(QtGui.QIcon(os.path.join(os.path.dirname(__file__), "ui", "icon.png")))
+    icon = QtGui.QIcon()
+    for name in ("icon_small.png", "icon.png"):  # small sizes: the logo on a white tile, for readability
+        icon.addFile(os.path.join(os.path.dirname(__file__), "ui", name))
+    app.setWindowIcon(icon)
     window = MainWindow(ctx)
     window.show()
     return exec_(app)

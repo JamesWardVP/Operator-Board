@@ -152,20 +152,166 @@ result = {{'actors': out}}
 """
 
 
+# Multi-user copies every recorded package into a sandbox deep under Intermediate/Concert. With
+# Windows long paths off, a path over 259 characters fails there with "ConcertSyncSessionDatabase:
+# Unable to open a file for writing". Estimate the longest one (the take's subscene files) first.
+LONG_PATH_CHECK = r"""
+def _long_path_warning(panel, slate, take):
+    import os
+    cmd = unreal.SystemLibrary.get_command_line().upper()
+    if '-CONCERTAUTOCONNECT' not in cmd and '-CONCERTSESSION' not in cmd:
+        return ''
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\FileSystem')
+        if winreg.QueryValueEx(key, 'LongPathsEnabled')[0]:
+            return ''
+    except OSError:
+        pass
+    project = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()).rstrip('/')
+    name = os.path.basename(project)
+    st = unreal.get_default_object(unreal.TakeRecorderProjectSettings).get_editor_property('settings')
+    root = str(st.get_editor_property('root_take_save_dir').get_editor_property('path')).strip('/')
+    take_dir = str(st.get_editor_property('take_save_dir'))
+    now = __import__('datetime').date.today()
+    for token, value in (('{year}', '%04d' % now.year), ('{month}', '%02d' % now.month), ('{day}', '%02d' % now.day),
+                         ('{slate}', slate), ('{take}', '%02d' % take)):
+        take_dir = take_dir.replace(token, value)
+    if root.startswith('Game/'):
+        root = root[5:]
+    labels = [s.get_editor_property('target').get_actor_label() for s in panel.get_sources().get_sources_copy()
+              if hasattr(s, 'get_editor_property') and s.get_editor_property('target') is not None] or ['CineCameraActor1']
+    leaf = take_dir.split('/')[-1]
+    sub = '%s_temp_Subscenes/%s_%s_temp.uasset' % (leaf, max(labels, key=len), leaf)
+    path = '/'.join([project, 'Intermediate/Concert/MultiUser', 'X' * 32, 'X' * 32, 'Sandbox/Sandbox', name,
+                     'Content', root, take_dir.rsplit('/', 1)[0], sub])
+    if len(path) <= 259:
+        return ''
+    return ("this take's multi-user copy needs paths of about %d characters, over the Windows limit of 259, "
+            'and long paths are off on this PC, so Unreal may report "Unable to open a file for writing" and '
+            'leave the take out of the session. Turn on Windows long paths (an administrator setting) and restart '
+            'Unreal, or use a shorter project folder or take path.' % len(path))
+"""
+
+
 def take_recorder_start(slate: str, take: int, description: str) -> str:
+    # A panel that was only just opened has no take data until the editor has ticked
+    # (UE 5.8), so report 'retry' and let the caller call again a moment later.
+    return LONG_PATH_CHECK + f"""
+lib = unreal.TakeRecorderBlueprintLibrary
+panel = lib.get_take_recorder_panel()
+if panel is None:
+    lib.open_take_recorder_panel()
+    panel = lib.get_take_recorder_panel()
+md = panel.get_take_meta_data() if panel is not None else None
+if md is None:
+    result = {{'ok': False, 'retry': True}}
+else:
+    md.set_slate({_lit(slate)})
+    md.set_take_number({int(take)})
+    if hasattr(md, 'set_description'):
+        md.set_description({_lit(description)})
+    warning = ''
+    try:
+        warning = _long_path_warning(panel, {_lit(slate)}, {int(take)})
+    except Exception:
+        pass
+    countdown = 0.0
+    try:
+        countdown = float(unreal.get_default_object(unreal.TakeRecorderUserSettings).get_editor_property('settings')
+                          .get_editor_property('countdown_seconds'))
+    except Exception:
+        pass
+    panel.start_recording()
+    result = {{'ok': True, 'warning': warning, 'countdown': countdown}}
+"""
+
+
+def take_recorder_apply_preset(asset_path: str) -> str:
+    """Load a Take Preset (its sources and settings) into the Take Recorder panel."""
     return f"""
 lib = unreal.TakeRecorderBlueprintLibrary
 panel = lib.get_take_recorder_panel()
 if panel is None:
     lib.open_take_recorder_panel()
     panel = lib.get_take_recorder_panel()
-md = panel.get_take_meta_data()
-md.set_slate({_lit(slate)})
-md.set_take_number({int(take)})
-if hasattr(md, 'set_description'):
-    md.set_description({_lit(description)})
-panel.start_recording()
+preset = unreal.load_asset({_lit(asset_path)})
+if preset is None:
+    raise RuntimeError('Take Preset not found: ' + {_lit(asset_path)})
+panel.setup_for_recording_take_preset(preset)
 result = {{'ok': True}}
+"""
+
+
+def take_recorder_add_camera(preferred_label: str = "") -> str:
+    """Add the stage camera as a Take Recorder source and say which actor it was.
+
+    Choice, first match wins: the actor labelled ``preferred_label``; the external CineCameraActor
+    of an nDisplay ICVFX camera; the nDisplay root actor holding an ICVFX camera (records the
+    component); a CineCameraActor in the level (one with "main" in its label, else the first by
+    label); the nDisplay root actor itself (its viewpoint).
+    """
+    return f"""
+lib = unreal.TakeRecorderBlueprintLibrary
+panel = lib.get_take_recorder_panel()
+if panel is None:
+    lib.open_take_recorder_panel()
+    panel = lib.get_take_recorder_panel()
+actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+preferred = {_lit(preferred_label)}
+roots = [a for a in actors if isinstance(a, unreal.DisplayClusterRootActor)]
+cines = sorted((a for a in actors if isinstance(a, unreal.CineCameraActor)), key=lambda a: a.get_actor_label())
+chosen, why = None, ''
+if preferred:
+    chosen = next((a for a in actors if a.get_actor_label() == preferred), None)
+    if chosen is None:
+        raise RuntimeError('Take camera not found in the level: ' + preferred)
+    why = 'the take camera set in Operator Board'
+icvfx = []
+for a in actors:  # any actor: nDisplay roots, and Blueprints that carry an ICVFX camera component
+    try:
+        icvfx.extend((a, c) for c in a.get_components_by_class(unreal.DisplayClusterICVFXCameraComponent))
+    except Exception:
+        pass
+for root, comp in icvfx:
+    if chosen is not None:
+        break
+    ext = None
+    try:
+        ext = comp.get_editor_property('camera_settings').get_editor_property('external_camera_actor')
+        if ext is not None and not isinstance(ext, unreal.Actor) and hasattr(ext, 'get'):
+            ext = ext.get()  # a soft reference
+    except Exception:
+        pass
+    if isinstance(ext, unreal.Actor):
+        chosen, why = ext, 'the ICVFX camera of ' + root.get_actor_label()
+    else:
+        chosen, why = root, 'it holds the ICVFX camera ' + comp.get_name()
+if chosen is None and cines:
+    chosen = next((c for c in cines if 'main' in c.get_actor_label().lower()), cines[0])
+    why = 'the cine camera in the level' if len(cines) == 1 else 'one of %d cine cameras in the level' % len(cines)
+if chosen is None and roots:
+    chosen, why = roots[0], 'the nDisplay setup (its viewpoint)'
+if chosen is None:
+    raise RuntimeError('no nDisplay setup or cine camera found in the level to record')
+unreal.TakeRecorderActorSource.add_source_for_actor(chosen, panel.get_sources())
+result = {{'added': chosen.get_actor_label(), 'why': why}}
+"""
+
+
+def take_recorder_set_metadata(slate: str, take: int, description: str) -> str:
+    """Show Operator Board's slate / take in the Take Recorder panel, if it is open (never opens it)."""
+    return f"""
+panel = unreal.TakeRecorderBlueprintLibrary.get_take_recorder_panel()
+md = panel.get_take_meta_data() if panel is not None else None
+if md is None or unreal.TakeRecorderBlueprintLibrary.is_recording():
+    result = {{'synced': False}}
+else:
+    md.set_slate({_lit(slate)})
+    md.set_take_number({int(take)})
+    if hasattr(md, 'set_description'):
+        md.set_description({_lit(description)})
+    result = {{'synced': True}}
 """
 
 
@@ -182,4 +328,88 @@ result = {'ok': True}
 
 
 def take_recorder_status() -> str:
-    return "result = {'recording': bool(unreal.TakeRecorderBlueprintLibrary.is_recording())}\n"
+    """Where the recorder is: 'counting_down' (with the seconds left), 'starting', 'recording',
+    'stopped', 'cancelled' or 'idle' (no recorder)."""
+    return """
+lib = unreal.TakeRecorderBlueprintLibrary
+rec = lib.get_active_recorder()
+phase, left = 'idle', 0.0
+if rec is not None:
+    st = rec.get_state()
+    names = {'COUNTING_DOWN': 'counting_down', 'PRE_INITIALIZATION': 'starting', 'PRE_RECORD': 'starting',
+             'TICKING_AFTER_PRE': 'starting', 'STARTED': 'recording', 'STOPPED': 'stopped', 'CANCELLED': 'cancelled'}
+    phase = next((v for k, v in names.items() if getattr(unreal.TakeRecorderState, k, None) == st), 'starting')
+    left = float(rec.get_countdown_seconds())
+result = {'phase': phase, 'countdown': left, 'recording': bool(lib.is_recording())}
+"""
+
+
+def take_recorder_last_sequence() -> str:
+    return """
+lib = unreal.TakeRecorderBlueprintLibrary
+panel = lib.get_take_recorder_panel()
+seq = panel.get_last_recorded_level_sequence() if panel is not None else None
+result = {'sequence': seq.get_path_name() if seq is not None else '', 'recording': bool(lib.is_recording())}
+"""
+
+
+def take_recorder_cancel() -> str:
+    return "unreal.TakeRecorderBlueprintLibrary.cancel_recording()\nresult = {'ok': True}\n"
+
+
+def take_recorder_save(sequence_path: str = "") -> str:
+    """Save a recorded take: its level sequence and the subscenes recorded with it.
+
+    Only unsaved packages are written (Take Recorder normally saves when it stops). In a multi-user
+    session a save goes to the session, so every client, nDisplay nodes included, receives it; the
+    take is then *persisted*: written into this machine's real project files, which sends nothing
+    to the other clients and leaves the wall alone.
+    """
+    return f"""
+path = {_lit(sequence_path)}
+seq = unreal.load_asset(path) if path else None
+if seq is None and not path:
+    panel = unreal.TakeRecorderBlueprintLibrary.get_take_recorder_panel()
+    seq = panel.get_last_recorded_level_sequence() if panel is not None else None
+if seq is None:
+    raise RuntimeError('Recorded take not found in the editor' + (': ' + path if path else ''))
+if unreal.TakeRecorderBlueprintLibrary.is_recording():
+    raise RuntimeError('Stop recording before saving the take')
+package = seq.get_outermost().get_name()
+folder = package.rsplit('/', 1)[0]
+assets = [a for a in unreal.EditorAssetLibrary.list_assets(folder, True, False)
+          if a.split('.')[0] == package or a.startswith(package + '_')]
+unsaved = [a for a in assets if not unreal.EditorAssetLibrary.save_asset(a, True)]
+packages = sorted({{a.split('.')[0] for a in assets}})
+mu = getattr(unreal, 'MultiUserClientStatics', None) or getattr(unreal, 'MultiUserClientLibrary', None)
+in_session = False
+if mu is not None:
+    try:
+        status = str(mu.get_multi_user_connection_status_detail()).upper()
+        in_session = 'CONNECTED' in status and 'DISCONNECTED' not in status
+    except Exception:
+        pass
+persisted = []
+if in_session:
+    changed = set(str(p) for p in mu.gather_session_changes(True))
+    persisted = [p for p in packages if p in changed]
+    if persisted:
+        mu.persist_specified_packages([unreal.Name(p) for p in persisted])
+result = {{'sequence': seq.get_path_name(), 'packages': packages, 'unsaved': unsaved,
+          'multi_user': in_session, 'persisted': persisted}}
+"""
+
+
+def editor_timing() -> str:
+    """The engine timecode and custom time step (the editor's genlock setting), read every second."""
+    return """
+lib = getattr(unreal, 'TimeManagementLibrary', None) or unreal.TimeManagementBlueprintLibrary
+tc = lib.get_timecode()
+fr = lib.get_timecode_frame_rate()
+ts = lib.get_engine_custom_time_step()
+ts_fr = lib.get_custom_time_step_frame_rate() if ts is not None else None
+result = {'timecode': [tc.hours, tc.minutes, tc.seconds, tc.frames], 'drop_frame': bool(tc.drop_frame_format),
+          'rate': [fr.numerator, fr.denominator],
+          'time_step': ts.get_class().get_name().replace('CustomTimeStep', '') if ts is not None else '',
+          'time_step_fps': (ts_fr.numerator / ts_fr.denominator) if ts_fr is not None and ts_fr.denominator else 0}
+"""

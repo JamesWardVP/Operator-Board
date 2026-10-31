@@ -54,10 +54,7 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         side = QtWidgets.QVBoxLayout()
-        brand = QtWidgets.QLabel("OPERATOR\nBOARD")
-        brand.setStyleSheet(f"background: {COLORS['panel']}; font-size: 20px; font-weight: 900; padding: 16px;"
-                            f" color: {COLORS['accent']}; letter-spacing: 2px;")
-        side.addWidget(brand)
+        side.addWidget(self._brand())
         self.nav = QtWidgets.QListWidget()
         self.nav.setObjectName("Nav")
         self.nav.setFixedWidth(210)
@@ -106,6 +103,31 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.ctx.switchboard_config:
             title += f"  [Switchboard: {os.path.splitext(os.path.basename(self.ctx.switchboard_config))[0]}]"
         self.setWindowTitle(title)
+
+    LOGO_COLOUR = "#00d5ff"  # the logo's own cyan
+
+    def _brand(self) -> QtWidgets.QWidget:
+        """The logo and the name at the top of the sidebar."""
+        brand = QtWidgets.QWidget()
+        brand.setObjectName("Brand")
+        brand.setAttribute(Qt.WA_StyledBackground, True)
+        brand.setStyleSheet(f"QWidget#Brand {{ background: {COLORS['panel']}; }}")
+        row = QtWidgets.QHBoxLayout(brand)
+        row.setContentsMargins(14, 14, 12, 12)
+        row.setSpacing(10)
+        logo = QtWidgets.QLabel()
+        pix = QtGui.QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
+        if not pix.isNull():
+            ratio = self.devicePixelRatioF()
+            pix = pix.scaled(round(54 * ratio), round(54 * ratio), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pix.setDevicePixelRatio(ratio)
+            logo.setPixmap(pix)
+        logo.setFixedSize(54, 54)
+        name = QtWidgets.QLabel("OPERATOR\nBOARD")
+        name.setStyleSheet(f"font-size: 18px; font-weight: 900; color: {self.LOGO_COLOUR}; letter-spacing: 2px;")
+        row.addWidget(logo)
+        row.addWidget(name, 1)
+        return brand
 
     def current_page(self):
         index = self.stack.currentIndex()
