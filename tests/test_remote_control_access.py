@@ -202,3 +202,87 @@ def test_take_recorder_scripts_compile():
     for script in (scripts.take_recorder_start("Scene's 1", 3, "a \"b\""), scripts.take_recorder_add_camera("Cam"),
                    scripts.editor_timing()):
         compile(script, "<editor>", "exec")
+
+
+class _ScriptedEditor:
+    """Answers by what the script does, so background watchers can poll in any order."""
+
+    def __init__(self, countdown=0.0, phases=(), sequence="/Game/Takes/Scene_01_01.Scene_01_01", save=None):
+        self.countdown = countdown
+        self.phases = list(phases)
+        self.sequence = sequence
+        self.save_reply = save or {}
+        self.scripts = []
+
+    def run_python(self, script):
+        self.scripts.append(script)
+        if "start_recording" in script:
+            return {"ok": True, "countdown": self.countdown}
+        if "get_active_recorder" in script:
+            phase = self.phases.pop(0) if len(self.phases) > 1 else (self.phases[0] if self.phases else "recording")
+            return {"phase": phase, "countdown": 1.0, "recording": phase == "recording"}
+        if "cancel_recording" in script:
+            return {"ok": True}
+        if "persist_specified_packages" in script:
+            return dict({"sequence": self.sequence, "packages": [], "unsaved": [], "multi_user": False,
+                         "persisted": []}, **self.save_reply)
+        if "get_last_recorded_level_sequence" in script:
+            return {"sequence": self.sequence, "recording": False}
+        return {"ok": True}
+
+
+def test_countdown_is_followed_until_unreal_records():
+    from operator_board.listener.client import wait_until
+    editor = _ScriptedEditor(countdown=3.0, phases=["counting_down", "counting_down", "recording"])
+    takes = _takes(editor)
+    assert takes.start() == []
+    assert takes.counting_down and takes.recording and 0 < takes.countdown_remaining() <= 3.0
+    assert wait_until(lambda: takes.phase == "recording", 5)
+    assert takes.countdown_remaining() == 0.0
+
+
+def test_stop_during_countdown_cancels_without_logging():
+    editor = _ScriptedEditor(countdown=3.0, phases=["counting_down"])
+    takes = _takes(editor)
+    takes.start()
+    assert takes.stop() == []
+    assert not takes.recording and takes.log.takes == []
+    assert any("cancel_recording" in sc for sc in editor.scripts)
+
+
+def test_countdown_cancelled_in_the_editor_drops_the_take():
+    from operator_board.listener.client import wait_until
+    takes = _takes(_ScriptedEditor(countdown=3.0, phases=["cancelled"]))
+    takes.start()
+    assert wait_until(lambda: not takes.recording, 5) and takes.log.takes == []
+
+
+def test_stopped_take_remembers_its_sequence_and_saves():
+    from operator_board.listener.client import wait_until
+    editor = _ScriptedEditor(save={"multi_user": True, "persisted": ["/Game/Takes/Scene_01_01"]})
+    takes = _takes(editor)
+    takes.start()
+    takes.stop()
+    record = takes.log.takes[-1]
+    assert wait_until(lambda: record.sequence == editor.sequence, 5)
+    message = takes.save_take()
+    assert record.saved == "persisted" and "multi-user" in message
+    assert editor.sequence in editor.scripts[-1]
+
+
+def test_save_reports_files_unreal_could_not_save():
+    import pytest
+    editor = _ScriptedEditor(save={"unsaved": ["/Game/Takes/Scene_01_01.Scene_01_01"]})
+    takes = _takes(editor)
+    takes.start()
+    takes.stop()
+    with pytest.raises(RuntimeError, match="could not save"):
+        takes.save_take()
+    assert takes.log.takes[-1].saved == ""
+
+
+def test_new_take_recorder_scripts_compile():
+    from operator_board.remote import scripts
+    for script in (scripts.take_recorder_status(), scripts.take_recorder_cancel(), scripts.take_recorder_save(),
+                   scripts.take_recorder_save("/Game/T/A.A"), scripts.take_recorder_last_sequence()):
+        compile(script, "<editor>", "exec")

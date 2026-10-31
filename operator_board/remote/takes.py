@@ -35,6 +35,8 @@ class TakeRecord:
     stopped: float = 0.0
     rating: str = ""  # "", "good", "ng", "circle"
     notes: str = ""
+    sequence: str = ""  # the Take Recorder level sequence, once known
+    saved: str = ""     # "", "saved" or "persisted" (written into the project from a multi-user session)
 
     @property
     def duration_s(self) -> float:
@@ -55,9 +57,14 @@ class TakeManager:
         self.notice = ""  # what the last start did besides recording, e.g. which camera it added
         self.warning = ""  # a problem Unreal is likely to hit with the take being recorded (long paths)
         self._sync_lock = threading.Lock()
+        self._save_lock = threading.Lock()  # the log is also saved from background threads
         self._sync_wanted = False
         self._sync_running = False
         self.current: Optional[TakeRecord] = None
+        # None, "countdown" (Take Recorder is counting down) or "recording"
+        self.phase: Optional[str] = None
+        self._countdown_end = 0.0
+        self._run = 0  # bumped on every start/stop so stale watcher threads give up
         self.load()
 
     @property
@@ -70,7 +77,15 @@ class TakeManager:
 
     @property
     def recording(self) -> bool:
+        """A take is under way (counting down or recording)."""
         return self.current is not None
+
+    @property
+    def counting_down(self) -> bool:
+        return self.phase == "countdown"
+
+    def countdown_remaining(self) -> float:
+        return max(0.0, self._countdown_end - time.monotonic()) if self.phase == "countdown" else 0.0
 
     def load(self) -> None:
         if os.path.exists(self.log_path):
@@ -78,7 +93,8 @@ class TakeManager:
                 self.log = from_dict(TakeLog, json.load(fh))
 
     def save(self) -> None:
-        atomic_write(self.log_path, json.dumps(to_dict(self.log), indent=2))
+        with self._save_lock:
+            atomic_write(self.log_path, json.dumps(to_dict(self.log), indent=2))
 
     def export_csv(self, path: str) -> None:
         with open(path, "w", newline="", encoding="utf-8") as fh:
@@ -118,10 +134,11 @@ class TakeManager:
         s = self.settings
         errors = []
         self.notice = self.warning = ""
+        countdown = 0.0
         if s.record_with_take_recorder and self.targets:
             try:
                 try:
-                    self._start_take_recorder(s.slate, s.take, s.description)
+                    countdown = self._start_take_recorder(s.slate, s.take, s.description)
                 except Exception as exc:
                     if _NO_SOURCES not in str(exc) or not s.auto_add_camera:
                         raise
@@ -129,15 +146,54 @@ class TakeManager:
                     added = self.targets.primary().run_python(
                         python_result_wrapper(scripts.take_recorder_add_camera(s.take_camera)))
                     self.notice = f"added {added.get('added')} to Take Recorder ({added.get('why')})"
-                    self._start_take_recorder(s.slate, s.take, s.description)
+                    countdown = self._start_take_recorder(s.slate, s.take, s.description)
             except Exception as exc:
                 # Unreal is not recording, so neither is Operator Board: no take is logged.
                 errors.append(f"Take Recorder: {NO_SOURCES_HELP if _NO_SOURCES in str(exc) else exc}")
                 self._publish()
                 return errors
         self.current = TakeRecord(slate=s.slate, take=s.take, description=s.description, level=level, started=time.time())
+        self._run += 1
+        if countdown > 0:
+            # Take Recorder counts down before it records: follow it, so the operator sees the
+            # countdown and "recording" only once Unreal really is.
+            self.phase = "countdown"
+            self._countdown_end = time.monotonic() + countdown
+            threading.Thread(target=self._watch_start, args=(self._run, countdown), daemon=True,
+                             name="take-countdown").start()
+        else:
+            self.phase = "recording"
         self._publish()
         return errors
+
+    def _watch_start(self, run: int, countdown: float) -> None:
+        deadline = time.monotonic() + countdown + 15.0
+        idle = 0
+        while run == self._run and time.monotonic() < deadline:
+            time.sleep(0.2)
+            try:
+                st = self.targets.primary().run_python(python_result_wrapper(scripts.take_recorder_status()))
+            except Exception as exc:  # noqa: BLE001 - keep following on the local clock
+                log.debug("Take Recorder status: %s", exc)
+                continue
+            if run != self._run or not isinstance(st, dict):
+                return
+            phase = st.get("phase")
+            if phase == "counting_down":
+                self._countdown_end = time.monotonic() + float(st.get("countdown") or 0.0)
+            elif phase == "recording":
+                break
+            elif phase == "cancelled" or (phase == "idle" and not st.get("recording")):
+                idle += 1
+                if idle >= 2:  # cancelled in the editor: there is no take
+                    self.current, self.phase = None, None
+                    self.notice = "cancelled in the editor"
+                    self._publish()
+                    return
+        if run == self._run and self.current is not None:
+            self.phase = "recording"
+            self.current.started = time.time()
+            self._publish()
 
     def _sync_editor(self) -> None:
         """Show the slate / take in the editor's Take Recorder panel as soon as it changes (best effort)."""
@@ -169,7 +225,8 @@ class TakeManager:
             except Exception as exc:  # noqa: BLE001 - no editor running is normal
                 log.debug("Take Recorder sync skipped: %s", exc)
 
-    def _start_take_recorder(self, slate: str, take: int, description: str, attempts: int = 6) -> None:
+    def _start_take_recorder(self, slate: str, take: int, description: str, attempts: int = 6) -> float:
+        """Start Take Recorder; returns its countdown in seconds."""
         editor = self.targets.primary()
         if self.settings.take_preset:
             editor.run_python(python_result_wrapper(scripts.take_recorder_apply_preset(self.settings.take_preset)))
@@ -177,14 +234,32 @@ class TakeManager:
         for _ in range(attempts):
             result = editor.run_python(script)
             if not (isinstance(result, dict) and result.get("retry")):
-                self.warning = str(result.get("warning") or "") if isinstance(result, dict) else ""
-                return
+                result = result if isinstance(result, dict) else {}
+                self.warning = str(result.get("warning") or "")
+                return float(result.get("countdown") or 0.0)
             time.sleep(0.5)  # the Take Recorder panel was just opened; give the editor a tick
         raise RuntimeError("the Take Recorder panel did not become ready in the editor")
+
+    def cancel(self) -> List[str]:
+        """Abandon a take still counting down: nothing was recorded, so nothing is logged."""
+        errors = []
+        self._run += 1
+        if self.settings.record_with_take_recorder and self.targets:
+            try:
+                self.targets.primary().run_python(python_result_wrapper(scripts.take_recorder_cancel()))
+            except Exception as exc:
+                errors.append(f"Take Recorder: {exc}")
+        self.current, self.phase = None, None
+        self._publish()
+        return errors
 
     def stop(self) -> List[str]:
         if not self.recording:
             return []
+        if self.counting_down:
+            return self.cancel()
+        self._run += 1
+        self.phase = None
         errors = []
         if self.settings.record_with_take_recorder and self.targets:
             try:
@@ -194,12 +269,58 @@ class TakeManager:
         assert self.current is not None
         self.current.stopped = time.time()
         self.log.takes.append(self.current)
+        if self.settings.record_with_take_recorder and self.targets and not errors:
+            previous = next((t.sequence for t in reversed(self.log.takes[:-1]) if t.sequence), "")
+            threading.Thread(target=self._find_sequence, args=(self.current, previous), daemon=True,
+                             name="take-sequence").start()
         self.current = None
         if self.settings.auto_increment:
             self.settings.take += 1
         self.save()
         self._publish()
         return errors
+
+    def _find_sequence(self, record: TakeRecord, previous: str, wait_s: float = 10.0) -> None:
+        """Remember which level sequence Take Recorder wrote for the take (it finishes a moment after stop)."""
+        deadline = time.monotonic() + wait_s
+        while time.monotonic() < deadline:
+            try:
+                found = self.targets.primary().run_python(python_result_wrapper(scripts.take_recorder_last_sequence()))
+            except Exception as exc:  # noqa: BLE001
+                log.debug("last recorded sequence: %s", exc)
+                found = None
+            if (isinstance(found, dict) and found.get("sequence") and found["sequence"] != previous
+                    and not found.get("recording")):
+                record.sequence = found["sequence"]
+                self.save()
+                self._publish()
+                return
+            time.sleep(0.5)
+
+    def save_take(self, index: Optional[int] = None) -> str:
+        """Save a recorded take in the editor (and persist it out of a multi-user session). Returns a summary."""
+        if not (self.settings.record_with_take_recorder and self.targets):
+            raise RuntimeError("Takes are only saved in Unreal when Operator Board drives Take Recorder")
+        if not self.log.takes:
+            raise RuntimeError("No recorded take to save yet")
+        record = self.log.takes[-1 if index is None else index]
+        if not record.sequence and record is not self.log.takes[-1]:
+            raise RuntimeError("Operator Board does not know which sequence this take was recorded into; "
+                               "save it from the editor's Content Browser")
+        result = self.targets.primary().run_python(python_result_wrapper(scripts.take_recorder_save(record.sequence)))
+        result = result if isinstance(result, dict) else {}
+        record.sequence = str(result.get("sequence") or record.sequence)
+        if result.get("unsaved"):
+            raise RuntimeError("Unreal could not save " + ", ".join(result["unsaved"]))
+        record.saved = "persisted" if result.get("persisted") else "saved"
+        self.save()
+        self._publish()
+        name = f"{record.slate} T{record.take:03d}"
+        if result.get("multi_user"):
+            if result.get("persisted"):
+                return f"Saved {name} and wrote it into the project from the multi-user session"
+            return f"{name} is saved in the multi-user session (nothing new to write into the project)"
+        return f"Saved {name}"
 
     def toggle(self) -> List[str]:
         return self.stop() if self.recording else self.start()
@@ -218,4 +339,4 @@ class TakeManager:
 
     def _publish(self) -> None:
         s = self.settings
-        self.bus.publish("takes.state", slate=s.slate, take=s.take, recording=self.recording)
+        self.bus.publish("takes.state", slate=s.slate, take=s.take, recording=self.recording, phase=self.phase)

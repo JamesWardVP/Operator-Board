@@ -216,8 +216,14 @@ else:
         warning = _long_path_warning(panel, {_lit(slate)}, {int(take)})
     except Exception:
         pass
+    countdown = 0.0
+    try:
+        countdown = float(unreal.get_default_object(unreal.TakeRecorderUserSettings).get_editor_property('settings')
+                          .get_editor_property('countdown_seconds'))
+    except Exception:
+        pass
     panel.start_recording()
-    result = {{'ok': True, 'warning': warning}}
+    result = {{'ok': True, 'warning': warning, 'countdown': countdown}}
 """
 
 
@@ -322,7 +328,76 @@ result = {'ok': True}
 
 
 def take_recorder_status() -> str:
-    return "result = {'recording': bool(unreal.TakeRecorderBlueprintLibrary.is_recording())}\n"
+    """Where the recorder is: 'counting_down' (with the seconds left), 'starting', 'recording',
+    'stopped', 'cancelled' or 'idle' (no recorder)."""
+    return """
+lib = unreal.TakeRecorderBlueprintLibrary
+rec = lib.get_active_recorder()
+phase, left = 'idle', 0.0
+if rec is not None:
+    st = rec.get_state()
+    names = {'COUNTING_DOWN': 'counting_down', 'PRE_INITIALIZATION': 'starting', 'PRE_RECORD': 'starting',
+             'TICKING_AFTER_PRE': 'starting', 'STARTED': 'recording', 'STOPPED': 'stopped', 'CANCELLED': 'cancelled'}
+    phase = next((v for k, v in names.items() if getattr(unreal.TakeRecorderState, k, None) == st), 'starting')
+    left = float(rec.get_countdown_seconds())
+result = {'phase': phase, 'countdown': left, 'recording': bool(lib.is_recording())}
+"""
+
+
+def take_recorder_last_sequence() -> str:
+    return """
+lib = unreal.TakeRecorderBlueprintLibrary
+panel = lib.get_take_recorder_panel()
+seq = panel.get_last_recorded_level_sequence() if panel is not None else None
+result = {'sequence': seq.get_path_name() if seq is not None else '', 'recording': bool(lib.is_recording())}
+"""
+
+
+def take_recorder_cancel() -> str:
+    return "unreal.TakeRecorderBlueprintLibrary.cancel_recording()\nresult = {'ok': True}\n"
+
+
+def take_recorder_save(sequence_path: str = "") -> str:
+    """Save a recorded take: its level sequence and the subscenes recorded with it.
+
+    Only unsaved packages are written (Take Recorder normally saves when it stops). In a multi-user
+    session a save goes to the session, so every client, nDisplay nodes included, receives it; the
+    take is then *persisted*: written into this machine's real project files, which sends nothing
+    to the other clients and leaves the wall alone.
+    """
+    return f"""
+path = {_lit(sequence_path)}
+seq = unreal.load_asset(path) if path else None
+if seq is None and not path:
+    panel = unreal.TakeRecorderBlueprintLibrary.get_take_recorder_panel()
+    seq = panel.get_last_recorded_level_sequence() if panel is not None else None
+if seq is None:
+    raise RuntimeError('Recorded take not found in the editor' + (': ' + path if path else ''))
+if unreal.TakeRecorderBlueprintLibrary.is_recording():
+    raise RuntimeError('Stop recording before saving the take')
+package = seq.get_outermost().get_name()
+folder = package.rsplit('/', 1)[0]
+assets = [a for a in unreal.EditorAssetLibrary.list_assets(folder, True, False)
+          if a.split('.')[0] == package or a.startswith(package + '_')]
+unsaved = [a for a in assets if not unreal.EditorAssetLibrary.save_asset(a, True)]
+packages = sorted({{a.split('.')[0] for a in assets}})
+mu = getattr(unreal, 'MultiUserClientStatics', None) or getattr(unreal, 'MultiUserClientLibrary', None)
+in_session = False
+if mu is not None:
+    try:
+        status = str(mu.get_multi_user_connection_status_detail()).upper()
+        in_session = 'CONNECTED' in status and 'DISCONNECTED' not in status
+    except Exception:
+        pass
+persisted = []
+if in_session:
+    changed = set(str(p) for p in mu.gather_session_changes(True))
+    persisted = [p for p in packages if p in changed]
+    if persisted:
+        mu.persist_specified_packages([unreal.Name(p) for p in persisted])
+result = {{'sequence': seq.get_path_name(), 'packages': packages, 'unsaved': unsaved,
+          'multi_user': in_session, 'persisted': persisted}}
+"""
 
 
 def editor_timing() -> str:

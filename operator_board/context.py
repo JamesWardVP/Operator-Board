@@ -371,11 +371,21 @@ class AppContext:
                 return ActionResult(False, f"{label}. Warning: {takes.warning}")
             return _errors_result(label, errors)
 
+        def stop_take() -> ActionResult:
+            label = "Countdown cancelled" if takes.counting_down else "Stopped"
+            return _errors_result(label, takes.stop())
+
+        def save_take(index=None) -> ActionResult:
+            return ActionResult(True, takes.save_take(None if index in (None, "") else int(index)))
+
         a.add("takes.toggle_record", "Record (toggle)", "Takes",
-              lambda: _errors_result("Stopped", takes.stop()) if takes.recording else start_take(),
+              lambda: stop_take() if takes.recording else start_take(),
               state=lambda: takes.recording)
         a.add("takes.start", "Start recording", "Takes", start_take)
-        a.add("takes.stop", "Stop recording", "Takes", lambda: _errors_result("Stopped", takes.stop()))
+        a.add("takes.stop", "Stop recording", "Takes", stop_take)
+        a.add("takes.save_last", "Save last take", "Takes", save_take)
+        a.add("takes.save", "Save take", "Takes", save_take,
+              params=[ActionParam("index", "Take log row (0 = first)", "int")])
         a.add("takes.next_take", "Take +1", "Takes", lambda: takes.increment(1))
         a.add("takes.prev_take", "Take -1", "Takes", lambda: takes.increment(-1))
         a.add("takes.rate_good", "Mark last take good", "Takes", lambda: takes.rate_last("good"))

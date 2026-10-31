@@ -4,7 +4,8 @@ from __future__ import annotations
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
-from operator_board.ui.widgets import Banner, BigButton, Card, HazardOverlay, StateDot, clear_layout, hbox, muted, scroll
+from operator_board.ui.widgets import (Banner, BigButton, Card, HazardOverlay, RecordButton, StateDot, clear_layout,
+                                       hbox, muted, scroll)
 
 
 def _restyle(label: QtWidgets.QLabel, css: str) -> None:
@@ -173,8 +174,13 @@ class OperatePage(BasePage):
         takes = Card("Take")
         self.take_label = QtWidgets.QLabel("")
         self.take_label.setObjectName("Big")
-        self.rec_btn = BigButton("● RECORD", COLORS["err"], height=60)
+        self.rec_btn = RecordButton(ctx.takes.countdown_remaining, height=60)
         self.rec_btn.clicked.connect(lambda: self.invoke("takes.toggle_record"))
+        self.save_take_btn = QtWidgets.QPushButton("Save last take")
+        self.save_take_btn.setToolTip("Save the last recorded take in the editor. In a multi-user session it is also "
+                                      "written into the project on the editor's PC, without sending anything more "
+                                      "to the other machines or the wall.")
+        self.save_take_btn.clicked.connect(lambda: self.invoke("takes.save_last"))
         self.scene_edit = QtWidgets.QLineEdit()
         self.scene_edit.setPlaceholderText("Scene name")
         self.scene_edit.setToolTip("Scene (slate) name. Press Enter to apply; a new scene starts at its next "
@@ -199,6 +205,7 @@ class OperatePage(BasePage):
             take_row.setStretch(i, 1)
         takes.add_layout(take_row)
         takes.add(self.rec_btn)
+        takes.add(self.save_take_btn)
         # Timecode from the primary editor and genlock from the listeners; "No data" when unknown.
         self.tc_value = QtWidgets.QLabel()
         self.tc_value.setObjectName("Timecode")
@@ -458,8 +465,11 @@ class OperatePage(BasePage):
             self.take_edit.setText(str(t.take))
         for control in self.take_controls:  # no renaming or renumbering mid-take
             control.setEnabled(not self.ctx.takes.recording)
-        self.rec_btn.setText("■ STOP" if self.ctx.takes.recording else "● RECORD")
-        self.rec_btn.set_active(self.ctx.takes.recording)
+        self.rec_btn.show_state(self.ctx.takes.recording, self.ctx.takes.counting_down)
+        last = self.ctx.takes.log.takes[-1] if self.ctx.takes.log.takes else None
+        self.save_take_btn.setEnabled(last is not None and not self.ctx.takes.recording
+                                      and self.ctx.config.takes.record_with_take_recorder)
+        self.save_take_btn.setText(f"Save last take ({last.slate} T{last.take:03d})" if last else "Save last take")
 
         # cameras
         if self._changed("cameras", [c.name for c in self.ctx.config.cameras]):

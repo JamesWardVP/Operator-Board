@@ -115,3 +115,24 @@ def test_led_wall_overlay_when_unavailable():
     window.skip_save_on_close = True
     window.close()
     app.processEvents()
+
+
+def test_record_button_plays_the_countdown():
+    import time
+    from operator_board.qt import QtWidgets
+    from operator_board.ui.widgets import RecordButton
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    left = [2.4]
+    btn = RecordButton(lambda: left[0])
+    btn.resize(300, 60)
+    btn.show_state(True, True)
+    assert btn.text() == "" and btn._timer.isActive()
+    btn.grab()  # paints the number
+    btn.show_state(True, False)  # Unreal started recording: "GO!" then STOP
+    assert btn.text() == ""
+    btn.grab()
+    btn._go_until = time.monotonic() - 1
+    btn._tick()
+    assert btn.text() == "■ STOP" and not btn._timer.isActive()
+    btn.show_state(False, False)
+    assert btn.text() == "● RECORD"

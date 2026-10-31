@@ -1,6 +1,7 @@
 """Reusable operator widgets."""
 from __future__ import annotations
 
+import math
 import time
 from typing import List, Optional, Sequence, Tuple
 
@@ -49,6 +50,76 @@ class BigButton(QtWidgets.QPushButton):
             f"QPushButton {{ background: {bg}; border: 2px solid {border}; border-radius: 12px;"
             f" font-size: 18px; font-weight: 800; letter-spacing: 1px; }}"
             f"QPushButton:hover {{ border-color: {self.active_color}; }}")
+
+
+class RecordButton(BigButton):
+    """Record / Stop button that plays Take Recorder's countdown on itself.
+
+    Each number pops in large and shrinks and fades as its second runs out, then "GO!" flashes
+    as recording really starts. ``remaining`` returns the seconds left (0 = not counting down).
+    """
+
+    GO_S = 0.7
+
+    def __init__(self, remaining, height: int = 60, parent=None) -> None:
+        super().__init__("● RECORD", COLORS["err"], height=height, parent=parent)
+        self._remaining = remaining
+        self._go_until = 0.0
+        self._counting = False
+        self._recording = False
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self._tick)
+
+    def show_state(self, recording: bool, counting_down: bool) -> None:
+        if self._counting and not counting_down and recording:
+            self._go_until = time.monotonic() + self.GO_S
+        self._counting = counting_down
+        self._recording = recording
+        busy = counting_down or time.monotonic() < self._go_until
+        self.setText("" if busy else ("■ STOP" if recording else "● RECORD"))
+        self.setToolTip("Cancel the countdown" if counting_down else "")
+        self.set_active(recording and not counting_down)
+        if busy and not self._timer.isActive():
+            self._timer.start(16)
+        self.update()
+
+    def _tick(self) -> None:
+        if not self._counting and time.monotonic() >= self._go_until:
+            self._timer.stop()
+            self.setText("■ STOP" if self._recording else "● RECORD")
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().paintEvent(event)
+        now = time.monotonic()
+        if self._counting:
+            left = max(0.0, float(self._remaining()))
+            number = max(1, int(math.ceil(left)))
+            text, phase = str(number), min(1.0, max(0.0, number - left))  # 0 when the number appears, 1 at its end
+            colour = QtGui.QColor("#ffd43b")
+        elif now < self._go_until:
+            text, phase = "GO!", 1.0 - (self._go_until - now) / self.GO_S
+            colour = QtGui.QColor("#69db7c")
+        else:
+            return
+        pop = 1.0 - (1.0 - phase) ** 3  # ease out: fast pop, slow settle
+        scale = 1.6 - 0.6 * pop
+        alpha = 1.0 if phase < 0.6 else max(0.0, 1.0 - (phase - 0.6) / 0.4)
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setOpacity(alpha)
+        font = QtGui.QFont(self.font())
+        font.setPixelSize(max(10, int(self.height() * 0.55 * scale)))
+        font.setWeight(QtGui.QFont.Weight.Black if hasattr(QtGui.QFont, "Weight") else QtGui.QFont.Black)
+        path = QtGui.QPainterPath()
+        metrics = QtGui.QFontMetrics(font)
+        width = metrics.horizontalAdvance(text) if hasattr(metrics, "horizontalAdvance") else metrics.width(text)
+        path.addText((self.width() - width) / 2.0, (self.height() + metrics.capHeight()) / 2.0, font, text)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#000000"), max(2.0, font.pixelSize() / 10.0), Qt.SolidLine,
+                                  Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(colour)
+        painter.drawPath(path)
+        painter.end()
 
 
 class StateDot(QtWidgets.QLabel):
