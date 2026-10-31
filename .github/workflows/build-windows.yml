@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # needed to attach the zip to a GitHub Release on tags
+  contents: write  # needed to attach the installer and zip to a GitHub Release on tags
 
 jobs:
   build:
@@ -24,29 +24,36 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[ui,dev,build,streamdeck]"
+          choco install innosetup --no-progress -y
 
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q
 
-      - name: Build OperatorBoard.exe
-        run: python packaging/build.py --hidapi
+      - name: Build OperatorBoard.exe, zip and installer
+        run: python packaging/build.py --hidapi --installer
 
       - uses: actions/upload-artifact@v7
         with:
           name: OperatorBoard-win64
-          path: dist/OperatorBoard-*-win64.zip
+          path: |
+            dist/OperatorBoard-Setup-*.exe
+            dist/OperatorBoard-*-win64.zip
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/OperatorBoard-*-win64.zip
+          files: |
+            dist/OperatorBoard-Setup-*.exe
+            dist/OperatorBoard-*-win64.zip
           append_body: true
           body: |
 
             ---
-            **Download** the `OperatorBoard-...-win64.zip` file below, unzip it and run `OperatorBoard.exe`. Python is not needed.
+            **Install:** download `OperatorBoard-Setup-….exe` below and run it. Windows may show "Windows protected your PC" once, for the setup file only (it is not code-signed yet): click **More info → Run anyway**. Operator Board then starts from the Start menu with no further warnings.
+
+            **Portable:** or download the `OperatorBoard-…-win64.zip`, right-click it → Properties → tick **Unblock** → OK, then unzip it and run `OperatorBoard.exe`. Python is not needed for either.
 
             [Code signing policy](https://github.com/JamesWardVP/Operator-Board#code-signing-policy) · [Privacy policy](https://github.com/JamesWardVP/Operator-Board#privacy-policy) · [License](https://github.com/JamesWardVP/Operator-Board/blob/main/LICENSE)

@@ -1,7 +1,8 @@
-"""Build the Windows release: dist/OperatorBoard/ and dist/OperatorBoard-<version>-win64.zip.
+"""Build the Windows release: dist/OperatorBoard/, dist/OperatorBoard-<version>-win64.zip and,
+with --installer, dist/OperatorBoard-Setup-<version>.exe.
 
     python -m pip install -e .[ui,build]       (add streamdeck pillow for Stream Deck support)
-    python packaging/build.py [--hidapi]
+    python packaging/build.py [--hidapi] [--installer]
 
 --hidapi downloads hidapi.dll (libusb/hidapi release), which the Stream Deck library
 needs on Windows, and bundles it next to the executables.
@@ -54,7 +55,8 @@ running (Engine\\Binaries\\Win64\\SwitchboardListener.exe), as it does for Switc
 Settings: %USERPROFILE%\\.operator_board\\   Log: %USERPROFILE%\\.operator_board\\logs\\
 Documentation: https://github.com/JamesWardVP/Operator-Board
 
-To uninstall, delete this folder (and %USERPROFILE%\.operator_board\ to remove settings).
+To uninstall: if you used the installer, remove "Operator Board" in Windows Settings > Apps;
+if you unzipped it, delete this folder. Delete %USERPROFILE%\\.operator_board\\ to remove settings too.
 
 Operator Board is MIT licensed (LICENSE.txt). Bundled open-source components and their
 licenses are listed in THIRD_PARTY_NOTICES.md.
@@ -84,9 +86,34 @@ def fetch_hidapi() -> None:
             shutil.copyfileobj(src, dst)
 
 
+def find_iscc() -> str:
+    """Inno Setup's command-line compiler (ISCC environment variable, or the usual install folders)."""
+    candidates = [os.environ.get("ISCC", "")]
+    for base in (os.environ.get("ProgramFiles(x86)", ""), os.environ.get("ProgramFiles", ""),
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")):
+        if base:
+            candidates.append(os.path.join(base, "Inno Setup 6", "ISCC.exe"))
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    found = shutil.which("ISCC")
+    if found:
+        return found
+    raise SystemExit("Inno Setup 6 not found. Install it (winget install JRSoftware.InnoSetup) "
+                     "or set ISCC to the path of ISCC.exe.")
+
+
+def build_installer(source: str, dist: str) -> str:
+    subprocess.check_call([find_iscc(), "/Q", f"/DAppVersion={__version__}", f"/DSourceDir={source}",
+                           f"/DOutputDir={dist}", os.path.join(HERE, "operator_board.iss")])
+    return os.path.join(dist, f"OperatorBoard-Setup-{__version__}.exe")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hidapi", action="store_true", help="bundle hidapi.dll for Stream Deck support")
+    parser.add_argument("--installer", action="store_true",
+                        help="also build OperatorBoard-Setup-<version>.exe with Inno Setup 6")
     parser.add_argument("--dist", default=DIST, help="output folder (default: dist/). Use another folder "
                         "when Operator Board is running from dist/, which Windows keeps locked.")
     args = parser.parse_args()
@@ -106,6 +133,8 @@ def main() -> int:
     archive = shutil.make_archive(os.path.join(dist, f"OperatorBoard-{__version__}-win64"), "zip", dist,
                                   "OperatorBoard")
     print(f"Built {out}\nArchive {archive}")
+    if args.installer:
+        print(f"Installer {build_installer(out, dist)}")
     return 0
 
 

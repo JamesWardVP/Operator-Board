@@ -20,6 +20,7 @@ folder), so they can be replaced with other compatible builds.
 | Pillow | Stream Deck key images | MIT-CMU (HPND) | https://python-pillow.org |
 | python-elgato-streamdeck | Stream Deck hardware | MIT | https://github.com/abcminiuser/python-elgato-streamdeck |
 | HIDAPI (`hidapi.dll`) | Stream Deck USB access | BSD-3-Clause (one of its three license options) | https://github.com/libusb/hidapi |
+| Inno Setup | The setup program (`OperatorBoard-Setup-<version>.exe`) and its uninstaller | Inno Setup License (permissive; copyright Jordan Russell and Martijn Laan) | https://jrsoftware.org/isinfo.php |
 | PyInstaller bootloader | `OperatorBoard.exe` launcher | GPL-2.0-or-later with the PyInstaller exception, which allows distributing programs built with it | https://pyinstaller.org |
 
 Running from source uses the same libraries, installed with `pip`.
