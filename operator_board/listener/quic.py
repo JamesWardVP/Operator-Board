@@ -21,7 +21,7 @@ import json
 import logging
 import ssl
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from operator_board.listener import protocol
 from operator_board.listener.credentials import Credential, CredentialStore
@@ -45,6 +45,21 @@ try:
 except ImportError:  # pragma: no cover - aioquic is a declared dependency
     AVAILABLE = False
     QuicConnectionProtocol = object  # type: ignore
+
+
+# Characters that come along when a password is copied and pasted (line breaks from the
+# listener window, zero-width characters) but can never be part of a listener password.
+_PASTE_JUNK = dict.fromkeys(map(ord, "\r\n\t\u200b\u200c\u200d\u2060\ufeff"), None)
+
+
+def password_candidates(password: str) -> List[str]:
+    """Passwords to try, most likely first: without paste junk, then also without end spaces."""
+    cleaned = password.translate(_PASTE_JUNK)
+    out: List[str] = []
+    for candidate in (cleaned, cleaned.strip()):
+        if candidate and candidate not in out:
+            out.append(candidate)
+    return out or [password]
 
 
 class ListenerAuthError(ConnectionError):

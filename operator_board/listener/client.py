@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from operator_board.listener import protocol
 from operator_board.listener.credentials import CredentialStore, default_store
-from operator_board.listener.quic import ListenerAuthError, QuicListenerConnection
+from operator_board.listener.quic import ListenerAuthError, PasswordRejected, QuicListenerConnection, password_candidates
 
 log = logging.getLogger(__name__)
 
@@ -96,12 +96,20 @@ class ListenerClient:
         raise ConnectionError("; ".join(errors))
 
     def _connect_quic(self, password: Optional[str], trust_new_fingerprint: bool) -> None:
-        conn = QuicListenerConnection(
-            self.address, self.port, self.store or default_store(),
-            on_message=self._dispatch, on_closed=self._quic_closed,
-            password=password, trust_new_fingerprint=trust_new_fingerprint)
-        conn.open()
-        self._quic = conn
+        candidates: List[Optional[str]] = list(password_candidates(password)) if password is not None else [None]
+        for i, candidate in enumerate(candidates):
+            conn = QuicListenerConnection(
+                self.address, self.port, self.store or default_store(),
+                on_message=self._dispatch, on_closed=self._quic_closed,
+                password=candidate, trust_new_fingerprint=trust_new_fingerprint)
+            try:
+                conn.open()
+            except PasswordRejected:
+                if i == len(candidates) - 1:
+                    raise
+                continue
+            self._quic = conn
+            return
 
     def _quic_closed(self, reason: str) -> None:
         if self._quic is not None:
