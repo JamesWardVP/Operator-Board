@@ -19,6 +19,7 @@ from operator_board.remote.dlss import DLSSService
 from operator_board.remote.levels import LevelInfo, LevelService
 from operator_board.remote.objects import ObjectService
 from operator_board.remote.takes import TakeManager
+from operator_board.remote.timing import TimingMonitor
 from operator_board.remote.targets import TargetResolver
 from operator_board.surfaces.api_server import ApiServer
 from operator_board.surfaces.controller import SurfaceController
@@ -50,6 +51,7 @@ class AppContext:
         self.objects = ObjectService(self.config, self.targets)
         self.dlss = DLSSService(self.targets)
         self.takes = TakeManager(self.config, self.bus, self.targets)
+        self.timing = TimingMonitor(self.targets, self.devices)
         self.sync = SyncManager(self.config, self.bus)
         self.metrics = MetricStore()
         self.level_cache: List[LevelInfo] = []
@@ -87,9 +89,11 @@ class AppContext:
                 self.streamdeck.start()
         threading.Thread(target=self._metrics_loop, daemon=True, name="metrics-poll").start()
         threading.Thread(target=self._led_monitor, daemon=True, name="led-monitor").start()
+        self.timing.start()
 
     def shutdown(self) -> None:
         self._stop.set()
+        self.timing.stop()
         if self.api:
             self.api.stop()
         if self.streamdeck:
@@ -362,7 +366,10 @@ class AppContext:
         # Takes
         def start_take() -> ActionResult:
             errors = takes.start()
-            return _errors_result(f"Recording: {takes.notice}" if takes.notice else "Recording", errors)
+            label = f"Recording: {takes.notice}" if takes.notice else "Recording"
+            if takes.warning and not errors:
+                return ActionResult(False, f"{label}. Warning: {takes.warning}")
+            return _errors_result(label, errors)
 
         a.add("takes.toggle_record", "Record (toggle)", "Takes",
               lambda: _errors_result("Stopped", takes.stop()) if takes.recording else start_take(),

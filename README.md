@@ -19,7 +19,7 @@ Running an LED volume means watching many things at once: the wall, the render n
 - **Start and stop** the editor and every nDisplay node, one at a time or in groups.
 - **Run the multi-user session** and see who is connected.
 - **Change level**, toggle lighting sub-levels and **recall camera positions**.
-- **Slate and record takes**, with a take log.
+- **Slate and record takes**, with a take log, timecode and genlock status.
 - Drive it all from a **Stream Deck** or **Bitfocus Companion**.
 
 It uses the same building blocks as Switchboard: **SwitchboardListener** on each machine and the **Remote Control API** inside Unreal. It even reads and writes **Switchboard's own config files**, so the two tools can share one stage setup. Switchboard does not need to be open.
@@ -84,7 +84,7 @@ Manage several projects and switch between them, or find `.uproject` files on di
 ![Levels & Cameras page with projects and the levels in the active project](docs/images/levels.png)
 
 ### Takes
-Scene (slate) name, take number and description with auto-increment. Type a new scene name or jump straight to any take number on the Operate page (or use Take − / Take +); changes show straight away in the editor's Take Recorder panel. Recording drives **Take Recorder** in the primary editor, which records the **sources** set in its panel (cameras, actors and so on). Save them as a Take Preset and enter its path in Settings > Takes, and every recording uses it. If the take is empty, Operator Board adds the stage camera and records: the nDisplay setup's ICVFX camera, otherwise the cine camera in the level (or the actor named in Settings > Takes > Take camera), and says which one it added. Every take goes into a persistent log with Good, Circle and NG ratings and notes; the log exports to CSV.
+Scene (slate) name, take number and description with auto-increment. Type a new scene name or jump straight to any take number on the Operate page (or use Take − / Take +); changes show straight away in the editor's Take Recorder panel. Recording drives **Take Recorder** in the primary editor, which records the **sources** set in its panel (cameras, actors and so on). Save them as a Take Preset and enter its path in Settings > Takes, and every recording uses it. If the take is empty, Operator Board adds the stage camera and records: the nDisplay setup's ICVFX camera, otherwise the cine camera in the level (or the actor named in Settings > Takes > Take camera), and says which one it added. While a multi-user session is running it also warns when the take's files would pass the 259-character Windows path limit (long paths off), which Unreal reports as "Unable to open a file for writing". The Take card shows the primary editor's **timecode** and the stage's **genlock** (from each machine's NVIDIA sync board through its listener, as in Switchboard, or else the editor's custom time step); either reads **No data** when there is nothing to show. Every take goes into a persistent log with Good, Circle and NG ratings and notes; the log exports to CSV.
 
 ![Takes page with the slate, the Record button and the take log](docs/images/takes.png)
 

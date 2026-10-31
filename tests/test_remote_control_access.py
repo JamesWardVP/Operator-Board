@@ -185,3 +185,20 @@ def test_record_action_reports_the_added_camera():
     assert result.ok and result.message == "Recording: added CineCameraActor1 to Take Recorder (x)"
     assert ctx.actions.invoke("takes.toggle_record").message == "Stopped"
     ctx.shutdown()
+
+
+def test_long_path_warning_is_reported_but_still_records():
+    from operator_board.context import AppContext
+    ctx = AppContext(AppConfig())
+    ctx.takes.targets = _Targets(_Editor([{"ok": True, "warning": "paths of about 320 characters"}]))
+    result = ctx.actions.invoke("takes.toggle_record")
+    assert not result.ok and ctx.takes.recording
+    assert result.message == "Recording. Warning: paths of about 320 characters"
+    ctx.shutdown()
+
+
+def test_take_recorder_scripts_compile():
+    from operator_board.remote import scripts
+    for script in (scripts.take_recorder_start("Scene's 1", 3, "a \"b\""), scripts.take_recorder_add_camera("Cam"),
+                   scripts.editor_timing()):
+        compile(script, "<editor>", "exec")

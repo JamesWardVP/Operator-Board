@@ -7,6 +7,11 @@ from operator_board.ui.theme import COLORS
 from operator_board.ui.widgets import Banner, BigButton, Card, HazardOverlay, StateDot, clear_layout, hbox, muted, scroll
 
 
+def _restyle(label: QtWidgets.QLabel, css: str) -> None:
+    if label.styleSheet() != css:  # restyling re-polishes the widget; the timing labels update 10x a second
+        label.setStyleSheet(css)
+
+
 class DeviceTile(QtWidgets.QFrame):
     def __init__(self, page: "OperatePage", name: str) -> None:
         super().__init__()
@@ -194,7 +199,24 @@ class OperatePage(BasePage):
             take_row.setStretch(i, 1)
         takes.add_layout(take_row)
         takes.add(self.rec_btn)
+        # Timecode from the primary editor and genlock from the listeners; "No data" when unknown.
+        self.tc_value = QtWidgets.QLabel()
+        self.tc_value.setObjectName("Timecode")
+        self.tc_value.setToolTip("The primary editor's engine timecode (read over Remote Control every second)")
+        self.tc_rate = muted("")
+        self.genlock_value = QtWidgets.QLabel()
+        self.genlock_value.setWordWrap(True)
+        self.genlock_value.setToolTip("Genlock from each running machine's NVIDIA sync board (as Switchboard shows "
+                                      "it), else the editor's custom time step")
+        timing = QtWidgets.QFormLayout()
+        timing.addRow("Timecode", hbox(self.tc_value, self.tc_rate, None))
+        timing.addRow("Genlock", self.genlock_value)
+        takes.add_layout(timing)
         grid.addWidget(takes, 4, 0)
+        self._timing_timer = QtCore.QTimer(self)
+        self._timing_timer.timeout.connect(self._update_timing)
+        self._timing_timer.start(100)
+        self._update_timing()
 
         # --- Cameras --------------------------------------------------------------
         cams = Card("Camera Positions")
@@ -297,6 +319,25 @@ class OperatePage(BasePage):
             self.ctx.selected_level = index
 
     # ---- refresh -----------------------------------------------------------------
+    NO_DATA = "No data"
+
+    def _update_timing(self) -> None:
+        if not self.isVisible() and self.tc_value.text():
+            return
+        tc = self.ctx.timing.timecode()
+        recording = self.ctx.takes.recording
+        self.tc_value.setText(tc or self.NO_DATA)
+        self.tc_rate.setText(self.ctx.timing.rate_text() if tc else "")
+        if tc is None:
+            _restyle(self.tc_value, f"color: {COLORS['muted']};")
+        else:
+            _restyle(self.tc_value, f"color: {COLORS['err'] if recording else COLORS['text']}; font-size: 22px; "
+                                    "font-weight: 700; font-family: Consolas, 'Courier New', monospace;")
+        text, ok = self.ctx.timing.genlock()
+        colour = COLORS["muted"] if text is None else {True: COLORS["ok"], False: COLORS["err"]}.get(ok, COLORS["warn"])
+        self.genlock_value.setText(text or self.NO_DATA)
+        _restyle(self.genlock_value, f"color: {colour}; font-weight: {600 if text else 400};")
+
     def refresh(self) -> None:
         led = self.ctx.led
         self.freeze_btn.set_active(led.frozen)

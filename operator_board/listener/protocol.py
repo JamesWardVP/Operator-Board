@@ -92,13 +92,15 @@ def program_info(msg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # SyncStatusRequestFlags (UE 5.4+, SwitchboardTasks.h): the cheap per-machine metrics
-# Operator Board graphs. Older listeners ignore the field and send everything.
+# Operator Board graphs, plus the NVIDIA sync topology for genlock. Older listeners ignore
+# the field and send everything.
+SYNC_TOPOS = 1 << 0
 SYNC_CPU_UTILIZATION = 1 << 7
 SYNC_AVAILABLE_PHYSICAL_MEMORY = 1 << 8
 SYNC_GPU_UTILIZATION = 1 << 9
 SYNC_GPU_CORE_CLOCK = 1 << 10
 SYNC_GPU_TEMPERATURE = 1 << 11
-METRIC_REQUEST_FLAGS = (SYNC_CPU_UTILIZATION | SYNC_AVAILABLE_PHYSICAL_MEMORY | SYNC_GPU_UTILIZATION
+METRIC_REQUEST_FLAGS = (SYNC_TOPOS | SYNC_CPU_UTILIZATION | SYNC_AVAILABLE_PHYSICAL_MEMORY | SYNC_GPU_UTILIZATION
                         | SYNC_GPU_CORE_CLOCK | SYNC_GPU_TEMPERATURE)
 
 

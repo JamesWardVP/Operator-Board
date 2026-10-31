@@ -152,10 +152,52 @@ result = {{'actors': out}}
 """
 
 
+# Multi-user copies every recorded package into a sandbox deep under Intermediate/Concert. With
+# Windows long paths off, a path over 259 characters fails there with "ConcertSyncSessionDatabase:
+# Unable to open a file for writing". Estimate the longest one (the take's subscene files) first.
+LONG_PATH_CHECK = r"""
+def _long_path_warning(panel, slate, take):
+    import os
+    cmd = unreal.SystemLibrary.get_command_line().upper()
+    if '-CONCERTAUTOCONNECT' not in cmd and '-CONCERTSESSION' not in cmd:
+        return ''
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Control\FileSystem')
+        if winreg.QueryValueEx(key, 'LongPathsEnabled')[0]:
+            return ''
+    except OSError:
+        pass
+    project = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()).rstrip('/')
+    name = os.path.basename(project)
+    st = unreal.get_default_object(unreal.TakeRecorderProjectSettings).get_editor_property('settings')
+    root = str(st.get_editor_property('root_take_save_dir').get_editor_property('path')).strip('/')
+    take_dir = str(st.get_editor_property('take_save_dir'))
+    now = __import__('datetime').date.today()
+    for token, value in (('{year}', '%04d' % now.year), ('{month}', '%02d' % now.month), ('{day}', '%02d' % now.day),
+                         ('{slate}', slate), ('{take}', '%02d' % take)):
+        take_dir = take_dir.replace(token, value)
+    if root.startswith('Game/'):
+        root = root[5:]
+    labels = [s.get_editor_property('target').get_actor_label() for s in panel.get_sources().get_sources_copy()
+              if hasattr(s, 'get_editor_property') and s.get_editor_property('target') is not None] or ['CineCameraActor1']
+    leaf = take_dir.split('/')[-1]
+    sub = '%s_temp_Subscenes/%s_%s_temp.uasset' % (leaf, max(labels, key=len), leaf)
+    path = '/'.join([project, 'Intermediate/Concert/MultiUser', 'X' * 32, 'X' * 32, 'Sandbox/Sandbox', name,
+                     'Content', root, take_dir.rsplit('/', 1)[0], sub])
+    if len(path) <= 259:
+        return ''
+    return ("this take's multi-user copy needs paths of about %d characters, over the Windows limit of 259, "
+            'and long paths are off on this PC, so Unreal may report "Unable to open a file for writing" and '
+            'leave the take out of the session. Turn on Windows long paths (an administrator setting) and restart '
+            'Unreal, or use a shorter project folder or take path.' % len(path))
+"""
+
+
 def take_recorder_start(slate: str, take: int, description: str) -> str:
     # A panel that was only just opened has no take data until the editor has ticked
     # (UE 5.8), so report 'retry' and let the caller call again a moment later.
-    return f"""
+    return LONG_PATH_CHECK + f"""
 lib = unreal.TakeRecorderBlueprintLibrary
 panel = lib.get_take_recorder_panel()
 if panel is None:
@@ -169,8 +211,13 @@ else:
     md.set_take_number({int(take)})
     if hasattr(md, 'set_description'):
         md.set_description({_lit(description)})
+    warning = ''
+    try:
+        warning = _long_path_warning(panel, {_lit(slate)}, {int(take)})
+    except Exception:
+        pass
     panel.start_recording()
-    result = {{'ok': True}}
+    result = {{'ok': True, 'warning': warning}}
 """
 
 
@@ -214,20 +261,26 @@ if preferred:
     if chosen is None:
         raise RuntimeError('Take camera not found in the level: ' + preferred)
     why = 'the take camera set in Operator Board'
-for root in roots:
+icvfx = []
+for a in actors:  # any actor: nDisplay roots, and Blueprints that carry an ICVFX camera component
+    try:
+        icvfx.extend((a, c) for c in a.get_components_by_class(unreal.DisplayClusterICVFXCameraComponent))
+    except Exception:
+        pass
+for root, comp in icvfx:
     if chosen is not None:
         break
-    for comp in root.get_components_by_class(unreal.DisplayClusterICVFXCameraComponent):
-        ext = None
-        try:
-            ext = comp.get_editor_property('camera_settings').get_editor_property('external_camera_actor')
-        except Exception:
-            pass
-        if isinstance(ext, unreal.Actor):
-            chosen, why = ext, 'the ICVFX camera of ' + root.get_actor_label()
-        else:
-            chosen, why = root, 'it holds the ICVFX camera ' + comp.get_name()
-        break
+    ext = None
+    try:
+        ext = comp.get_editor_property('camera_settings').get_editor_property('external_camera_actor')
+        if ext is not None and not isinstance(ext, unreal.Actor) and hasattr(ext, 'get'):
+            ext = ext.get()  # a soft reference
+    except Exception:
+        pass
+    if isinstance(ext, unreal.Actor):
+        chosen, why = ext, 'the ICVFX camera of ' + root.get_actor_label()
+    else:
+        chosen, why = root, 'it holds the ICVFX camera ' + comp.get_name()
 if chosen is None and cines:
     chosen = next((c for c in cines if 'main' in c.get_actor_label().lower()), cines[0])
     why = 'the cine camera in the level' if len(cines) == 1 else 'one of %d cine cameras in the level' % len(cines)
@@ -270,3 +323,18 @@ result = {'ok': True}
 
 def take_recorder_status() -> str:
     return "result = {'recording': bool(unreal.TakeRecorderBlueprintLibrary.is_recording())}\n"
+
+
+def editor_timing() -> str:
+    """The engine timecode and custom time step (the editor's genlock setting), read every second."""
+    return """
+lib = getattr(unreal, 'TimeManagementLibrary', None) or unreal.TimeManagementBlueprintLibrary
+tc = lib.get_timecode()
+fr = lib.get_timecode_frame_rate()
+ts = lib.get_engine_custom_time_step()
+ts_fr = lib.get_custom_time_step_frame_rate() if ts is not None else None
+result = {'timecode': [tc.hours, tc.minutes, tc.seconds, tc.frames], 'drop_frame': bool(tc.drop_frame_format),
+          'rate': [fr.numerator, fr.denominator],
+          'time_step': ts.get_class().get_name().replace('CustomTimeStep', '') if ts is not None else '',
+          'time_step_fps': (ts_fr.numerator / ts_fr.denominator) if ts_fr is not None and ts_fr.denominator else 0}
+"""

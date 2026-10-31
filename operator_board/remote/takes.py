@@ -53,6 +53,7 @@ class TakeManager:
         self.targets = targets
         self.log = TakeLog()
         self.notice = ""  # what the last start did besides recording, e.g. which camera it added
+        self.warning = ""  # a problem Unreal is likely to hit with the take being recorded (long paths)
         self._sync_lock = threading.Lock()
         self._sync_wanted = False
         self._sync_running = False
@@ -116,7 +117,7 @@ class TakeManager:
             return []
         s = self.settings
         errors = []
-        self.notice = ""
+        self.notice = self.warning = ""
         if s.record_with_take_recorder and self.targets:
             try:
                 try:
@@ -176,6 +177,7 @@ class TakeManager:
         for _ in range(attempts):
             result = editor.run_python(script)
             if not (isinstance(result, dict) and result.get("retry")):
+                self.warning = str(result.get("warning") or "") if isinstance(result, dict) else ""
                 return
             time.sleep(0.5)  # the Take Recorder panel was just opened; give the editor a tick
         raise RuntimeError("the Take Recorder panel did not become ready in the editor")
