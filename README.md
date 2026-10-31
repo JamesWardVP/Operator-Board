@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/logo.png" alt="Operator Board logo" width="160"></p>
+
 # Operator Board
 
 **Big, clear stage controls for Unreal Engine virtual production.**
