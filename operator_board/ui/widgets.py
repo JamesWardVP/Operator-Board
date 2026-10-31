@@ -16,11 +16,30 @@ class Card(QtWidgets.QFrame):
         self.layout_ = QtWidgets.QVBoxLayout(self)
         self.layout_.setContentsMargins(14, 12, 14, 14)
         self.layout_.setSpacing(10)
+        self._header = None
         if title:
             label = QtWidgets.QLabel(title.upper())
             label.setObjectName("CardTitle")
             label.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Maximum)
-            self.layout_.addWidget(label)
+            self._header = QtWidgets.QHBoxLayout()
+            self._header.setContentsMargins(0, 0, 0, 0)
+            self._header.addWidget(label, 1)
+            self.layout_.addLayout(self._header)
+
+    def set_link(self, tooltip: str, callback) -> QtWidgets.QPushButton:
+        """A small button in the card's top-right corner, e.g. to open the page behind the card."""
+        button = QtWidgets.QPushButton("\u2197")
+        button.setObjectName("CardLink")
+        button.setToolTip(tooltip)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setFixedSize(30, 26)
+        button.clicked.connect(callback)
+        if self._header is None:
+            self._header = QtWidgets.QHBoxLayout()
+            self._header.addStretch(1)
+            self.layout_.insertLayout(0, self._header)
+        self._header.addWidget(button, 0, Qt.AlignRight | Qt.AlignTop)
+        return button
 
     def add(self, widget) -> QtWidgets.QWidget:
         self.layout_.addWidget(widget)
@@ -346,12 +365,44 @@ def scroll(widget: QtWidgets.QWidget) -> QtWidgets.QScrollArea:
     return area
 
 
-def make_table(headers: List[str]) -> QtWidgets.QTableWidget:
-    t = QtWidgets.QTableWidget(0, len(headers))
+class EvenColumnsTable(QtWidgets.QTableWidget):
+    """Columns share the width equally; a column whose text needs more gets it, and the table
+    then scrolls sideways instead of cutting values off. Call ``refit()`` after filling it."""
+
+    def __init__(self, rows: int, columns: int, parent=None) -> None:
+        super().__init__(rows, columns, parent)
+        header = self.horizontalHeader()
+        header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
+        header.setStretchLastSection(False)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+
+    def refit(self) -> None:
+        columns = self.columnCount()
+        if not columns:
+            return
+        self.resizeColumnsToContents()
+        needed = [self.columnWidth(c) + 12 for c in range(columns)]
+        share = self.viewport().width() // columns
+        widths = [max(n, share) for n in needed]
+        spare = self.viewport().width() - sum(widths)
+        if spare > 0:  # rounding: give the last few pixels to the last column
+            widths[-1] += spare
+        for c, w in enumerate(widths):
+            self.setColumnWidth(c, w)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self.refit()
+
+
+def make_table(headers: List[str], even: bool = False) -> QtWidgets.QTableWidget:
+    t = EvenColumnsTable(0, len(headers)) if even else QtWidgets.QTableWidget(0, len(headers))
     t.setHorizontalHeaderLabels(headers)
     header = t.horizontalHeader()
-    header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
-    header.setStretchLastSection(True)
+    if not even:
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        header.setStretchLastSection(True)
     t.verticalHeader().setVisible(False)
     t.setAlternatingRowColors(True)
     t.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)

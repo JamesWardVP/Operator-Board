@@ -137,6 +137,55 @@ result = {{'ok': True}}
 """
 
 
+FIND_ACTOR = """
+def _find_actor(ref):
+    actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+    found = next((a for a in actors if a.get_path_name() == ref), None)
+    found = found or next((a for a in actors if a.get_actor_label() == ref), None)
+    if found is None:
+        raise RuntimeError('Actor not found in the open level: ' + ref)
+    return found
+"""
+
+
+def list_camera_targets() -> str:
+    """Camera actors and nDisplay root actors, matched by class (an nDisplay setup is a Blueprint
+    subclass such as nDisplayConfig_C, so its class name does not say DisplayClusterRootActor)."""
+    return """
+kinds = [unreal.CameraActor]
+root = getattr(unreal, 'DisplayClusterRootActor', None)
+if root is not None:
+    kinds.append(root)
+out = []
+for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+    if any(isinstance(a, k) for k in kinds):
+        out.append({'label': a.get_actor_label(), 'path': a.get_path_name(), 'class': a.get_class().get_name()})
+out.sort(key=lambda a: a['label'].lower())
+result = {'actors': out}
+"""
+
+
+def get_actor_transform(actor_ref: str) -> str:
+    return FIND_ACTOR + f"""
+a = _find_actor({_lit(actor_ref)})
+loc, rot = a.get_actor_location(), a.get_actor_rotation()
+result = {{'location': [loc.x, loc.y, loc.z], 'rotation': [rot.pitch, rot.yaw, rot.roll]}}
+"""
+
+
+def set_actor_transform(actor_ref: str, location, rotation) -> str:
+    x, y, z = (float(v) for v in location)
+    p, yaw, r = (float(v) for v in rotation)
+    return FIND_ACTOR + f"""
+a = _find_actor({_lit(actor_ref)})
+with unreal.ScopedEditorTransaction('Operator Board camera position'):
+    a.modify()
+    a.set_actor_location_and_rotation(unreal.Vector({x}, {y}, {z}), unreal.Rotator(roll={r}, pitch={p}, yaw={yaw}),
+                                      False, True)
+result = {{'ok': True}}
+"""
+
+
 def list_actors(class_filter: str = "") -> str:
     return f"""
 cls_filter = {_lit(class_filter)}.lower()
@@ -357,22 +406,33 @@ def take_recorder_cancel() -> str:
     return "unreal.TakeRecorderBlueprintLibrary.cancel_recording()\nresult = {'ok': True}\n"
 
 
-def take_recorder_save(sequence_path: str = "") -> str:
+def take_recorder_save(sequence_path: str = "", slate: str = "", take: int = 0) -> str:
     """Save a recorded take: its level sequence and the subscenes recorded with it.
 
     Only unsaved packages are written (Take Recorder normally saves when it stops). In a multi-user
     session a save goes to the session, so every client, nDisplay nodes included, receives it; the
     take is then *persisted*: written into this machine's real project files, which sends nothing
-    to the other clients and leaves the wall alone.
+    to the other clients and leaves the wall alone. Without a known sequence it uses the panel's last
+    recording, else looks the take up by name ("<slate>_<take>") under Take Recorder's save folder
+    (the panel forgets its last recording when it is closed).
     """
     return f"""
 path = {_lit(sequence_path)}
+slate, take = {_lit(slate)}, {int(take)}
 seq = unreal.load_asset(path) if path else None
 if seq is None and not path:
     panel = unreal.TakeRecorderBlueprintLibrary.get_take_recorder_panel()
     seq = panel.get_last_recorded_level_sequence() if panel is not None else None
+if seq is None and slate and take:
+    st = unreal.get_default_object(unreal.TakeRecorderProjectSettings).get_editor_property('settings')
+    root = str(st.get_editor_property('root_take_save_dir').get_editor_property('path')).strip('/')
+    root = '/' + root if root.startswith('Game/') else '/Game/' + root
+    names = set(slate + '_' + str(take).zfill(n) for n in (1, 2, 3, 4))
+    found = sorted(a for a in unreal.EditorAssetLibrary.list_assets(root, True, False) if a.split('.')[-1] in names)
+    seq = unreal.load_asset(found[-1]) if found else None
 if seq is None:
-    raise RuntimeError('Recorded take not found in the editor' + (': ' + path if path else ''))
+    raise RuntimeError('Recorded take not found in the editor' + (': ' + path if path else
+                       (' (looked for ' + slate + '_' + str(take).zfill(2) + ')' if slate else '')))
 if unreal.TakeRecorderBlueprintLibrary.is_recording():
     raise RuntimeError('Stop recording before saving the take')
 package = seq.get_outermost().get_name()

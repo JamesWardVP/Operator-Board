@@ -136,3 +136,37 @@ def test_record_button_plays_the_countdown():
     assert btn.text() == "■ STOP" and not btn._timer.isActive()
     btn.show_state(False, False)
     assert btn.text() == "● RECORD"
+
+
+def test_sidebar_groups_and_page_links():
+    from operator_board.context import AppContext
+    from operator_board.core.config import AppConfig
+    from operator_board.qt import QtWidgets
+    from operator_board.ui.main_window import MainWindow
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    ctx = AppContext(AppConfig())
+    window = MainWindow(ctx)
+    assert window.nav.count() == len(window.pages)
+    assert window.nav.group_names() == ["ADVANCED", "SETUP"]
+    window.nav.set_group_expanded("Setup", False)
+    window.show_page("Devices")  # opens its collapsed group
+    assert window.current_page().title == "Devices"
+    window.show_page("Cameras & Levels", "Camera Positions")
+    assert window.current_page().tabs.tabText(window.current_page().tabs.currentIndex()) == "Camera Positions"
+    window.skip_save_on_close = True
+    window.close()
+    ctx.shutdown()
+
+
+def test_group_dialog_builds_a_group():
+    from operator_board.core.config import GroupConfig
+    from operator_board.qt import QtWidgets, Qt
+    from operator_board.ui.group_dialog import GroupDialog
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    dialog = GroupDialog(None, GroupConfig(name="Wall", devices=["Node_A"], color="#e03131"),
+                         ["Editor", "Node_A", "Node_B"], ["Editors"])
+    dialog.members.item(2).setCheckState(Qt.Checked)
+    dialog.name.setText("Wall nodes")
+    dialog._set_color("#2f9e44")
+    group = dialog.result_group
+    assert group.name == "Wall nodes" and group.devices == ["Node_A", "Node_B"] and group.color == "#2f9e44"

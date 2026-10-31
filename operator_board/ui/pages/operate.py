@@ -76,6 +76,7 @@ class OperatePage(BasePage):
 
         # --- LED wall ---------------------------------------------------------
         wall = Card("LED Wall")
+        wall.set_link("Open the LED Processors page", lambda: self.window_.show_page("LED Processors"))
         self.freeze_btn = BigButton("FREEZE", COLORS["freeze"], height=110)
         self.blackout_btn = BigButton("BLACKOUT", COLORS["blackout"], height=110)
         self.normal_btn = BigButton("WALL NORMAL", COLORS["ok"], height=110)
@@ -101,6 +102,7 @@ class OperatePage(BasePage):
 
         # --- Unreal instances ---------------------------------------------------
         inst = Card("Unreal Instances")
+        inst.set_link("Open the Devices page", lambda: self.window_.show_page("Devices"))
         connect_all = QtWidgets.QPushButton("Connect all")
         disconnect_all = QtWidgets.QPushButton("Disconnect all")
         disconnect_all.setToolTip("Close every listener connection. Unreal keeps running.")
@@ -115,6 +117,10 @@ class OperatePage(BasePage):
         inst.add_layout(hbox(connect_all, disconnect_all, start_all, stop_all))
         self.groups_box = QtWidgets.QVBoxLayout()
         inst.add_layout(self.groups_box)
+        new_group = QtWidgets.QPushButton("+ New group")
+        new_group.setToolTip("Make a named, colour-coded group of Unreal instances to start and stop together")
+        new_group.clicked.connect(lambda: self._edit_group(None))
+        inst.add_layout(hbox(new_group, None))
         self.devices_box = QtWidgets.QVBoxLayout()
         inst.add_layout(self.devices_box)
         self.no_devices = muted("No devices configured yet - add them on the Devices page.")
@@ -128,6 +134,7 @@ class OperatePage(BasePage):
 
         # --- Multi-user -----------------------------------------------------------
         mu = Card("Multi-User")
+        mu.set_link("Open the multi-user server settings", lambda: self.window_.show_page("Settings"))
         self.mu_server = QtWidgets.QLineEdit()
         self.mu_session = QtWidgets.QLineEdit()
         form = QtWidgets.QFormLayout()
@@ -141,7 +148,15 @@ class OperatePage(BasePage):
         self.mu_auto.setToolTip("Start the multi-user server first whenever an editor or nDisplay node that "
                                 "joins multi-user is started")
         self.mu_auto.toggled.connect(self._auto_mu_changed)
-        mu.add(self.mu_auto)
+        self.mu_auto_session = QtWidgets.QCheckBox("Auto-start session")
+        self.mu_auto_session.setToolTip("Make the session live as soon as the server starts (asking first if a "
+                                        "session of that name is still on the server). Off: the session starts "
+                                        "when the first editor or nDisplay node joins.")
+        self.mu_auto_session.toggled.connect(self._auto_session_changed)
+        self.mu_stop = QtWidgets.QPushButton("■ Stop server")
+        self.mu_stop.setToolTip("Stop the multi-user server")
+        self.mu_stop.clicked.connect(lambda: self.invoke("multiuser.stop"))
+        mu.add_layout(hbox(self.mu_auto, self.mu_auto_session, None, self.mu_stop))
         self.mu_count = QtWidgets.QLabel("0")
         self.mu_count.setObjectName("Big")
         mu.add_layout(hbox(self.mu_count, muted("connected clients"), None))
@@ -157,6 +172,8 @@ class OperatePage(BasePage):
 
         # --- Level ----------------------------------------------------------------
         lvl = Card("Project & Level")
+        lvl.set_link("Open the Cameras & Levels page",
+                     lambda: self.window_.show_page("Cameras & Levels", "Projects & Levels"))
         self.project_combo = QtWidgets.QComboBox()
         self.project_combo.activated.connect(self._switch_project)
         self.level_combo = QtWidgets.QComboBox()
@@ -177,6 +194,7 @@ class OperatePage(BasePage):
 
         # --- Takes ----------------------------------------------------------------
         takes = Card("Take")
+        takes.set_link("Open the Takes page", lambda: self.window_.show_page("Takes"))
         self.take_label = QtWidgets.QLabel("")
         self.take_label.setObjectName("Big")
         self.rec_btn = RecordButton(ctx.takes.countdown_remaining, height=60)
@@ -232,6 +250,8 @@ class OperatePage(BasePage):
 
         # --- Cameras --------------------------------------------------------------
         cams = Card("Camera Positions")
+        cams.set_link("Open the camera positions on the Cameras & Levels page",
+                      lambda: self.window_.show_page("Cameras & Levels", "Camera Positions"))
         self.cam_box = QtWidgets.QGridLayout()
         cams.add_layout(self.cam_box)
         cams.layout_.addStretch(1)
@@ -244,12 +264,44 @@ class OperatePage(BasePage):
         outer.addWidget(scroll(root))
 
     # ---- interactions ------------------------------------------------------------
+    def _mu_phase(self) -> str:
+        """stopped | clash | session (orange: waiting for Start session) | server (waiting for a client) | live"""
+        mu = self.ctx.multiuser
+        if not mu.running:
+            return "stopped"
+        if mu.session_live:
+            return "live"
+        if mu.clash:
+            return "clash"
+        return "session" if self.ctx.config.multiuser.auto_start_session else "server"
+
     def _toggle_mu(self) -> None:
-        if self.ctx.multiuser.running:
-            self.invoke("multiuser.stop")
-        else:
+        phase = self._mu_phase()
+        if phase == "stopped":
             self.invoke("multiuser.start", server_name=self.mu_server.text().strip(),
-                        session_name=self.mu_session.text().strip())
+                        session_name=self.mu_session.text().strip(), interactive=True)
+        elif phase == "clash":
+            self._ask_clash(self.ctx.multiuser.clash)
+        elif phase == "session":
+            self.invoke("multiuser.start_session")
+        else:
+            self.invoke("multiuser.stop")
+
+    def _ask_clash(self, name: str, suggested: str = "") -> None:
+        """A session of the configured name is still on the server: new session, or keep the old one?"""
+        from operator_board.multiuser.server import next_session_name
+        suggested = suggested or next_session_name(name, self.ctx.multiuser.existing_sessions)
+        box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, "Session already exists",
+                                    f"The multi-user server still has a session called '{name}' from last time.",
+                                    parent=self)
+        box.setInformativeText(f"Start a NEW session '{suggested}' instead?\n\n"
+                               f"Yes: new session '{suggested}'. It is not the previous session.\n"
+                               f"No: keep '{name}' and use the existing session, with everything already in it.")
+        box.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        box.setDefaultButton(QtWidgets.QMessageBox.Yes)
+        answer = box.exec_() if hasattr(box, "exec_") else box.exec()
+        self.invoke("multiuser.resolve_clash", done=lambda _r: self.save_config(),
+                    increment=answer == QtWidgets.QMessageBox.Yes)
 
     # ---- LED wall availability ------------------------------------------------------
     def _wall_unavailable(self):
@@ -286,9 +338,7 @@ class OperatePage(BasePage):
                 [("Retry connection", self._retry_led), setup, ("Use anyway", self._use_wall_anyway)])
 
     def _open_led_setup(self) -> None:
-        titles = [p.title for p in self.window_.pages]
-        if "LED Processors" in titles:
-            self.window_.nav.setCurrentRow(titles.index("LED Processors"))
+        self.window_.show_page("LED Processors")
 
     def _retry_led(self) -> None:
         self.background(self.ctx.led.check_all, lambda _r: self.refresh(), "LED connection check")
@@ -313,10 +363,23 @@ class OperatePage(BasePage):
         elif int(text) != self.ctx.config.takes.take:
             self.invoke("takes.set_take", done=lambda _r: self.save_config(), take=int(text))
 
+    def _edit_group(self, group) -> None:
+        from operator_board.ui.group_dialog import edit_group
+        if edit_group(self, self.ctx.config, group):
+            self.ctx.devices.reload()
+            self.save_config()
+            self.refresh()
+
     def _auto_mu_changed(self, on: bool) -> None:
         if self.ctx.config.multiuser.auto_start != on:
             self.ctx.config.multiuser.auto_start = on
             self.save_config()
+
+    def _auto_session_changed(self, on: bool) -> None:
+        if self.ctx.config.multiuser.auto_start_session != on:
+            self.ctx.config.multiuser.auto_start_session = on
+            self.save_config()
+            self.refresh()
 
     def _switch_project(self) -> None:
         name = self.project_combo.currentText()
@@ -335,6 +398,9 @@ class OperatePage(BasePage):
 
     def on_event(self, topic: str, payload) -> None:
         super().on_event(topic, payload)
+        if topic == "multiuser.session_clash":
+            self._ask_clash(payload.get("name", ""), payload.get("suggested", ""))
+            return
         if topic == "multiuser.session_renamed" and payload.get("reason") == "exists":
             # Hard to miss on purpose: the operator may expect the previous session's work to be there.
             box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, "New multi-user session",
@@ -418,7 +484,7 @@ class OperatePage(BasePage):
                 self.devices_box.addWidget(tile)
             tile.update_from(rt)
         groups = self.ctx.config.groups
-        if self._changed("groups", [(g.name, g.color) for g in groups]):
+        if self._changed("groups", [(g.name, g.color, tuple(g.devices)) for g in groups]):
             clear_layout(self.groups_box)
             self._group_labels = {}
             for g in groups:
@@ -428,7 +494,10 @@ class OperatePage(BasePage):
                 stop = QtWidgets.QPushButton("■ Stop group")
                 start.clicked.connect(lambda _=False, n=g.name: self.invoke("group.start", group=n))
                 stop.clicked.connect(lambda _=False, n=g.name: self.invoke("group.stop", group=n))
-                self.groups_box.addLayout(hbox(label, None, start, stop))
+                edit = QtWidgets.QPushButton("Edit")
+                edit.setToolTip("Rename, recolour, change members or delete this group")
+                edit.clicked.connect(lambda _=False, grp=g: self._edit_group(grp))
+                self.groups_box.addLayout(hbox(label, None, start, stop, edit))
         for g in groups:
             members = self.ctx.devices.group_devices(g.name)
             running = sum(1 for m in members if m.state == "running")
@@ -441,12 +510,27 @@ class OperatePage(BasePage):
             self.mu_server.setText(self.ctx.config.multiuser.server_name)
         if not self.mu_session.hasFocus():
             self.mu_session.setText(self.ctx.config.multiuser.session_name)
-        self.mu_btn.setText("STOP SERVER" if mu.running else "START SERVER")
-        if self.mu_auto.isChecked() != self.ctx.config.multiuser.auto_start:
-            self.mu_auto.blockSignals(True)
-            self.mu_auto.setChecked(self.ctx.config.multiuser.auto_start)
-            self.mu_auto.blockSignals(False)
-        self.mu_btn.set_active(mu.running)
+        for box, value in ((self.mu_auto, self.ctx.config.multiuser.auto_start),
+                           (self.mu_auto_session, self.ctx.config.multiuser.auto_start_session)):
+            if box.isChecked() != value:
+                box.blockSignals(True)
+                box.setChecked(value)
+                box.blockSignals(False)
+        phase = self._mu_phase()
+        text, colour = {"stopped": ("START SERVER", COLORS["mu"]),
+                        "clash": ("START SESSION", COLORS["session"]),
+                        "session": ("START SESSION", COLORS["session"]),
+                        "server": ("STOP SERVER", COLORS["mu"]),
+                        "live": ("STOP SERVER", COLORS["live"])}[phase]
+        self.mu_btn.setText(text)
+        self.mu_btn.active_color = colour
+        self.mu_btn.set_active(phase != "stopped")
+        self.mu_btn.setToolTip({"live": "The server and the session are running. Click to stop the server.",
+                                "server": "The session starts when the first editor or nDisplay node joins. "
+                                          "Click to stop the server.",
+                                "session": "Make the session live now", "clash": "Choose new or existing session",
+                                }.get(phase, "Start the multi-user server"))
+        self.mu_stop.setVisible(phase in ("clash", "session"))  # the big button is Start session then
         self.mu_count.setText(str(mu.client_count) if mu.running else "–")
         if mu.running:
             self.mu_clients.setText(", ".join(mu.clients) or mu.last_error or "Waiting for clients to join")
@@ -499,7 +583,7 @@ class OperatePage(BasePage):
                 b.clicked.connect(lambda _=False, n=cam.name: self.invoke("camera.recall", preset=n))
                 self.cam_box.addWidget(b, i // 4, i % 4)
             if not self.ctx.config.cameras:
-                self.cam_box.addWidget(muted("Save camera positions on the Levels & Cameras page."), 0, 0)
+                self.cam_box.addWidget(muted("Save camera positions on the Cameras & Levels page."), 0, 0)
 
     def _changed(self, key: str, signature) -> bool:
         """True when a structural signature changed, so widgets are only rebuilt when needed."""

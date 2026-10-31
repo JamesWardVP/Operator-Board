@@ -77,3 +77,83 @@ def test_start_action_reports_the_new_session_as_a_warning(monkeypatch):
     result = ctx.actions.invoke("multiuser.stop")
     assert result.ok and "VP_Session_3" in result.message
     ctx.shutdown()
+
+
+def _recording_server(monkeypatch, first_log, session_log=FRESH_LOG):
+    cfg, srv, events = _server(monkeypatch, first_log)
+    launches = []
+
+    def launch(exe, args):
+        launches.append(args)
+        srv.feed_output(first_log if len(launches) == 1 else session_log)
+    monkeypatch.setattr(srv, "_start_local", launch)
+    clashes = []
+    srv.bus.subscribe("multiuser.session_clash", lambda t, p: clashes.append(p))
+    return cfg, srv, events, launches, clashes
+
+
+def test_interactive_clash_waits_for_the_operator(monkeypatch):
+    cfg, srv, events, launches, clashes = _recording_server(monkeypatch, RESTART_LOG)
+    srv.start(session_name="VP_Session", interactive=True)
+    assert srv.clash == "VP_Session" and cfg.multiuser.session_name == "VP_Session"
+    assert clashes == [{"name": "VP_Session", "suggested": "VP_Session_2"}] and not srv.session_live
+    srv.resolve_clash(True)
+    assert cfg.multiuser.session_name == "VP_Session_2" and srv.clash is None
+
+
+def test_keeping_the_existing_session(monkeypatch):
+    cfg, srv, events, launches, clashes = _recording_server(monkeypatch, RESTART_LOG)
+    srv.start(session_name="VP_Session", interactive=True)
+    srv.resolve_clash(False)
+    assert cfg.multiuser.session_name == "VP_Session" and srv.clash is None
+    srv.start_session()
+    assert srv.session_live and "-CONCERTSESSION=VP_Session" in launches[-1]
+
+
+def test_start_session_restarts_the_server_with_the_session_and_project(monkeypatch):
+    cfg, srv, events, launches, clashes = _recording_server(monkeypatch, FRESH_LOG)
+    srv.start(session_name="Shoot")
+    assert not srv.session_live and "-CONCERTSESSION" not in launches[0]
+    srv.start_session()
+    assert srv.session_live and srv.running
+    assert "-CONCERTSESSION=Shoot" in launches[1] and "-CONCERTPROJECT=P" in launches[1]
+    assert "-CONCERTCLEAN" not in launches[1]
+
+
+def test_auto_start_session_goes_live_when_there_is_no_clash(monkeypatch):
+    cfg, srv, events, launches, clashes = _recording_server(monkeypatch, FRESH_LOG)
+    cfg.multiuser.auto_start_session = True
+    srv.start(session_name="Shoot", interactive=True)
+    assert srv.session_live and len(launches) == 2
+
+
+def test_auto_start_session_waits_on_a_clash(monkeypatch):
+    cfg, srv, events, launches, clashes = _recording_server(monkeypatch, RESTART_LOG)
+    cfg.multiuser.auto_start_session = True
+    srv.start(session_name="VP_Session", interactive=True)
+    assert srv.clash and not srv.session_live and len(launches) == 1
+    import pytest
+    with pytest.raises(RuntimeError, match="Choose"):
+        srv.start_session()
+
+
+def test_a_recovered_session_is_not_live_but_a_client_joining_is(monkeypatch):
+    cfg, srv, events = _server(monkeypatch, RESTART_LOG)
+    cfg.multiuser.auto_increment_session = False
+    srv.start(session_name="VP_Session")
+    assert not srv.session_live  # only the old session, recovered at start-up
+    srv.feed_output("LogConcert: Display: User 'james' (Endpoint: 1) joined Concert session 'VP_Session' "
+                    "(Id: 5FE1, Owner: james).")
+    assert srv.session_live
+
+
+def test_session_args_need_a_uproject():
+    import pytest
+    from operator_board.core.config import MultiUserConfig
+    from operator_board.devices.launcher import multiuser_server_spec
+    spec = multiuser_server_spec(ProjectConfig(engine_dir="C:/UE/Engine", uproject_path=r"D:\Shows\Stage.uproject"),
+                                 MultiUserConfig(server_name="S", clean_history=True), session="Day1", clean=False)
+    assert "-CONCERTSESSION=Day1" in spec.args and "-CONCERTPROJECT=Stage" in spec.args
+    assert "-CONCERTCLEAN" not in spec.args
+    with pytest.raises(ValueError):
+        multiuser_server_spec(ProjectConfig(engine_dir="C:/UE/Engine"), MultiUserConfig(), session="Day1")

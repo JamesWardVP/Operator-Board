@@ -1,7 +1,7 @@
 """Device (Unreal instance) and group configuration plus per-device control and logs."""
 from __future__ import annotations
 
-from operator_board.core.config import ROLES, DeviceConfig, GroupConfig
+from operator_board.core.config import ROLES, DeviceConfig
 from operator_board.core.switchboard_config import default_config_dir, import_switchboard_config
 from operator_board.qt import QtWidgets
 from operator_board.ui.forms import edit_dataclass, unique_name_validator
@@ -128,14 +128,14 @@ class DevicesPage(BasePage):
         self.notify(f"Imported {len(added)} device(s) from Switchboard config")
 
     # ---- groups -------------------------------------------------------------------------
-    def _group_kwargs(self):
-        return dict(labels={"devices": "Devices (comma separated)"})
-
     def _add_group(self) -> None:
-        g = GroupConfig(name=f"Group {len(self.ctx.config.groups) + 1}", devices=[d.name for d in self._selected()])
-        if edit_dataclass(self, "Add group", g, unique_name_validator([x.name for x in self.ctx.config.groups], ""),
-                          **self._group_kwargs()):
-            self.ctx.config.groups.append(g)
+        from operator_board.ui.group_dialog import edit_group
+        before = len(self.ctx.config.groups)
+        if edit_group(self, self.ctx.config, None):
+            selected = [d.name for d in self._selected()]
+            new = self.ctx.config.groups[before:]
+            if new and selected and not new[0].devices:
+                new[0].devices = selected  # the devices selected in the table, if none were ticked
             self._changed()
 
     def _selected_group(self):
@@ -143,10 +143,9 @@ class DevicesPage(BasePage):
         return self.ctx.config.groups[rows[0]] if rows and rows[0] < len(self.ctx.config.groups) else None
 
     def _edit_group(self) -> None:
+        from operator_board.ui.group_dialog import edit_group
         g = self._selected_group()
-        if g and edit_dataclass(self, f"Edit {g.name}", g,
-                                unique_name_validator([x.name for x in self.ctx.config.groups], g.name),
-                                **self._group_kwargs()):
+        if g and edit_group(self, self.ctx.config, g):
             self._changed()
 
     def _remove_group(self) -> None:

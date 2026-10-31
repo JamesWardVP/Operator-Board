@@ -37,6 +37,7 @@ class SettingsPage(BasePage):
                 labels={"host": "Run server on", "use_slate_server": "Use Slate (GUI) server",
                         "auto_start": "Auto start multi-user (start the server before Unreal)",
                         "clean_history": "Clean history (forget saved sessions on next start)",
+                        "auto_start_session": "Auto-start session (make the session live when the server starts)",
                         "auto_increment_session": "Number sessions (next session name after every stop, "
                                                   "and when the name is still on the server)",
                         "client_join_pattern": "Client joined log pattern (regex)",

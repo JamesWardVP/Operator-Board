@@ -1,12 +1,25 @@
 """Saved camera locations: recall onto the editor viewport or any actor (cine camera, nDisplay root...)."""
 from __future__ import annotations
 
-from typing import List
+import re
+from typing import Iterable, List
 
 from operator_board.core.config import AppConfig, CameraPreset
 from operator_board.remote import scripts
 from operator_board.remote.rc_client import python_result_wrapper
 from operator_board.remote.targets import TargetResolver
+
+
+def unique_name(name: str, taken: Iterable[str]) -> str:
+    """``name`` if free, else the next free ``name_2``, ``name_3``... (never overwrite a saved position)."""
+    taken = set(taken)
+    if name not in taken:
+        return name
+    base = re.sub(r"_\d+$", "", name) or name
+    number = 2
+    while f"{base}_{number}" in taken:
+        number += 1
+    return f"{base}_{number}"
 
 
 def _vec(v):
@@ -38,6 +51,12 @@ class CameraService:
             self.targets.primary().run_python(
                 python_result_wrapper(scripts.set_viewport_camera(preset.location, preset.rotation)))
             return []
+        if target == "primary":
+            # Python, not a Remote Control function call: UE 5.8 blocks calls such as
+            # K2_SetActorLocationAndRotation unless the editor was started with the unlock switch.
+            self.targets.primary().run_python(python_result_wrapper(
+                scripts.set_actor_transform(preset.target, preset.location, preset.rotation)))
+            return []
         errors = []
         for client in self.targets.resolve(target):
             try:
@@ -49,27 +68,18 @@ class CameraService:
         return errors
 
     def capture(self, name: str, target_actor: str = "viewport") -> CameraPreset:
+        """Save the viewport's or an actor's position as a new preset (``name_2``... if the name is taken)."""
         client = self.targets.primary()
-        if target_actor == "viewport":
-            data = client.run_python(python_result_wrapper(scripts.get_viewport_camera()))
-            if not isinstance(data, dict) or "location" not in data:
-                raise RuntimeError(f"Could not read viewport camera: {data}")
-            loc, rot = data["location"], data["rotation"]
-        else:
-            l = client.call(target_actor, "K2_GetActorLocation").get("ReturnValue", {})
-            r = client.call(target_actor, "K2_GetActorRotation").get("ReturnValue", {})
-            loc = [l.get("X", 0), l.get("Y", 0), l.get("Z", 0)]
-            rot = [r.get("Pitch", 0), r.get("Yaw", 0), r.get("Roll", 0)]
-        existing = next((c for c in self.config.cameras if c.name == name), None)
-        preset = existing or CameraPreset(name=name)
-        preset.target, preset.location, preset.rotation = target_actor, list(loc), list(rot)
-        if existing is None:
-            self.config.cameras.append(preset)
+        script = scripts.get_viewport_camera() if target_actor == "viewport" else scripts.get_actor_transform(target_actor)
+        data = client.run_python(python_result_wrapper(script))
+        if not isinstance(data, dict) or "location" not in data:
+            raise RuntimeError(f"Could not read the position of {target_actor}: {data}")
+        preset = CameraPreset(name=unique_name(name, (c.name for c in self.config.cameras)), target=target_actor,
+                              location=list(data["location"]), rotation=list(data["rotation"]))
+        self.config.cameras.append(preset)
         return preset
 
     def list_camera_actors(self) -> List[dict]:
-        result = self.targets.primary().run_python(python_result_wrapper(scripts.list_actors("Camera")))
-        actors = result.get("actors", []) if isinstance(result, dict) else []
-        roots = self.targets.primary().run_python(python_result_wrapper(scripts.list_actors("DisplayClusterRootActor")))
-        actors += roots.get("actors", []) if isinstance(roots, dict) else []
-        return actors
+        """Camera actors (cine cameras included) and nDisplay setups (their Blueprint classes, e.g. nDisplayConfig_C)."""
+        result = self.targets.primary().run_python(python_result_wrapper(scripts.list_camera_targets()))
+        return result.get("actors", []) if isinstance(result, dict) else []

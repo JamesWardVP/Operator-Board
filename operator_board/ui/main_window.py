@@ -8,6 +8,7 @@ from operator_board import __version__
 from operator_board.qt import QShortcut, QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.bridge import EventBridge, run_async
 from operator_board.ui.listener_login import ListenerLogin
+from operator_board.ui.nav import NavTree
 from operator_board.ui.pages.analytics import AnalyticsPage
 from operator_board.ui.pages.devices import DevicesPage
 from operator_board.ui.pages.dlss import DLSSPage
@@ -23,8 +24,13 @@ from operator_board.ui.pages.takes import TakesPage
 from operator_board.ui.theme import COLORS, STYLESHEET
 from operator_board.ui.widgets import scroll
 
-PAGES = [OperatePage, LevelsPage, TakesPage, ObjectsPage, DLSSPage, StagePage, DevicesPage, LEDSetupPage, SyncPage,
-         AnalyticsPage, SurfacesPage, SettingsPage]
+PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, DLSSPage, AnalyticsPage, SurfacesPage, SyncPage,
+         LEDSetupPage, StagePage, DevicesPage, SettingsPage]
+# The sidebar: ungrouped pages at the top and bottom, collapsible groups in between (open by default).
+NAV = ["Operate", "Takes", "Cameras & Levels",
+       ("Advanced", ["Remote Objects", "DLSS", "Analytics", "Control Surfaces", "File Sync"]),
+       ("Setup", ["LED Processors", "Stage", "Devices"]),
+       "Settings"]
 
 # Stage hotkeys work from any page.
 HOTKEYS = [("F9", "led.freeze"), ("F10", "led.blackout"), ("F11", "led.restore"), ("F12", "takes.toggle_record"),
@@ -55,8 +61,7 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.setSpacing(0)
         side = QtWidgets.QVBoxLayout()
         side.addWidget(self._brand())
-        self.nav = QtWidgets.QListWidget()
-        self.nav.setObjectName("Nav")
+        self.nav = NavTree()
         self.nav.setFixedWidth(210)
         side.addWidget(self.nav)
         side.setSpacing(0)
@@ -71,7 +76,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.pages.append(page)
             # Pages scroll instead of forcing the window taller than a laptop screen.
             self.stack.addWidget(scroll(page))
-            self.nav.addItem(page.title)
+        self.nav.build(NAV, [p.title for p in self.pages])
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
 
@@ -103,6 +108,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.ctx.switchboard_config:
             title += f"  [Switchboard: {os.path.splitext(os.path.basename(self.ctx.switchboard_config))[0]}]"
         self.setWindowTitle(title)
+
+    def show_page(self, title: str, tab: str = "") -> None:
+        """Switch to the page with this title (and, on a page with tabs, to ``tab``)."""
+        titles = [p.title for p in self.pages]
+        if title in titles:
+            self.nav.setCurrentRow(titles.index(title))
+            page = self.pages[titles.index(title)]
+            if tab and hasattr(page, "show_tab"):
+                page.show_tab(tab)
 
     LOGO_COLOUR = "#00d5ff"  # the logo's own cyan
 

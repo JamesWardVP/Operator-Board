@@ -16,18 +16,23 @@ LOAD_MODES = [("Editor (load level in primary editor)", "editor"),
 
 
 class LevelsPage(BasePage):
-    title = "Levels & Cameras"
+    title = "Cameras & Levels"
     refresh_topics = ("levels.", "project.", "cameras.", "config.")
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(16, 16, 16, 16)
-        tabs = QtWidgets.QTabWidget()
+        tabs = self.tabs = QtWidgets.QTabWidget()
         tabs.addTab(self._levels_tab(), "Projects && Levels")
         tabs.addTab(self._sublevels_tab(), "Sub-levels && Data Layers")
         tabs.addTab(self._cameras_tab(), "Camera Positions")
         lay.addWidget(tabs)
+
+    def show_tab(self, name: str) -> None:
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i).replace("&&", "&") == name:
+                self.tabs.setCurrentIndex(i)
 
     # ---- projects & levels ---------------------------------------------------------
     def _levels_tab(self):
@@ -251,7 +256,7 @@ class LevelsPage(BasePage):
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
         card = Card("Saved camera positions")
-        self.cams = make_table(["Name", "Target", "Location (X, Y, Z)", "Rotation (P, Y, R)"])
+        self.cams = make_table(["Name", "Target", "Location (X, Y, Z)", "Rotation (P, Y, R)"], even=True)
         self.cams.doubleClicked.connect(lambda _: self._recall())
         card.add(self.cams)
         self.cam_target = QtWidgets.QComboBox()
@@ -301,10 +306,10 @@ class LevelsPage(BasePage):
         name = self.cam_name.text().strip() or f"Camera {len(self.ctx.config.cameras) + 1}"
         target = self._target_value()
 
-        def done(_):
+        def done(preset):
             self.save_config()
             self.ctx.bus.publish("cameras.changed")
-            self.notify(f"Saved {name}")
+            self.notify(f"Saved {preset.name}" + (f" ('{name}' was already taken)" if preset.name != name else ""))
         self.background(lambda: self.ctx.cameras.capture(name, target), done, "Capturing camera")
 
     def _selected_cam(self):
@@ -359,3 +364,4 @@ class LevelsPage(BasePage):
         for i, c in enumerate(self.ctx.config.cameras):
             set_row(self.cams, i, [c.name, c.target, ", ".join(f"{v:.1f}" for v in c.location),
                                    ", ".join(f"{v:.1f}" for v in c.rotation)])
+        self.cams.refit()

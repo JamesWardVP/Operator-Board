@@ -49,6 +49,7 @@ class TakeLog:
 
 
 class TakeManager:
+    SAVE_TIMEOUT_S = 180.0
     def __init__(self, config: AppConfig, bus: EventBus, targets: Optional[TargetResolver] = None) -> None:
         self.config = config
         self.bus = bus
@@ -304,10 +305,16 @@ class TakeManager:
         if not self.log.takes:
             raise RuntimeError("No recorded take to save yet")
         record = self.log.takes[-1 if index is None else index]
-        if not record.sequence and record is not self.log.takes[-1]:
-            raise RuntimeError("Operator Board does not know which sequence this take was recorded into; "
-                               "save it from the editor's Content Browser")
-        result = self.targets.primary().run_python(python_result_wrapper(scripts.take_recorder_save(record.sequence)))
+        editor = self.targets.primary()
+        old_timeout = getattr(editor, "timeout", None)
+        try:
+            if old_timeout is not None:
+                editor.timeout = max(old_timeout, self.SAVE_TIMEOUT_S)  # big takes take a while to write
+            result = editor.run_python(python_result_wrapper(
+                scripts.take_recorder_save(record.sequence, record.slate, record.take)))
+        finally:
+            if old_timeout is not None:
+                editor.timeout = old_timeout
         result = result if isinstance(result, dict) else {}
         record.sequence = str(result.get("sequence") or record.sequence)
         if result.get("unsaved"):

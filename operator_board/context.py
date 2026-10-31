@@ -90,6 +90,7 @@ class AppContext:
                 self.streamdeck.start()
         threading.Thread(target=self._metrics_loop, daemon=True, name="metrics-poll").start()
         threading.Thread(target=self._led_monitor, daemon=True, name="led-monitor").start()
+        self.refresh_levels_in_background()
         self.timing.start()
 
     def shutdown(self) -> None:
@@ -140,6 +141,16 @@ class AppContext:
         self.reload_all()
         self.bus.publish("project.changed", project=self.config.active_project)
         self.bus.publish("stage.changed", switchboard_config=self.switchboard_config)
+        self.refresh_levels_in_background()
+
+    def refresh_levels_in_background(self) -> None:
+        """Fill the level list for the current project without the operator pressing refresh."""
+        def work() -> None:
+            try:
+                self.refresh_levels()
+            except Exception as exc:  # noqa: BLE001 - no project on disk and no editor yet is normal
+                log.debug("Level list not refreshed: %s", exc)
+        threading.Thread(target=work, daemon=True, name="levels-refresh").start()
 
     def open_switchboard_config(self, path: str) -> None:
         if self.switchboard_config:
@@ -256,6 +267,7 @@ class AppContext:
         self.level_cache = []
         self.selected_level = 0
         self.bus.publish("project.changed", project=project)
+        self.refresh_levels_in_background()
         if relaunch and was_running:
             time.sleep(2)
             self.devices.start_all()
@@ -333,11 +345,33 @@ class AppContext:
               params=[ActionParam("group", "Group", "choice", choices_provider=group_names)])
 
         # Multi-user
-        def start_mu(server_name="", session_name="") -> ActionResult:
-            mu.start(server_name or None, session_name or None)
+        def start_mu(server_name="", session_name="", interactive=False) -> ActionResult:
+            mu.start(server_name or None, session_name or None, interactive=bool(interactive))
+            name = self.config.multiuser.session_name
+            if mu.clash:
+                return ActionResult(True, f"Multi-user server started. Session '{mu.clash}' already exists on it: "
+                                          "choose whether to start a new session or use the existing one")
             if mu.session_warning:
                 return ActionResult(False, f"Multi-user server started. Warning: {mu.session_warning}")
-            return ActionResult(True, f"Multi-user server started (session '{self.config.multiuser.session_name}')")
+            if mu.session_live:
+                return ActionResult(True, f"Multi-user server and session '{name}' are live")
+            return ActionResult(True, f"Multi-user server started (session '{name}')")
+
+        def start_session() -> ActionResult:
+            if not mu.running:
+                start_mu()
+                if mu.session_live:
+                    return ActionResult(True, f"Multi-user session '{self.config.multiuser.session_name}' is live")
+            mu.start_session()
+            return ActionResult(True, f"Multi-user session '{self.config.multiuser.session_name}' is live")
+
+        def resolve_clash(increment=True) -> ActionResult:
+            old = mu.clash
+            mu.resolve_clash(str(increment).lower() not in ("false", "0", "no", ""))
+            name = self.config.multiuser.session_name
+            if old and name != old:
+                return ActionResult(True, f"New session '{name}' (not the previous session '{old}')")
+            return ActionResult(True, f"Keeping the existing session '{name}'")
 
         def stop_mu() -> ActionResult:
             mu.stop()
@@ -349,6 +383,11 @@ class AppContext:
         a.add("multiuser.start", "Start multi-user server", "Multi-User", start_mu, state=lambda: mu.running,
               params=[ActionParam("server_name", "Server name"), ActionParam("session_name", "Session name")])
         a.add("multiuser.stop", "Stop multi-user server", "Multi-User", stop_mu)
+        a.add("multiuser.start_session", "Start multi-user session", "Multi-User", start_session,
+              state=lambda: mu.session_live)
+        a.add("multiuser.resolve_clash", "Session name clash: new session or keep", "Multi-User", resolve_clash,
+              params=[ActionParam("increment", "Start a new session (true) or keep the existing one (false)",
+                                  "bool")])
         a.add("multiuser.toggle", "Multi-user server (toggle)", "Multi-User",
               lambda: stop_mu() if mu.running else start_mu(), state=lambda: mu.running)
 
@@ -377,10 +416,9 @@ class AppContext:
               params=[ActionParam("preset", "Camera preset", "choice", choices_provider=cam_names)])
 
         def capture_next():
-            name = f"Camera {len(self.config.cameras) + 1}"
-            self.cameras.capture(name)
+            preset = self.cameras.capture(f"Camera {len(self.config.cameras) + 1}")
             self.bus.publish("cameras.changed")
-            return ActionResult(True, f"Saved {name}")
+            return ActionResult(True, f"Saved {preset.name}")
         a.add("camera.capture_next", "Save current viewport as new camera", "Cameras", capture_next)
 
         # Takes
