@@ -24,7 +24,7 @@ class BasePage(QtWidgets.QWidget):
 
     def invoke(self, action_id: str, done: Optional[Callable[[ActionResult], None]] = None, **params: Any) -> None:
         action = self.ctx.actions.get(action_id)
-        if action and action.confirm:
+        if action and action.needs_confirm():
             if QtWidgets.QMessageBox.question(self, "Confirm", f"{action.label}?") != QtWidgets.QMessageBox.Yes:
                 return
 

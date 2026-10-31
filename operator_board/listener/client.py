@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from operator_board.listener import protocol
 from operator_board.listener.credentials import CredentialStore, default_store
-from operator_board.listener.quic import ListenerAuthError, QuicListenerConnection
+from operator_board.listener.quic import ListenerAuthError, PasswordRejected, QuicListenerConnection, password_candidates
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class ListenerClient:
         self._sock: Optional[socket.socket] = None
         self._quic: Optional[QuicListenerConnection] = None
         self._send_lock = threading.Lock()
+        self._waiters: Dict[str, Dict[str, Any]] = {}  # message id -> {"event", "reply"} for send_file_content
         self._stop = threading.Event()
         self._threads: list = []
         self.listener_version: Optional[str] = None
@@ -96,12 +97,20 @@ class ListenerClient:
         raise ConnectionError("; ".join(errors))
 
     def _connect_quic(self, password: Optional[str], trust_new_fingerprint: bool) -> None:
-        conn = QuicListenerConnection(
-            self.address, self.port, self.store or default_store(),
-            on_message=self._dispatch, on_closed=self._quic_closed,
-            password=password, trust_new_fingerprint=trust_new_fingerprint)
-        conn.open()
-        self._quic = conn
+        candidates: List[Optional[str]] = list(password_candidates(password)) if password is not None else [None]
+        for i, candidate in enumerate(candidates):
+            conn = QuicListenerConnection(
+                self.address, self.port, self.store or default_store(),
+                on_message=self._dispatch, on_closed=self._quic_closed,
+                password=candidate, trust_new_fingerprint=trust_new_fingerprint)
+            try:
+                conn.open()
+            except PasswordRejected:
+                if i == len(candidates) - 1:
+                    raise
+                continue
+            self._quic = conn
+            return
 
     def _quic_closed(self, reason: str) -> None:
         if self._quic is not None:
@@ -110,6 +119,8 @@ class ListenerClient:
                 self.on_disconnect(reason)
 
     def _dispatch(self, msg: Dict[str, Any]) -> None:
+        if self._resolve_waiter(msg):
+            return
         if msg.get("command") == "state" and "version" in msg:
             self.listener_version = str(msg.get("version"))
         if self.on_message:
@@ -162,6 +173,45 @@ class ListenerClient:
             except OSError as exc:
                 self.disconnect(f"send failed: {exc}")
                 raise ConnectionError(str(exc)) from exc
+
+    def _resolve_waiter(self, msg: Dict[str, Any]) -> bool:
+        """Hand a 'send file' result to the thread waiting for it.
+
+        Switchboard does not match these replies by id, so a reply without an id goes
+        to the oldest waiter; one with an id (FGuid format) to its own.
+        """
+        refused = msg.get("command") == "command accepted" and msg.get("command accepted") is False
+        if "send file complete" not in msg and not refused:
+            return False
+        with self._send_lock:
+            ids = list(self._waiters)
+        target = next((i for i in ids if protocol.same_id(msg.get("id"), i)), None)
+        if target is None and "id" not in msg and ids:
+            target = ids[0]
+        if target is None:
+            return False
+        waiter = self._waiters.pop(target, None)
+        if waiter is None:
+            return False
+        waiter["reply"] = msg
+        waiter["event"].set()
+        return True
+
+    def send_file_content(self, content: bytes, destination: str, timeout: float = 15.0) -> str:
+        """Write a file on the listener machine; returns the path it was written to."""
+        msg_id, payload = protocol.send_file_content(content, destination)
+        waiter: Dict[str, Any] = {"event": threading.Event(), "reply": None}
+        with self._send_lock:
+            self._waiters[msg_id] = waiter
+        self.send(payload)
+        if not waiter["event"].wait(timeout):
+            self._waiters.pop(msg_id, None)
+            raise ConnectionError(f"The listener at {self.address} did not confirm writing {destination}")
+        reply = waiter["reply"] or {}
+        if reply.get("send file complete") is True:
+            return str(reply.get("destination") or destination)
+        raise ConnectionError(f"The listener at {self.address} could not write {destination}: "
+                              f"{reply.get('error', 'no reason given')}")
 
     # -- convenience wrappers ------------------------------------------------
     def start_process(self, **kwargs: Any) -> str:
@@ -222,8 +272,8 @@ def unreachable_hint(address: str, port: int) -> str:
 
 
 def decode_stdout(msg: Dict[str, Any]) -> str:
-    """Extract stdout text from a 'programstdout' message."""
-    raw = msg.get("partialStdoutB64") or msg.get("output") or ""
+    """Extract stdout text from a 'programstdout' or 'program ended' message."""
+    raw = msg.get("partialStdoutB64") or msg.get("stdoutB64") or msg.get("output") or ""
     if not raw:
         return ""
     try:

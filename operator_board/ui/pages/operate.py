@@ -18,12 +18,19 @@ class DeviceTile(QtWidgets.QFrame):
         self.label = QtWidgets.QLabel(name)
         self.label.setStyleSheet("font-weight: 700;")
         self.state = muted("")
+        self.state.setWordWrap(True)
+        self.link = QtWidgets.QPushButton("Connect")
+        self.link.setFixedWidth(120)
+        self.link.setToolTip("Connect to or disconnect from this machine's SwitchboardListener. "
+                             "Disconnecting does not stop Unreal.")
+        self.link.clicked.connect(self._toggle_link)
         self.btn = QtWidgets.QPushButton("Start")
         self.btn.setFixedWidth(80)
         self.btn.clicked.connect(self._toggle)
         lay.addWidget(self.dot)
         lay.addWidget(self.label)
         lay.addWidget(self.state, 1)
+        lay.addWidget(self.link)
         lay.addWidget(self.btn)
 
     def update_from(self, rt) -> None:
@@ -31,6 +38,14 @@ class DeviceTile(QtWidgets.QFrame):
         role = "nDisplay " + (rt.config.ndisplay_node or "") if rt.config.role == "ndisplay" else "Editor"
         self.state.setText(f"{role} · {rt.state}" + (f" · {rt.last_error}" if rt.state == "error" else ""))
         self.btn.setText("Stop" if rt.state in ("running", "starting") else "Start")
+        connected = rt.client is not None and rt.client.connected
+        self.link.setEnabled(rt.state != "connecting")
+        self.link.setText("Connecting…" if rt.state == "connecting" else "Disconnect" if connected else "Connect")
+
+    def _toggle_link(self) -> None:
+        rt = self.page.ctx.devices.get(self.name)
+        connected = rt is not None and rt.client is not None and rt.client.connected
+        self.page.invoke("devices.disconnect" if connected else "devices.connect", device=self.name)
 
     def _toggle(self) -> None:
         rt = self.page.ctx.devices.get(self.name)
@@ -76,14 +91,17 @@ class OperatePage(BasePage):
         # --- Unreal instances ---------------------------------------------------
         inst = Card("Unreal Instances")
         connect_all = QtWidgets.QPushButton("Connect all")
+        disconnect_all = QtWidgets.QPushButton("Disconnect all")
+        disconnect_all.setToolTip("Close every listener connection. Unreal keeps running.")
         start_all = QtWidgets.QPushButton("▶ Start all")
         stop_all = QtWidgets.QPushButton("■ Stop all")
         connect_all.clicked.connect(lambda: self.invoke("devices.connect_all"))
+        disconnect_all.clicked.connect(lambda: self.invoke("devices.disconnect_all"))
         start_all.clicked.connect(lambda: self.invoke("devices.start_all"))
         stop_all.clicked.connect(lambda: self.invoke("devices.stop_all"))
-        for b in (start_all, stop_all):
+        for b in (connect_all, disconnect_all, start_all, stop_all):
             b.setMinimumHeight(44)
-        inst.add_layout(hbox(connect_all, start_all, stop_all))
+        inst.add_layout(hbox(connect_all, disconnect_all, start_all, stop_all))
         self.groups_box = QtWidgets.QVBoxLayout()
         inst.add_layout(self.groups_box)
         self.devices_box = QtWidgets.QVBoxLayout()
@@ -108,6 +126,11 @@ class OperatePage(BasePage):
         self.mu_btn = BigButton("START SERVER", COLORS["mu"], height=60)
         self.mu_btn.clicked.connect(self._toggle_mu)
         mu.add(self.mu_btn)
+        self.mu_auto = QtWidgets.QCheckBox("Auto start multi-user")
+        self.mu_auto.setToolTip("Start the multi-user server first whenever an editor or nDisplay node that "
+                                "joins multi-user is started")
+        self.mu_auto.toggled.connect(self._auto_mu_changed)
+        mu.add(self.mu_auto)
         self.mu_count = QtWidgets.QLabel("0")
         self.mu_count.setObjectName("Big")
         mu.add_layout(hbox(self.mu_count, muted("connected clients"), None))
@@ -171,6 +194,11 @@ class OperatePage(BasePage):
         else:
             self.invoke("multiuser.start", server_name=self.mu_server.text().strip(),
                         session_name=self.mu_session.text().strip())
+
+    def _auto_mu_changed(self, on: bool) -> None:
+        if self.ctx.config.multiuser.auto_start != on:
+            self.ctx.config.multiuser.auto_start = on
+            self.save_config()
 
     def _switch_project(self) -> None:
         name = self.project_combo.currentText()
@@ -264,9 +292,16 @@ class OperatePage(BasePage):
         if not self.mu_session.hasFocus():
             self.mu_session.setText(self.ctx.config.multiuser.session_name)
         self.mu_btn.setText("STOP SERVER" if mu.running else "START SERVER")
+        if self.mu_auto.isChecked() != self.ctx.config.multiuser.auto_start:
+            self.mu_auto.blockSignals(True)
+            self.mu_auto.setChecked(self.ctx.config.multiuser.auto_start)
+            self.mu_auto.blockSignals(False)
         self.mu_btn.set_active(mu.running)
         self.mu_count.setText(str(mu.client_count) if mu.running else "–")
-        self.mu_clients.setText(", ".join(mu.clients) if mu.running else (mu.last_error or "Server not running"))
+        if mu.running:
+            self.mu_clients.setText(", ".join(mu.clients) or mu.last_error or "Waiting for clients to join")
+        else:
+            self.mu_clients.setText(mu.last_error or "Server not running")
 
         # project & levels
         projects = [p.name for p in self.ctx.config.projects]

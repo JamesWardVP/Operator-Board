@@ -37,7 +37,7 @@ def same_id(a: Any, b: Any) -> bool:
 
 
 def keepalive() -> Tuple[str, bytes]:
-    return _new("keepalive")
+    return _new("keep alive")  # with a space, as in Switchboard's message_protocol.py (5.2 - 5.8)
 
 
 def start_process(
@@ -67,8 +67,28 @@ def start_process(
     )
 
 
-def kill_process(program_id: str) -> Tuple[str, bytes]:
-    return _new("kill", uuid=program_id)
+# Seconds the listener lets a program close itself before forcing it (Switchboard's default).
+SOFT_KILL_TIMEOUT_S = 3.0
+
+
+def kill_process(program_id: str, soft_kill_timeout: Optional[float] = SOFT_KILL_TIMEOUT_S) -> Tuple[str, bytes]:
+    fields: Dict[str, Any] = {"uuid": program_id}
+    if soft_kill_timeout is not None:
+        fields["soft_kill_timeout"] = soft_kill_timeout  # older listeners ignore it and kill at once
+    return _new("kill", **fields)
+
+
+def program_info(msg: Dict[str, Any]) -> Dict[str, Any]:
+    """uuid / pid / name / caller of the program a listener message is about.
+
+    Real listeners (5.2 - 5.8) nest them: {"command": "program started", "bAck": true,
+    "process": {"uuid", "pid", "name", "caller", ...}}. Failures carry "puuid" instead.
+    """
+    proc = msg.get("process")
+    if isinstance(proc, dict):
+        return proc
+    return {"uuid": msg.get("puuid") or msg.get("process_id") or msg.get("uuid"),
+            "pid": msg.get("pid"), "name": msg.get("name"), "caller": msg.get("caller")}
 
 
 # SyncStatusRequestFlags (UE 5.4+, SwitchboardTasks.h): the cheap per-machine metrics
@@ -97,6 +117,14 @@ def authenticate(jwt: Optional[str] = None, password: Optional[str] = None) -> T
         fields["password"] = password
         fields["token"] = password  # pre-release 5.4 listeners read "token"
     return _new("authenticate", **fields)
+
+
+def send_file_content(content: bytes, destination: str, force_overwrite: bool = False) -> Tuple[str, bytes]:
+    """Write content to a file on the listener machine. The listener expands %TEMP% and
+    %RANDOM% in the destination and replies with "send file complete" and the real path."""
+    import base64
+    return _new("send file", destination=destination, content=base64.b64encode(content).decode("ascii"),
+                force_overwrite=force_overwrite)
 
 
 def disconnect() -> Tuple[str, bytes]:

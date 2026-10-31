@@ -21,7 +21,7 @@ import json
 import logging
 import ssl
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from operator_board.listener import protocol
 from operator_board.listener.credentials import Credential, CredentialStore
@@ -45,6 +45,21 @@ try:
 except ImportError:  # pragma: no cover - aioquic is a declared dependency
     AVAILABLE = False
     QuicConnectionProtocol = object  # type: ignore
+
+
+# Characters that come along when a password is copied and pasted (line breaks from the
+# listener window, zero-width characters) but can never be part of a listener password.
+_PASTE_JUNK = dict.fromkeys(map(ord, "\r\n\t\u200b\u200c\u200d\u2060\ufeff"), None)
+
+
+def password_candidates(password: str) -> List[str]:
+    """Passwords to try, most likely first: without paste junk, then also without end spaces."""
+    cleaned = password.translate(_PASTE_JUNK)
+    out: List[str] = []
+    for candidate in (cleaned, cleaned.strip()):
+        if candidate and candidate not in out:
+            out.append(candidate)
+    return out or [password]
 
 
 class ListenerAuthError(ConnectionError):
@@ -211,13 +226,27 @@ class QuicListenerConnection:
                 continue
             if not isinstance(msg, dict):
                 continue
-            if self._auth_reply is not None and protocol.same_id(msg.get("id"), self._auth_id) and not self._auth_reply.done():
+            if self._is_auth_reply(msg):
                 self._auth_reply.set_result(msg)
                 continue
+            if msg.get("command") == "command accepted" and protocol.same_id(msg.get("id"), self._auth_id):
+                continue  # the listener acknowledges "authenticate" before its real reply
             try:
                 self.on_message(msg)
             except Exception:  # noqa: BLE001
                 log.exception("Listener message handler failed")
+
+    def _is_auth_reply(self, msg: Dict[str, Any]) -> bool:
+        """The login result: carries bAuthenticated, or refuses the command outright.
+
+        The listener first sends {"command accepted": true} with the same id; that is only an
+        acknowledgement, not the result (Switchboard routes acknowledgements separately).
+        """
+        if self._auth_reply is None or self._auth_reply.done() or not protocol.same_id(msg.get("id"), self._auth_id):
+            return False
+        if "bAuthenticated" in msg:
+            return True
+        return msg.get("command") == "command accepted" and msg.get("command accepted") is False
 
     async def _keepalive_loop(self, writer: asyncio.StreamWriter) -> None:
         while not self._closing:
@@ -255,6 +284,8 @@ class QuicListenerConnection:
         except asyncio.TimeoutError:
             raise ConnectionError(f"The listener at {host} did not answer the login") from None
 
+        if "bAuthenticated" not in reply:  # the listener refused the command itself
+            raise ConnectionError(f"The listener at {host} refused the login: {reply.get('error', 'no reason given')}")
         ok = str(reply.get("bAuthenticated", "")).lower() == "true"
         if ok:
             if self.store.encrypted_at_rest:

@@ -118,4 +118,21 @@ def test_device_manager_over_quic(listener, memory_credentials):
     mgr.start("Node")
     assert wait_until(lambda: rt.state == "running", 5), (rt.state, rt.last_error, listener.received)
     assert any(m["command"] == "start" for m in listener.received)
+    import time
+    time.sleep(1.3)  # at least one keepalive
+    assert listener.unknown == []  # every command is one the real listener understands
     mgr.disconnect_all()
+
+
+def test_pasted_password_with_line_break_or_spaces(listener, memory_credentials):
+    """Copying the password from the listener window can bring a line break or spaces along."""
+    crlf = chr(13) + chr(10)
+    for pasted in ("secret" + crlf, " secret ", "sec" + chr(0x200B) + "ret"):
+        memory_credentials.set("127.0.0.1", None)
+        client = _client(listener, memory_credentials)
+        client.connect(password=pasted)
+        assert client.connected, repr(pasted)
+        assert memory_credentials.get("127.0.0.1").secret == "secret"  # the cleaned password is saved
+        client.disconnect("user disconnect")
+    with pytest.raises(PasswordRejected):
+        _client(listener, memory_credentials).connect(password=" wrong " + crlf)

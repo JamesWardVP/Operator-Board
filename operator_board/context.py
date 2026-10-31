@@ -41,6 +41,8 @@ class AppContext:
         self.actions = ActionRegistry(self.bus)
         self.targets = TargetResolver(self.config)
         self.devices = DeviceManager(self.config, self.bus)
+        self.devices.before_start = self._auto_start_multiuser
+        self._mu_lock = threading.Lock()
         self.multiuser = MultiUserServer(self.config, self.bus)
         self.led = LEDManager(self.config, self.bus)
         self.levels = LevelService(self.config, self.targets)
@@ -94,6 +96,20 @@ class AppContext:
         self.devices.disconnect_all()
         for p in self.led.processors:
             p.close()
+
+    def _auto_start_multiuser(self, device) -> None:
+        """Start the multi-user server before an editor or node that joins it (setting on by default)."""
+        mu = self.config.multiuser
+        if not (mu.auto_start and device.join_multiuser):
+            return
+        with self._mu_lock:  # "Start all" launches devices in parallel
+            if self.multiuser.running:
+                return
+            try:
+                self.multiuser.start()
+                log.info("Started the multi-user server before %s", device.name)
+            except Exception as exc:  # noqa: BLE001 - Unreal still starts; it retries joining
+                log.warning("Could not start the multi-user server automatically: %s", exc)
 
     def save(self) -> str:
         return self.store.save(self.config)
@@ -242,9 +258,9 @@ class AppContext:
         a.add("led.freeze_off", "Unfreeze wall", "LED Wall", lambda: _errors_result("Unfreeze", led.set_freeze(False)))
         a.add("led.blackout", "Blackout wall (toggle)", "LED Wall",
               lambda: _errors_result("Blackout", led.set_blackout(None)), state=lambda: led.blackout,
-              confirm=self.config.ui.confirm_blackout)
+              confirm=lambda: self.config.ui.confirm_blackout and not led.blackout)  # restoring needs no confirm
         a.add("led.blackout_on", "Blackout wall", "LED Wall", lambda: _errors_result("Blackout", led.set_blackout(True)),
-              state=lambda: led.blackout)
+              state=lambda: led.blackout, confirm=lambda: self.config.ui.confirm_blackout and not led.blackout)
         a.add("led.blackout_off", "Restore from blackout", "LED Wall",
               lambda: _errors_result("Restore", led.set_blackout(False)))
         a.add("led.restore", "Wall to normal", "LED Wall", lambda: _errors_result("Wall normal", led.restore_all()))
@@ -266,8 +282,12 @@ class AppContext:
         a.add("devices.connect_all", "Connect all", "Devices", dev.connect_all)
         a.add("devices.disconnect_all", "Disconnect all", "Devices", dev.disconnect_all)
         a.add("devices.start_all", "Start all", "Devices", lambda: dev.start_all(), state=lambda: bool(dev.running()))
-        a.add("devices.stop_all", "Stop all", "Devices", dev.stop_all, confirm=self.config.ui.confirm_stop_all)
+        a.add("devices.stop_all", "Stop all", "Devices", dev.stop_all, confirm=lambda: self.config.ui.confirm_stop_all)
         a.add("devices.restart_all", "Restart all", "Devices", lambda: dev.restart_all())
+        a.add("devices.connect", "Connect device", "Devices", lambda device: dev.connect(device),
+              params=[ActionParam("device", "Device", "choice", choices_provider=device_names)])
+        a.add("devices.disconnect", "Disconnect device", "Devices", lambda device: dev.disconnect(device),
+              params=[ActionParam("device", "Device", "choice", choices_provider=device_names)])
         a.add("devices.start", "Start device", "Devices", lambda device: dev.start(device),
               params=[ActionParam("device", "Device", "choice", choices_provider=device_names)])
         a.add("devices.stop", "Stop device", "Devices", lambda device: dev.stop(device),

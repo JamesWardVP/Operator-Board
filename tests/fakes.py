@@ -7,6 +7,15 @@ import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Every command Switchboard 5.8's message_protocol.py sends. The real listener logs
+# "Could not parse message" for anything else, so the fakes record such commands in .unknown.
+KNOWN_COMMANDS = {
+    "authenticate", "disconnect", "fixExeFlags", "free binary", "get sync status", "keep alive", "kill",
+    "minimize windows", "receive file", "redeploy listener", "refresh mosaics", "send file",
+    "set inactive timeout", "start live log stream", "start", "stop live log stream", "vcs init",
+    "vcs report revision", "vcs sync",
+}
+
 
 class FakeListener:
     """Minimal SwitchboardListener: acks 'start', reports program started/ended, answers sync status."""
@@ -18,6 +27,10 @@ class FakeListener:
         self.sock.listen(5)
         self.port = self.sock.getsockname()[1]
         self.received = []
+        self.unknown = []
+        self.files = {}
+        self.processes = {}
+        self.kills = []
         self.stdout_lines = stdout_lines or []
         self.exit_code = 0
         self._conns = []
@@ -49,29 +62,52 @@ class FakeListener:
             while b"\x00" in buf:
                 raw, buf = buf.split(b"\x00", 1)
                 msg = json.loads(raw)
-                if msg["command"] != "keepalive":
+                if msg["command"] not in KNOWN_COMMANDS:
+                    self.unknown.append(msg["command"])
+                if msg["command"] != "keep alive":
                     self.received.append(msg)
                 self._handle(conn, msg)
 
     def _handle(self, conn, msg):
         cmd = msg["command"]
-        if cmd == "start":
-            self._send(conn, {"command": "start", "bAck": True, "id": msg["id"]})
-            pid = "proc-" + msg["id"][:8]
-            self._send(conn, {"command": "program started", "process_id": pid, "pid": 1234, "name": msg["name"],
-                              "caller": msg["caller"]})
+        if cmd == "send file":
+            path = msg["destination"].replace("%TEMP%", "C:/Temp").replace("%RANDOM%", "4242")
+            self.files[path] = base64.b64decode(msg["content"])
+            self._send(conn, {"command": "send file", "send file complete": True, "destination": path})
+        elif cmd == "start":
+            # As the real listener: acknowledge, then announce the program to EVERY connection,
+            # with its details nested under "process" and the start message id as program id.
+            puuid = msg["id"].replace("-", "").upper()
+            self._send(conn, {"command accepted": True, "command": "command accepted", "bAck": True, "id": puuid})
+            proc = {"uuid": puuid, "pid": 1234, "name": msg["name"], "caller": msg["caller"]}
+            self.processes[puuid] = proc
+            self._broadcast({"command": "program started", "bAck": True, "process": proc})
             for line in self.stdout_lines:
-                self._send(conn, {"command": "programstdout", "process_id": pid,
-                                  "partialStdoutB64": base64.b64encode((line + "\n").encode()).decode()})
+                self._broadcast({"command": "programstdout", "process": proc,
+                                 "partialStdoutB64": base64.b64encode((line + "\n").encode()).decode()})
             if msg["name"] == "operatorboard_sync":
-                self._send(conn, {"command": "program ended", "process_id": pid, "returncode": self.exit_code,
-                                  "output": base64.b64encode(b"done").decode()})
+                self._broadcast({"command": "program ended", "process": proc, "returncode": self.exit_code,
+                                 "stdoutB64": base64.b64encode(b"done").decode(), "stderrB64": ""})
         elif cmd == "kill":
-            self._send(conn, {"command": "program ended", "process_id": msg["uuid"], "returncode": 0})
+            self.kills.append(msg)
+            proc = self.processes.pop(msg["uuid"].replace("-", "").upper(), None)
+            if proc is None:
+                self._send(conn, {"command": "program killed", "bAck": False, "puuid": msg["uuid"],
+                                  "error": "No such program"})
+            else:
+                self._broadcast({"command": "program ended", "process": proc, "returncode": 0,
+                                 "stdoutB64": "", "stderrB64": ""})
         elif cmd == "get sync status":
             self._send(conn, {"command": "get sync status", "bAck": True,
                               "syncStatus": {"cpuUtilization": 42.0, "gpuUtilization": [80, 60],
                                              "gpuTemperature": [70], "gpuCoreClocksKhz": [1800000]}})
+
+    def _broadcast(self, msg):
+        for conn in list(self._conns):
+            try:
+                self._send(conn, msg)
+            except OSError:
+                pass
 
     def close(self):
         for c in self._conns:
@@ -142,6 +178,11 @@ class FakeQuicListener(FakeListener):
         self.jwt = "jwt-token-123"
         self.received = []
         self.auth_attempts = []
+        self.unknown = []
+        self.files = {}
+        self.processes = {}
+        self.kills = []
+        self._conns = []  # logged-in streams, for _broadcast
         self.stdout_lines = stdout_lines or []
         self.exit_code = 0
 
@@ -200,16 +241,22 @@ class FakeQuicListener(FakeListener):
                 authed = msg.get("password") == self.password or msg.get("jwt") == self.jwt
                 # The real listener echoes ids as Unreal FGuid strings (uppercase hex, no dashes).
                 fguid = msg["id"].replace("-", "").upper()
+                # Like the real listener, acknowledge the command first, with the same id.
+                self._send(writer, {"command accepted": True, "command": "command accepted", "bAck": True,
+                                    "id": fguid})
                 reply = {"command": "authenticate", "id": fguid, "bAuthenticated": "true" if authed else "false"}
                 if authed and "password" in msg:
                     reply["jwt"] = self.jwt
                 self._send(writer, reply)
                 if authed:
+                    self._conns.append(writer)
                     self._send(writer, {"command": "state", "version": "5.8.0", "runningProcesses": []})
                 continue
             if not authed:
                 continue
-            if msg["command"] not in ("keepalive", "disconnect"):
+            if msg["command"] not in KNOWN_COMMANDS:
+                self.unknown.append(msg["command"])
+            if msg["command"] not in ("keep alive", "disconnect"):
                 self.received.append(msg)
             self._handle(writer, msg)
 

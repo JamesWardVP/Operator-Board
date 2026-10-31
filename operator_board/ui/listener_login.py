@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from operator_board.qt import QtWidgets
+from operator_board.qt import QtWidgets, exec_
 from operator_board.ui.bridge import run_async
 
 
@@ -38,18 +38,42 @@ class ListenerLogin:
 
     def _ask_password(self, address: str, payload: dict) -> None:
         subject = f" ({payload['subject']})" if payload.get("subject") else ""
-        retry = "That password was not accepted.\n\n" if payload.get("kind") == "rejected" else ""
+        retry = ("That password was not accepted. Check it with 'Show password', or type it instead of "
+                 "pasting.\n\n" if payload.get("kind") == "rejected" else "")
         text = (f"{retry}Enter the SwitchboardListener password for {address}{subject}.\n\n"
                 f"Security key fingerprint: {payload.get('fingerprint') or 'unknown'}\n\n"
                 "The password is set in the SwitchboardListener window on that machine (Change Password). "
                 "It is saved in Windows Credential Manager and shared with Switchboard.")
-        password, ok = QtWidgets.QInputDialog.getText(self.window, "SwitchboardListener password", text,
-                                                      QtWidgets.QLineEdit.Password)
-        if not ok or not password:
+        password = self._password_dialog(text)
+        if not password:
             self._waiting.pop(address, None)
             self.window.notify(f"Not connected to {address}: no listener password entered", False)
             return
         self._retry(address, dict(password=password))
+
+    def _password_dialog(self, text: str) -> str:
+        dialog = QtWidgets.QDialog(self.window)
+        dialog.setWindowTitle("SwitchboardListener password")
+        dialog.setMinimumWidth(520)
+        lay = QtWidgets.QVBoxLayout(dialog)
+        label = QtWidgets.QLabel(text)
+        label.setWordWrap(True)
+        lay.addWidget(label)
+        edit = QtWidgets.QLineEdit()
+        edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        lay.addWidget(edit)
+        show = QtWidgets.QCheckBox("Show password")
+        show.toggled.connect(lambda on: edit.setEchoMode(
+            QtWidgets.QLineEdit.Normal if on else QtWidgets.QLineEdit.Password))
+        lay.addWidget(show)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        lay.addWidget(buttons)
+        edit.setFocus()
+        if exec_(dialog) != QtWidgets.QDialog.Accepted:
+            return ""
+        return edit.text()
 
     def _ask_trust(self, address: str, payload: dict) -> None:
         subject = f" ({payload['subject']})" if payload.get("subject") else ""

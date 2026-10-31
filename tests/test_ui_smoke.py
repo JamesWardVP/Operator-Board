@@ -26,6 +26,7 @@ def test_main_window_pages(tmp_path):
     window.pages[0].refresh()
     assert window.pages[0].freeze_btn.text() == "FREEZE"
     assert window.pages[0].banner.text() == "WALL FROZEN"
+    assert window.pages[0].tiles["Ed"].link.text() == "Connect"
     # switch to a new Switchboard config and back while the window is open
     stage_page = next(p for p in window.pages if p.title == "Stage")
     sb_path = str(tmp_path / "configs" / "Stage_A.json")
