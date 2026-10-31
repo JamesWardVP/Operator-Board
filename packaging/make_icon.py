@@ -2,7 +2,8 @@
 
 Writes operator_board/ui/icon.png and icon_small.png (window icon), operator_board/ui/logo.png
 (sidebar), docs/images/logo.png (README) and packaging/operator_board.ico (exe and installer, 16-256 px).
-Sizes up to TILE_MAX px sit on a white rounded square so the thin cyan lines stay readable.
+The application icons (window and .ico) are the logo in black on a white rounded square; the sidebar
+and README logos keep the cyan artwork.
 Run once after changing the logo: python packaging/make_icon.py  (needs Pillow for the .ico)
 """
 import io
@@ -15,7 +16,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SVG = os.path.join(HERE, "logo.svg")
 ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
-TILE_MAX = 48  # favicon / small-icon sizes get the white tile
+# Application icon (exe, installer, shortcuts, taskbar): black logo on a white rounded square at
+# every size. The margin is the smallest that keeps the artwork clear of the rounded corners.
+TILE_MARGIN = 0.035
+TILE_RADIUS = 0.16
 
 
 def content_box(renderer: QtSvg.QSvgRenderer) -> QtCore.QRectF:
@@ -65,25 +69,25 @@ def render(renderer: QtSvg.QSvgRenderer, box: QtCore.QRectF, size: int, margin: 
 
 
 def render_tile(renderer: QtSvg.QSvgRenderer, box: QtCore.QRectF, size: int) -> QtGui.QImage:
-    """The logo on a white rounded-corner square, for favicon-sized icons."""
+    """The application icon: the logo in black, as large as it fits, on a white rounded-corner square."""
     img = QtGui.QImage(size, size, QtGui.QImage.Format_ARGB32)
     img.fill(QtCore.Qt.transparent)
     p = QtGui.QPainter(img)
     p.setRenderHint(QtGui.QPainter.Antialiasing)
     p.setPen(QtCore.Qt.NoPen)
     p.setBrush(QtGui.QColor("#ffffff"))
-    radius = size * 0.22
+    radius = size * TILE_RADIUS
     p.drawRoundedRect(QtCore.QRectF(0, 0, size, size), radius, radius)
     p.end()
-    logo = render(renderer, box, size, 0.12)
+    logo = render(renderer, box, size, TILE_MARGIN)
+    p = QtGui.QPainter(logo)  # recolour: keep the shape (alpha), paint it black
+    p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceIn)
+    p.fillRect(logo.rect(), QtGui.QColor("#000000"))
+    p.end()
     p = QtGui.QPainter(img)
     p.drawImage(0, 0, logo)
     p.end()
     return img
-
-
-def icon_image(renderer: QtSvg.QSvgRenderer, box: QtCore.QRectF, size: int) -> QtGui.QImage:
-    return render_tile(renderer, box, size) if size <= TILE_MAX else render(renderer, box, size, 0.03)
 
 
 def to_png_bytes(img: QtGui.QImage) -> bytes:
@@ -100,8 +104,9 @@ def main() -> int:
         print(f"Cannot read {SVG}")
         return 1
     box = content_box(renderer)
-    render(renderer, box, 256, 0.04).save(os.path.join(ROOT, "operator_board", "ui", "icon.png"))
-    # Drawn at 64 px and used by Qt for every small request (title bar, taskbar, Alt+Tab).
+    # Window / taskbar icon: the same black-on-white tile as the exe. The large one serves big requests
+    # (Alt+Tab at high DPI), the 64 px one is drawn crisply for every small one.
+    render_tile(renderer, box, 256).save(os.path.join(ROOT, "operator_board", "ui", "icon.png"))
     render_tile(renderer, box, 64).save(os.path.join(ROOT, "operator_board", "ui", "icon_small.png"))
     render(renderer, box, 256, 0.0).save(os.path.join(ROOT, "operator_board", "ui", "logo.png"))
     render(renderer, box, 320, 0.0).save(os.path.join(ROOT, "docs", "images", "logo.png"))
@@ -110,7 +115,7 @@ def main() -> int:
     except ImportError:
         print("Pillow is not installed: PNGs written, operator_board.ico left as it was")
         return 1
-    images = [Image.open(io.BytesIO(to_png_bytes(icon_image(renderer, box, s)))) for s in ICO_SIZES]
+    images = [Image.open(io.BytesIO(to_png_bytes(render_tile(renderer, box, s)))) for s in ICO_SIZES]
     images[-1].save(os.path.join(HERE, "operator_board.ico"), format="ICO", sizes=[(s, s) for s in ICO_SIZES],
                     append_images=images[:-1])
     print("logo images written")
