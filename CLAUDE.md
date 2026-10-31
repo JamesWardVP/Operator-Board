@@ -17,14 +17,14 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 10. Keep a list of **potential future features**, but NOT in the README. The **README lists only currently available features and the supported UE versions (5.2 → 5.8)**.
 11. Hosted on GitHub as `JamesWardVP/Operator-Board`.
 
-## Current state (v0.2.2)
+## Current state (v0.2.3)
 Every brief item has a first implementation. See README.md for the feature list, docs/ARCHITECTURE.md for structure, docs/LED_PROCESSORS.md for protocol research, and docs/ROADMAP.md for future ideas.
 
 - Python + Qt (PySide6, with a PySide2 fallback through `operator_board/qt.py`), so it can also run in Switchboard's own Python venv.
 - Run: `python -m operator_board` (`--headless`, `--no-hardware`, `--config path`, `--switchboard-config path`).
-- Windows executable: `python packaging/build.py --hidapi` builds `dist/OperatorBoard/OperatorBoard.exe` (+ `OperatorBoardConsole.exe`) with PyInstaller; CI (`.github/workflows/build-windows.yml`) builds on every push and attaches the zip to `v*` tag releases.
+- Windows executable: `python packaging/build.py --hidapi` builds `dist/OperatorBoard/OperatorBoard.exe` (+ `OperatorBoardConsole.exe`) with PyInstaller; `--installer` also builds `dist/OperatorBoard-Setup-<version>.exe` with Inno Setup 6 (`packaging/operator_board.iss`; per-user install by default, closes a running Operator Board on upgrade; never change its `AppId`). CI (`.github/workflows/build-windows.yml`) builds on every push and attaches the installer and the zip to `v*` tag releases. Unsigned, so SmartScreen warns once for the setup file; the installed app starts without warnings. SignPath declined for now (not popular enough yet); the free no-warning route is the Microsoft Store (free developer account, MSIX signed by Microsoft).
 - Work happens on the `Development` branch; `main` gets it through pull requests.
-- License: MIT (`LICENSE`); bundled components in `THIRD_PARTY_NOTICES.md`. Code signing is being applied for through **SignPath Foundation** (free for OSS). Their conditions are why the README has the "Code signing policy" and "Privacy policy" sections and uninstall steps, and why every release links to them. When approved, add the SignPath signing step to `.github/workflows/build-windows.yml` (sign both exes before zipping), with credentials in GitHub Secrets. Do not add proprietary components: SignPath requires everything to be open source.
+- License: MIT (`LICENSE`); bundled components in `THIRD_PARTY_NOTICES.md`. Code signing: **SignPath Foundation** (free for OSS) declined for now until the project is more popular; re-apply later. Their conditions are why the README has the "Code signing policy" and "Privacy policy" sections and uninstall steps, and why every release links to them. When approved, add the SignPath signing step to `.github/workflows/build-windows.yml` (sign both exes before zipping), with credentials in GitHub Secrets. Do not add proprietary components: SignPath requires everything to be open source.
 - README screenshots: `python docs/make_screenshots.py` renders `docs/images/*.png` from a simulated demo stage (needs a desktop session for fonts).
 - Example stage config: `config/example_stage.json` (uses simulated LED processors).
 - Tests: `python -m pytest`. The suite includes fake SwitchboardListener and HTTP servers, and an offscreen Qt smoke test (set `QT_QPA_PLATFORM=offscreen` on headless Linux).

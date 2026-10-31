@@ -28,8 +28,10 @@ operator_board/
 ## Packaging
 `packaging/build.py` runs PyInstaller with `packaging/operator_board.spec`, producing `dist/OperatorBoard/` with
 `OperatorBoard.exe` (no console) and `OperatorBoardConsole.exe` (console) sharing one runtime, plus a zip.
-The workflow `.github/workflows/build-windows.yml` tests and builds on every push and attaches the zip to
-releases for `v*` tags. When frozen, logging also goes to `~/.operator_board/logs/operator_board.log`.
+With `--installer` it also runs Inno Setup 6 on `packaging/operator_board.iss`, giving
+`OperatorBoard-Setup-<version>.exe` (per-user install by default, Start menu shortcut, uninstaller, closes a running
+Operator Board on upgrade). The workflow `.github/workflows/build-windows.yml` tests and builds on every push and
+attaches the installer and the zip to releases for `v*` tags. When frozen, logging also goes to `~/.operator_board/logs/operator_board.log`.
 
 ## Stage storage
 | Mode | Files |

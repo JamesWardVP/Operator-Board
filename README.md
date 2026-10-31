@@ -5,7 +5,7 @@
 [![Windows build](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml/badge.svg)](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Version:** 0.2.2 · **Unreal Engine 5.2 – 5.8** · **Windows**
+**Version:** 0.2.3 · **Unreal Engine 5.2 – 5.8** · **Windows**
 
 ![Operator Board's Operate page: LED wall controls, Unreal instances, multi-user, project and level, take and camera positions](docs/images/operate.png)
 
@@ -26,8 +26,8 @@ It uses the same building blocks as Switchboard: **SwitchboardListener** on each
 
 ## Getting started
 
-1. **Download** `OperatorBoard-<version>-win64.zip` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page and unzip it anywhere. Python does not need to be installed.
-2. **Run `OperatorBoard.exe`.**
+1. **Download** `OperatorBoard-Setup-<version>.exe` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page and run it. Python does not need to be installed.
+2. **Start Operator Board** from the Start menu.
 3. **Make sure SwitchboardListener is running** on every machine that runs Unreal (`Engine\Binaries\Win64\SwitchboardListener.exe`), as you would for Switchboard. For UE 5.4 and later, Operator Board asks for each listener's password the first time it connects, just like Switchboard.
 4. **Open your stage** on the **Stage** page: pick an existing Switchboard config, or create a new one.
 5. **Add your LED processors** on the **LED Processors** page: choose the type and enter its IP address, as you would in Companion.
@@ -134,9 +134,19 @@ Operator Board detects the engine version from `Engine/Build/Build.version` when
 
 ## Installation
 
-### Windows (no Python needed)
+### Windows installer (recommended)
 
-Download `OperatorBoard-<version>-win64.zip` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page, unzip it anywhere and run **`OperatorBoard.exe`**.
+Download **`OperatorBoard-Setup-<version>.exe`** from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page and run it. Python is not needed.
+
+- It installs for your Windows account without needing administrator rights (administrators can choose to install for all users), adds Operator Board to the Start menu (and, if you tick it, the desktop), and offers to start it straight away.
+- Windows may show **"Windows protected your PC"** once, for the setup file only, because it is not code-signed yet: click **More info → Run anyway**. Operator Board itself then starts without warnings.
+- To update, run the newer setup file. It closes Operator Board if it is open and keeps your settings.
+
+### Portable zip
+
+Download `OperatorBoard-<version>-win64.zip` instead if you'd rather not install anything. Before unzipping, right-click the zip → **Properties** → tick **Unblock** → **OK** (this avoids the Windows warning), then unzip it anywhere and run **`OperatorBoard.exe`**.
+
+### Both
 
 - `OperatorBoardConsole.exe` is the same program with a console window, for `--headless` on a rack PC or for troubleshooting.
 - Settings live in `%USERPROFILE%\.operator_board\`, with a log in its `logs` folder.
@@ -168,10 +178,8 @@ For direct Stream Deck support, also run `pip install streamdeck pillow`.
 
 ### Uninstalling
 
-Operator Board does not install anything into Windows.
-
-1. Close Operator Board and delete the folder you unzipped.
-2. To remove its settings and logs too, delete `%USERPROFILE%\.operator_board\`.
+1. **Installed:** remove **Operator Board** in Windows **Settings → Apps → Installed apps**. **Portable:** close Operator Board and delete the folder you unzipped.
+2. Settings are kept so a reinstall picks them up. To remove them and the logs too, delete `%USERPROFILE%\.operator_board\`.
 3. If you used Switchboard configs, the matching `.opboard` files next to them can be deleted. Switchboard does not use them.
 
 ## Development
@@ -181,14 +189,14 @@ pip install -e .[ui,dev]
 python -m pytest
 ```
 
-Build the Windows executables (`dist/OperatorBoard/` and a zip):
+Build the Windows executables (`dist/OperatorBoard/`, a zip and, with `--installer`, the setup file; the installer needs [Inno Setup 6](https://jrsoftware.org/isinfo.php), e.g. `winget install JRSoftware.InnoSetup`):
 
 ```bash
 pip install -e .[ui,build,streamdeck]
-python packaging/build.py --hidapi
+python packaging/build.py --hidapi --installer
 ```
 
-GitHub Actions runs the tests and this build on every push, and attaches the zip to a GitHub Release when a `v*` tag is pushed. The test suite includes fake SwitchboardListener and HTTP peers and an offscreen UI smoke test. The screenshots above are made with `python docs/make_screenshots.py`. The project layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+GitHub Actions runs the tests and this build on every push, and attaches the installer and the zip to a GitHub Release when a `v*` tag is pushed. The test suite includes fake SwitchboardListener and HTTP peers and an offscreen UI smoke test. The screenshots above are made with `python docs/make_screenshots.py`. The project layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Work happens on the `Development` branch and reaches `main` through pull requests.
 
