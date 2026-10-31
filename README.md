@@ -189,12 +189,14 @@ pip install -e .[ui,dev]
 python -m pytest
 ```
 
-Build the Windows executables (`dist/OperatorBoard/`, a zip and, with `--installer`, the setup file; the installer needs [Inno Setup 6](https://jrsoftware.org/isinfo.php), e.g. `winget install JRSoftware.InnoSetup`):
+Build the Windows executables: `dist/OperatorBoard/`, a zip and the setup file. The setup file is built whenever [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed (`winget install JRSoftware.InnoSetup`). Close Operator Board first if it is running from `dist/`.
 
 ```bash
 pip install -e .[ui,build,streamdeck]
-python packaging/build.py --hidapi --installer
+python packaging/build.py --hidapi
 ```
+
+To release, set the new version everywhere with `python packaging/bump_version.py X.Y.Z`, merge `Development` into `main`, and push a `vX.Y.Z` tag. The release build checks that the tag matches the version.
 
 GitHub Actions runs the tests and this build on every push, and attaches the installer and the zip to a GitHub Release when a `v*` tag is pushed. The test suite includes fake SwitchboardListener and HTTP peers and an offscreen UI smoke test. The screenshots above are made with `python docs/make_screenshots.py`. The project layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

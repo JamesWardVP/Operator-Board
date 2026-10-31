@@ -1,8 +1,8 @@
-"""Build the Windows release: dist/OperatorBoard/, dist/OperatorBoard-<version>-win64.zip and,
-with --installer, dist/OperatorBoard-Setup-<version>.exe.
+"""Build the Windows release: dist/OperatorBoard/, dist/OperatorBoard-<version>-win64.zip and
+dist/OperatorBoard-Setup-<version>.exe (whenever Inno Setup 6 is installed).
 
     python -m pip install -e .[ui,build]       (add streamdeck pillow for Stream Deck support)
-    python packaging/build.py [--hidapi] [--installer]
+    python packaging/build.py --hidapi        [--installer to require the setup file, --no-installer to skip it]
 
 --hidapi downloads hidapi.dll (libusb/hidapi release), which the Stream Deck library
 needs on Windows, and bundles it next to the executables.
@@ -86,7 +86,7 @@ def fetch_hidapi() -> None:
             shutil.copyfileobj(src, dst)
 
 
-def find_iscc() -> str:
+def find_iscc(required: bool = True) -> str:
     """Inno Setup's command-line compiler (ISCC environment variable, or the usual install folders)."""
     candidates = [os.environ.get("ISCC", "")]
     for base in (os.environ.get("ProgramFiles(x86)", ""), os.environ.get("ProgramFiles", ""),
@@ -99,25 +99,42 @@ def find_iscc() -> str:
     found = shutil.which("ISCC")
     if found:
         return found
+    if not required:
+        return ""
     raise SystemExit("Inno Setup 6 not found. Install it (winget install JRSoftware.InnoSetup) "
                      "or set ISCC to the path of ISCC.exe.")
 
 
-def build_installer(source: str, dist: str) -> str:
-    subprocess.check_call([find_iscc(), "/Q", f"/DAppVersion={__version__}", f"/DSourceDir={source}",
+def build_installer(iscc: str, source: str, dist: str) -> str:
+    subprocess.check_call([iscc, "/Q", f"/DAppVersion={__version__}", f"/DSourceDir={source}",
                            f"/DOutputDir={dist}", os.path.join(HERE, "operator_board.iss")])
     return os.path.join(dist, f"OperatorBoard-Setup-{__version__}.exe")
+
+
+def remove_old_packages(dist: str) -> None:
+    """Keep only this version's zip and setup file in dist/, so nothing out of date gets tested or shared."""
+    if not os.path.isdir(dist):
+        return
+    for name in os.listdir(dist):
+        if (name.startswith("OperatorBoard-Setup-") and name.endswith(".exe")) or \
+                (name.startswith("OperatorBoard-") and name.endswith("-win64.zip")):
+            os.remove(os.path.join(dist, name))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hidapi", action="store_true", help="bundle hidapi.dll for Stream Deck support")
-    parser.add_argument("--installer", action="store_true",
-                        help="also build OperatorBoard-Setup-<version>.exe with Inno Setup 6")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--installer", action="store_true",
+                       help="require the installer (fail if Inno Setup 6 is missing); used by CI")
+    group.add_argument("--no-installer", action="store_true", help="skip the installer")
     parser.add_argument("--dist", default=DIST, help="output folder (default: dist/). Use another folder "
                         "when Operator Board is running from dist/, which Windows keeps locked.")
     args = parser.parse_args()
     dist = os.path.abspath(args.dist)
+    # The installer is built whenever Inno Setup is available, so a local dist/ always matches a release.
+    iscc = "" if args.no_installer else find_iscc(required=args.installer)
+    remove_old_packages(dist)
     if args.hidapi:
         fetch_hidapi()
     write_version_info()
@@ -133,8 +150,10 @@ def main() -> int:
     archive = shutil.make_archive(os.path.join(dist, f"OperatorBoard-{__version__}-win64"), "zip", dist,
                                   "OperatorBoard")
     print(f"Built {out}\nArchive {archive}")
-    if args.installer:
-        print(f"Installer {build_installer(out, dist)}")
+    if iscc:
+        print(f"Installer {build_installer(iscc, out, dist)}")
+    elif not args.no_installer:
+        print("Installer skipped: Inno Setup 6 not found (winget install JRSoftware.InnoSetup)")
     return 0
 
 
