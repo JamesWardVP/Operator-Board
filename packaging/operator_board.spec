@@ -17,6 +17,12 @@ try:  # optional Stream Deck support
     hidden += ["StreamDeck", "PIL"]
 except ImportError:
     pass
+try:  # optional MIDI controller support (mido loads its backend by name, so list it)
+    import mido  # noqa: F401
+    import rtmidi  # noqa: F401
+    hidden += collect_submodules("mido") + ["rtmidi"]
+except ImportError:
+    pass
 binaries = []
 hidapi = os.path.join(HERE, "hidapi.dll")  # downloaded by build.py; needed by the Stream Deck library
 if os.path.exists(hidapi):

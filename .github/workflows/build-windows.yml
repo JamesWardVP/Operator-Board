@@ -33,7 +33,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[ui,dev,build,streamdeck]"
+          python -m pip install -e ".[ui,dev,build,streamdeck,midi]"
           choco install innosetup --no-progress -y
 
       - name: Test

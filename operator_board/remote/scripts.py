@@ -148,6 +148,125 @@ def _find_actor(ref):
 """
 
 
+# Components that drive a light's or camera's values from outside (tracking, lens files, DMX):
+# their values are shown but not edited, since the next frame would overwrite the change.
+QUICK_COMMON = FIND_ACTOR + """
+def _drivers(actor):
+    names = [c.get_class().get_name() for c in actor.get_components_by_class(unreal.ActorComponent)]
+    found = []
+    if any('LiveLinkComponentController' in n for n in names):
+        found.append('Live Link (tracking / lens data)')
+    if any('LensComponent' in n for n in names):
+        found.append('a Lens Component (lens file)')
+    if any(n.startswith('DMX') for n in names):
+        found.append('DMX')
+    return found
+
+def _quick_target(actor):
+    cam = actor.get_component_by_class(unreal.CineCameraComponent)
+    if cam is not None:
+        return 'camera', cam
+    light = actor.get_component_by_class(unreal.LightComponent)
+    if light is not None:
+        return 'light', light
+    return '', None
+"""
+
+
+def actor_quick_controls(actor_ref: str) -> str:
+    """The everyday controls of a light or cine camera with their current values.
+
+    A control driven by Live Link, a Lens Component or DMX carries ``locked`` with the reason."""
+    return QUICK_COMMON + f"""
+actor = _find_actor({_lit(actor_ref)})
+kind, comp = _quick_target(actor)
+drivers = _drivers(actor)
+locked = ('Driven by ' + ' and '.join(drivers)) if drivers else ''
+controls = []
+def add(cid, label, ctype, value, lo=None, hi=None, unit='', lock=''):
+    controls.append({{'id': cid, 'label': label, 'type': ctype, 'value': value, 'min': lo, 'max': hi,
+                      'unit': unit, 'locked': lock}})
+if kind == 'light':
+    units = ''
+    if hasattr(comp, 'intensity_units'):
+        units = str(comp.get_editor_property('intensity_units')).split('.')[-1].split(':')[0].strip('<> ').title()
+    elif isinstance(comp, unreal.DirectionalLightComponent):
+        units = 'Lux'
+    add('intensity', 'Intensity', 'float', comp.get_editor_property('intensity'), 0, None, units, locked)
+    c = comp.get_editor_property('light_color')
+    add('light_color', 'Colour', 'color', [c.r, c.g, c.b], lock=locked)
+    add('use_temperature', 'Use temperature', 'bool', bool(comp.get_editor_property('use_temperature')), lock=locked)
+    add('temperature', 'Temperature', 'float', comp.get_editor_property('temperature'), 1700, 12000, 'K', locked)
+    if hasattr(comp, 'set_attenuation_radius'):
+        add('attenuation_radius', 'Attenuation radius', 'float', comp.get_editor_property('attenuation_radius'),
+            0, None, 'cm', locked)
+    if isinstance(comp, unreal.SpotLightComponent):
+        add('inner_cone_angle', 'Inner cone angle', 'float', comp.get_editor_property('inner_cone_angle'), 0, 80, 'deg', locked)
+        add('outer_cone_angle', 'Outer cone angle', 'float', comp.get_editor_property('outer_cone_angle'), 1, 80, 'deg', locked)
+    add('visible', 'Light on (visible)', 'bool', bool(comp.is_visible()), lock=locked)
+    add('cast_shadows', 'Cast shadows', 'bool', bool(comp.get_editor_property('cast_shadows')))
+elif kind == 'camera':
+    fs = comp.get_editor_property('focus_settings')
+    add('focal_length', 'Focal length', 'float', comp.get_editor_property('current_focal_length'), 1, 1000, 'mm', locked)
+    add('aperture', 'Aperture', 'float', comp.get_editor_property('current_aperture'), 0.5, 32, 'f-stop', locked)
+    add('focus_distance', 'Focus distance', 'float', fs.get_editor_property('manual_focus_distance'), 0, None, 'cm', locked)
+result = {{'kind': kind, 'component': comp.get_class().get_name() if comp else '', 'controls': controls,
+          'drivers': drivers}}
+"""
+
+
+def set_actor_quick_control(actor_ref: str, control: str, value) -> str:
+    """Change one quick control (as an undoable editor transaction, so a multi-user session shares it)."""
+    return QUICK_COMMON + f"""
+actor = _find_actor({_lit(actor_ref)})
+kind, comp = _quick_target(actor)
+control, value = {_lit(control)}, {_lit(value)}
+if comp is None:
+    raise RuntimeError('Not a light or cine camera: ' + actor.get_actor_label())
+if _drivers(actor) and control not in ('cast_shadows',):
+    raise RuntimeError(actor.get_actor_label() + ' is driven by ' + ' and '.join(_drivers(actor)) +
+                       ', which would overwrite the change')
+with unreal.ScopedEditorTransaction('Operator Board: ' + control):
+    comp.modify()
+    if kind == 'light':
+        if control == 'intensity':
+            comp.set_intensity(float(value))
+        elif control == 'light_color':
+            # The picker gives sRGB 0-255; Unreal wants linear, which it stores back as that sRGB colour.
+            lin = [((c / 255.0 + 0.055) / 1.055) ** 2.4 if c / 255.0 > 0.04045 else c / 255.0 / 12.92
+                   for c in (max(0, min(255, int(v))) for v in value)]
+            comp.set_light_color(unreal.LinearColor(lin[0], lin[1], lin[2], 1.0), True)
+        elif control == 'use_temperature':
+            comp.set_use_temperature(bool(value))
+        elif control == 'temperature':
+            comp.set_temperature(float(value))
+        elif control == 'attenuation_radius':
+            comp.set_attenuation_radius(float(value))
+        elif control == 'inner_cone_angle':
+            comp.set_inner_cone_angle(float(value))
+        elif control == 'outer_cone_angle':
+            comp.set_outer_cone_angle(float(value))
+        elif control == 'visible':
+            comp.set_visibility(bool(value))
+        elif control == 'cast_shadows':
+            comp.set_cast_shadows(bool(value))
+        else:
+            raise RuntimeError('Unknown light control: ' + control)
+    else:
+        if control == 'focal_length':
+            comp.set_editor_property('current_focal_length', float(value))
+        elif control == 'aperture':
+            comp.set_editor_property('current_aperture', float(value))
+        elif control == 'focus_distance':
+            fs = comp.get_editor_property('focus_settings')
+            fs.set_editor_property('manual_focus_distance', float(value))
+            comp.set_editor_property('focus_settings', fs)
+        else:
+            raise RuntimeError('Unknown camera control: ' + control)
+result = {{'ok': True}}
+"""
+
+
 def list_camera_targets() -> str:
     """Camera actors and nDisplay root actors, matched by class (an nDisplay setup is a Blueprint
     subclass such as nDisplayConfig_C, so its class name does not say DisplayClusterRootActor)."""
@@ -399,6 +518,29 @@ lib = unreal.TakeRecorderBlueprintLibrary
 panel = lib.get_take_recorder_panel()
 seq = panel.get_last_recorded_level_sequence() if panel is not None else None
 result = {'sequence': seq.get_path_name() if seq is not None else '', 'recording': bool(lib.is_recording())}
+"""
+
+
+def take_set_description(sequence_path: str, slate: str, take: int, description: str) -> str:
+    """Set a recorded take's description in its Take Recorder metadata (found like take_recorder_save)."""
+    return f"""
+path, slate, take = {_lit(sequence_path)}, {_lit(slate)}, {int(take)}
+seq = unreal.load_asset(path) if path else None
+if seq is None and slate:
+    st = unreal.get_default_object(unreal.TakeRecorderProjectSettings).get_editor_property('settings')
+    root = str(st.get_editor_property('root_take_save_dir').get_editor_property('path')).strip('/')
+    root = '/' + root if root.startswith('Game/') else '/Game/' + root
+    names = set(slate + '_' + str(take).zfill(n) for n in (1, 2, 3, 4))
+    found = sorted(a for a in unreal.EditorAssetLibrary.list_assets(root, True, False) if a.split('.')[-1] in names)
+    seq = unreal.load_asset(found[-1]) if found else None
+if seq is None:
+    raise RuntimeError('Recorded take not found in the editor')
+md = seq.find_meta_data_by_class(unreal.TakeMetaData)
+if md is None:
+    raise RuntimeError('The take has no Take Recorder metadata')
+md.set_description({_lit(description)})
+seq.modify()
+result = {{'ok': True, 'sequence': seq.get_path_name()}}
 """
 
 

@@ -1,7 +1,7 @@
 """Build the Windows release: dist/OperatorBoard/, dist/OperatorBoard-<version>-win64.zip and
 dist/OperatorBoard-Setup-<version>.exe (whenever Inno Setup 6 is installed).
 
-    python -m pip install -e .[ui,build]       (add streamdeck pillow for Stream Deck support)
+    python -m pip install -e .[ui,build]       (add streamdeck pillow for Stream Deck, midi for MIDI controllers)
     python packaging/build.py --hidapi        [--installer to require the setup file, --no-installer to skip it]
 
 --hidapi downloads hidapi.dll (libusb/hidapi release), which the Stream Deck library

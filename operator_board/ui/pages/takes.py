@@ -64,11 +64,15 @@ class TakesPage(BasePage):
         rate.clicked.connect(self._rate)
         export = QtWidgets.QPushButton("Export CSV…")
         export.clicked.connect(self._export)
+        describe = QtWidgets.QPushButton("Edit description")
+        describe.setToolTip("Change the description of the selected take (double-click a take's description too)")
+        describe.clicked.connect(self._describe)
+        self.table.cellDoubleClicked.connect(lambda row, col: self._describe() if col == 2 else None)
         self.save_btn = QtWidgets.QPushButton("Save take")
         self.save_btn.setToolTip("Save the selected take (or the last one) in the editor; in a multi-user session also "
                                  "write it into the project on the editor's PC")
         self.save_btn.clicked.connect(self._save_take)
-        logc.add_layout(hbox(self.rating, self.notes, rate, self.save_btn, export))
+        logc.add_layout(hbox(self.rating, self.notes, rate, describe, self.save_btn, export))
         logc.add(muted(f"Take log is saved automatically to {ctx.takes.log_path}"))
         lay.addWidget(logc, 2)
 
@@ -93,6 +97,17 @@ class TakesPage(BasePage):
         rows = sorted({i.row() for i in self.table.selectedIndexes()})
         for r in rows:
             self.ctx.takes.rate(r, self.rating.currentData(), self.notes.text())
+
+    def _describe(self) -> None:
+        rows = sorted({i.row() for i in self.table.selectedIndexes()})
+        if not rows or rows[0] >= len(self.ctx.takes.log.takes):
+            self.notify("Select a take first", False)
+            return
+        take = self.ctx.takes.log.takes[rows[0]]
+        text, ok = QtWidgets.QInputDialog.getText(self, "Take description", f"{take.slate} T{take.take:03d}",
+                                                  QtWidgets.QLineEdit.Normal, take.description)
+        if ok:
+            self.invoke("takes.describe", index=rows[0], description=text.strip())
 
     def _save_take(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()})

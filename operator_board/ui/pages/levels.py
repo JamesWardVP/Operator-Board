@@ -18,6 +18,8 @@ LOAD_MODES = [("Editor (load level in primary editor)", "editor"),
 class LevelsPage(BasePage):
     title = "Cameras & Levels"
     refresh_topics = ("levels.", "project.", "cameras.", "config.")
+    EDITOR_EVENTS = ("editor.ready", "editor.level_changed")
+
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
@@ -199,8 +201,9 @@ class LevelsPage(BasePage):
         sub = Card("Streaming sub-levels")
         self.sublevels = QtWidgets.QListWidget()
         self.sublevels.itemChanged.connect(self._sublevel_toggled)
-        b = QtWidgets.QPushButton("↻ Read from editor")
-        b.clicked.connect(self._load_sublevels)
+        b = QtWidgets.QPushButton("↻ Refresh")
+        b.setToolTip("Read the sub-levels again (they are read automatically when the editor is ready)")
+        b.clicked.connect(lambda: self._load_sublevels())
         self.apply_nodes = QtWidgets.QCheckBox("Also apply on nDisplay nodes")
         self.apply_nodes.setChecked(True)
         sub.add_layout(hbox(b, self.apply_nodes, None))
@@ -212,14 +215,36 @@ class LevelsPage(BasePage):
         dl = Card("Data layers (World Partition)")
         self.layers = QtWidgets.QListWidget()
         self.layers.itemChanged.connect(self._layer_toggled)
-        b2 = QtWidgets.QPushButton("↻ Read from editor")
-        b2.clicked.connect(self._load_layers)
+        b2 = QtWidgets.QPushButton("↻ Refresh")
+        b2.setToolTip("Read the data layers again (they are read automatically when the editor is ready)")
+        b2.clicked.connect(lambda: self._load_layers())
         dl.add_layout(hbox(b2, None))
         dl.add(self.layers)
         lay.addWidget(dl)
+        self._placeholder(self.sublevels, "Sub-levels are read when the editor has finished loading.")
+        self._placeholder(self.layers, "Data layers are read when the editor has finished loading.")
         return w
 
-    def _fill_checklist(self, widget, rows, key):
+    @staticmethod
+    def _placeholder(widget, text: str) -> None:
+        widget.blockSignals(True)
+        widget.clear()
+        item = QtWidgets.QListWidgetItem(text)
+        item.setFlags(Qt.NoItemFlags)  # a message, not a level
+        widget.addItem(item)
+        widget.blockSignals(False)
+
+    def on_event(self, topic, payload) -> None:
+        super().on_event(topic, payload)
+        if topic in self.EDITOR_EVENTS:  # the editor is ready or opened another level: fill the lists
+            self._load_sublevels(quiet=True)
+            self._load_layers(quiet=True)
+            self._find_cameras(quiet=True)
+
+    def _fill_checklist(self, widget, rows, key, empty: str = "Nothing found"):
+        if not rows:
+            self._placeholder(widget, empty)
+            return
         widget.blockSignals(True)
         widget.clear()
         for row in rows:
@@ -232,13 +257,19 @@ class LevelsPage(BasePage):
             widget.addItem(item)
         widget.blockSignals(False)
 
-    def _load_sublevels(self) -> None:
-        self.background(self.ctx.levels.sublevels, lambda rows: self._fill_checklist(self.sublevels, rows, "package"),
-                        "Reading sub-levels")
+    def _load_sublevels(self, quiet: bool = False) -> None:
+        self.background(self.ctx.levels.sublevels,
+                        lambda rows: self._fill_checklist(self.sublevels, rows, "package", "No sub-levels found"),
+                        "Reading sub-levels", quiet=quiet,
+                        failed=lambda exc: self._placeholder(self.sublevels, "Could not read sub-levels from the "
+                                                                             "editor; press Refresh to try again."))
 
-    def _load_layers(self) -> None:
-        self.background(self.ctx.levels.data_layers, lambda rows: self._fill_checklist(self.layers, rows, "path"),
-                        "Reading data layers")
+    def _load_layers(self, quiet: bool = False) -> None:
+        self.background(self.ctx.levels.data_layers,
+                        lambda rows: self._fill_checklist(self.layers, rows, "path", "No data layers found"),
+                        "Reading data layers", quiet=quiet,
+                        failed=lambda exc: self._placeholder(self.layers, "Could not read data layers from the "
+                                                                          "editor; press Refresh to try again."))
 
     def _sublevel_toggled(self, item) -> None:
         pkg, visible = item.data(Qt.UserRole), item.checkState() == Qt.Checked
@@ -264,8 +295,10 @@ class LevelsPage(BasePage):
         self.cam_target.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.cam_target.setMinimumContentsLength(24)
         self.cam_target.addItem("viewport")
-        find = QtWidgets.QPushButton("Find camera actors")
-        find.clicked.connect(self._find_cameras)
+        find = QtWidgets.QPushButton("↻ Refresh cameras")
+        find.setToolTip("List the level's cameras and nDisplay setups again (done automatically when the editor "
+                        "is ready)")
+        find.clicked.connect(lambda: self._find_cameras())
         self.cam_name = QtWidgets.QLineEdit()
         self.cam_name.setPlaceholderText("New position name")
         capture = QtWidgets.QPushButton("Save current position")
@@ -282,13 +315,21 @@ class LevelsPage(BasePage):
             b = QtWidgets.QPushButton(label)
             b.clicked.connect(fn)
             btns.append(b)
-        card.add_layout(hbox(*btns, None))
+        export = QtWidgets.QPushButton("Export CSV…")
+        export.setToolTip("Back up the saved camera positions to a CSV file")
+        export.clicked.connect(self._export_cams)
+        imp = QtWidgets.QPushButton("Import CSV…")
+        imp.setToolTip("Add camera positions from a CSV file (names already in use get _2, _3...)")
+        imp.clicked.connect(self._import_cams)
+        card.add_layout(hbox(*btns, None, imp, export))
+        self.cam_status = muted("")
+        card.add(self.cam_status)
         card.add(muted("'viewport' moves the primary editor's level viewport. Choose a CineCameraActor or "
                        "nDisplay root actor to move it on every instance (editor and render nodes)."))
         lay.addWidget(card)
         return w
 
-    def _find_cameras(self) -> None:
+    def _find_cameras(self, quiet: bool = False) -> None:
         def fill(actors):
             current = self.cam_target.currentText()
             self.cam_target.clear()
@@ -296,7 +337,32 @@ class LevelsPage(BasePage):
             for a in actors:
                 self.cam_target.addItem(f"{a['label']} ({a['class']})", a["path"])
             self.cam_target.setCurrentText(current)
-        self.background(self.ctx.cameras.list_camera_actors, fill, "Finding cameras")
+            self.cam_status.setText(f"{len(actors)} camera(s) / nDisplay setup(s) in the level" if actors else
+                                    "No cameras or nDisplay setups found in the level (the viewport still works)")
+        self.background(self.ctx.cameras.list_camera_actors, fill, "Finding cameras", quiet=quiet)
+
+    def _export_cams(self) -> None:
+        if not self.ctx.config.cameras:
+            self.notify("There are no saved camera positions to export", False)
+            return
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export camera positions", "camera_positions.csv",
+                                                        "CSV (*.csv)")
+        if path:
+            count = self.ctx.cameras.export_csv(path)
+            self.notify(f"Exported {count} camera position(s) to {path}")
+
+    def _import_cams(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import camera positions", "", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            added = self.ctx.cameras.import_csv(path)
+        except (OSError, ValueError) as exc:
+            self.notify(f"Could not import {path}: {exc}", False)
+            return
+        self.save_config()
+        self.ctx.bus.publish("cameras.changed")
+        self.notify(f"Imported {len(added)} camera position(s)")
 
     def _target_value(self) -> str:
         data = self.cam_target.currentData()

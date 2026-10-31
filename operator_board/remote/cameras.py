@@ -1,6 +1,7 @@
 """Saved camera locations: recall onto the editor viewport or any actor (cine camera, nDisplay root...)."""
 from __future__ import annotations
 
+import csv
 import re
 from typing import Iterable, List
 
@@ -78,6 +79,37 @@ class CameraService:
                               location=list(data["location"]), rotation=list(data["rotation"]))
         self.config.cameras.append(preset)
         return preset
+
+    CSV_HEADER = ["name", "target", "x", "y", "z", "pitch", "yaw", "roll"]
+
+    def export_csv(self, path: str) -> int:
+        """Back up every saved position (name, target, location, rotation) to a CSV file."""
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(self.CSV_HEADER)
+            for c in self.config.cameras:
+                w.writerow([c.name, c.target] + [f"{v:.4f}" for v in list(c.location) + list(c.rotation)])
+        return len(self.config.cameras)
+
+    def import_csv(self, path: str) -> List[CameraPreset]:
+        """Add the positions in a CSV file (as written by export_csv); a name in use gets _2, _3..."""
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            rows = list(csv.DictReader(fh))
+        added = []
+        for n, row in enumerate(rows, start=2):
+            row = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
+            if not row.get("name"):
+                continue
+            try:
+                loc = [float(row.get(k) or 0) for k in ("x", "y", "z")]
+                rot = [float(row.get(k) or 0) for k in ("pitch", "yaw", "roll")]
+            except ValueError as exc:
+                raise ValueError(f"line {n}: {exc}") from exc
+            preset = CameraPreset(name=unique_name(row["name"], (c.name for c in self.config.cameras)),
+                                  target=row.get("target") or "viewport", location=loc, rotation=rot)
+            self.config.cameras.append(preset)
+            added.append(preset)
+        return added
 
     def list_camera_actors(self) -> List[dict]:
         """Camera actors (cine cameras included) and nDisplay setups (their Blueprint classes, e.g. nDisplayConfig_C)."""

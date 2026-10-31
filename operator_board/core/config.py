@@ -162,6 +162,10 @@ class SurfacesConfig:
     api_bind: str = "127.0.0.1"
     api_port: int = 8765
     api_token: str = ""  # if set, API callers must send ?token=... or an X-Operator-Token header
+    osc_enabled: bool = False  # TouchOSC / Open Stage Control etc. send /operator/... messages here
+    osc_port: int = 8000
+    midi_enabled: bool = False  # MIDI pad controllers (needs the mido + python-rtmidi packages)
+    midi_port: str = ""  # MIDI input name (part of it is enough); empty = the first one found
 
 
 @dataclass

@@ -4,8 +4,8 @@ from __future__ import annotations
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
-from operator_board.ui.widgets import (Banner, BigButton, Card, HazardOverlay, RecordButton, StateDot, clear_layout,
-                                       hbox, muted, scroll)
+from operator_board.ui.widgets import (BigButton, Card, HazardOverlay, RecordButton, StateDot, WallStatusBar,
+                                       clear_layout, hbox, muted, scroll)
 
 
 def _restyle(label: QtWidgets.QLabel, css: str) -> None:
@@ -71,7 +71,7 @@ class OperatePage(BasePage):
         grid.setSpacing(14)
         grid.setContentsMargins(16, 16, 16, 16)
 
-        self.banner = Banner()
+        self.banner = WallStatusBar()
         grid.addWidget(self.banner, 0, 0, 1, 3)
 
         # --- LED wall ---------------------------------------------------------
@@ -223,6 +223,14 @@ class OperatePage(BasePage):
         scene_row = hbox(QtWidgets.QLabel("Scene"), self.scene_edit)
         scene_row.setStretch(1, 1)
         takes.add_layout(scene_row)
+        self.desc_edit = QtWidgets.QLineEdit()
+        self.desc_edit.setPlaceholderText("Description (optional)")
+        self.desc_edit.setToolTip("Take description, shown in the editor's Take Recorder panel. Press Enter to apply; "
+                                  "during a take it describes the take being recorded.")
+        self.desc_edit.editingFinished.connect(self._description_changed)
+        desc_row = hbox(QtWidgets.QLabel("Description"), self.desc_edit)
+        desc_row.setStretch(1, 1)
+        takes.add_layout(desc_row)
         take_row = hbox(minus, self.take_edit, plus)
         for i in range(3):
             take_row.setStretch(i, 1)
@@ -356,6 +364,11 @@ class OperatePage(BasePage):
         elif name != self.ctx.config.takes.slate:
             self.invoke("takes.set_slate", done=lambda _r: self.save_config(), slate=name)
 
+    def _description_changed(self) -> None:
+        text = self.desc_edit.text().strip()
+        if text != self.ctx.config.takes.description:
+            self.invoke("takes.set_description", done=lambda _r: self.save_config(), description=text)
+
     def _take_changed(self) -> None:
         text = self.take_edit.text().strip()
         if not text.isdigit() or int(text) < 1:
@@ -433,13 +446,16 @@ class OperatePage(BasePage):
         self.freeze_btn.set_active(led.frozen)
         self.blackout_btn.set_active(led.blackout)
         if led.blackout:
-            self.banner.show_state("WALL BLACKED OUT", COLORS["blackout"])
+            self.banner.show_wall("blackout")
         elif led.frozen:
-            self.banner.show_state("WALL FROZEN", COLORS["freeze"])
+            self.banner.show_wall("frozen")
         elif led.test_pattern:
-            self.banner.show_state(f"TEST PATTERN: {led.test_pattern.upper()}", "#a07400")
+            labels = dict(led.all_test_patterns())
+            self.banner.show_wall("pattern", led.test_pattern, labels.get(led.test_pattern, led.test_pattern))
+        elif self._wall_unavailable():
+            self.banner.show_wall("unavailable")
         else:
-            self.banner.show_state("", None)
+            self.banner.show_wall("normal")
         patterns = led.all_test_patterns()
         if self._changed("patterns", patterns):
             current = self.pattern_combo.currentData()
@@ -566,6 +582,8 @@ class OperatePage(BasePage):
             self.scene_edit.setText(t.slate)
         if not self.take_edit.hasFocus() and self.take_edit.text() != str(t.take):
             self.take_edit.setText(str(t.take))
+        if not self.desc_edit.hasFocus() and self.desc_edit.text() != t.description:
+            self.desc_edit.setText(t.description)
         for control in self.take_controls:  # no renaming or renumbering mid-take
             control.setEnabled(not self.ctx.takes.recording)
         self.rec_btn.show_state(self.ctx.takes.recording, self.ctx.takes.counting_down)

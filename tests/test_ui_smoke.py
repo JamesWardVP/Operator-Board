@@ -170,3 +170,20 @@ def test_group_dialog_builds_a_group():
     dialog._set_color("#2f9e44")
     group = dialog.result_group
     assert group.name == "Wall nodes" and group.devices == ["Node_A", "Node_B"] and group.color == "#2f9e44"
+
+
+def test_wall_status_bar_states():
+    from operator_board.qt import QtWidgets
+    from operator_board.ui.widgets import WallStatusBar
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    bar = WallStatusBar()
+    bar.resize(600, 46)
+    for state, pattern in (("normal", ""), ("frozen", ""), ("blackout", ""), ("unavailable", ""), ("pattern", "red"),
+                           ("pattern", "smpte-bars"), ("pattern", "grid"), ("pattern", "aging"), ("pattern", "odd")):
+        bar.show_wall(state, pattern, pattern.title())
+        bar.grab()  # paints without errors
+    assert bar.text() == "TEST PATTERN: ODD"
+    bar.show_wall("frozen")
+    assert bar._timer.isActive()
+    bar.show_wall("normal")
+    assert not bar._timer.isActive() and bar.text() == "WALL NORMAL"

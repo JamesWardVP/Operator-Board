@@ -126,6 +126,31 @@ class TakeManager:
         self._sync_editor()
         self._publish()
 
+    def set_description(self, description: str) -> None:
+        """The description for the next take (shown in the editor's Take Recorder panel)."""
+        self.settings.description = description
+        if self.current is not None:  # a take is under way: describe that one
+            self.current.description = description
+        self._sync_editor()
+        self._publish()
+
+    def describe_take(self, index: int, description: str) -> str:
+        """Change a recorded take's description in the log and, when the take is known, in its Take
+        Recorder metadata in the editor (best effort; it is saved with the take). Returns a note."""
+        record = self.log.takes[index]
+        record.description = description
+        self.save()
+        self._publish()
+        if not (self.settings.record_with_take_recorder and self.targets):
+            return ""
+        try:
+            self.targets.primary().run_python(python_result_wrapper(
+                scripts.take_set_description(record.sequence, record.slate, record.take, description)))
+            return "also updated in the editor; Save take to keep it there"
+        except Exception as exc:  # noqa: BLE001 - the log is the record; the editor may be closed
+            log.debug("take description not updated in the editor: %s", exc)
+            return "updated in the take log (the editor could not be updated)"
+
     def increment(self, delta: int = 1) -> None:
         self.set_take(self.settings.take + delta)
 
