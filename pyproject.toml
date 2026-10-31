@@ -9,7 +9,7 @@ description = "Operator-friendly Virtual Production control surface for Unreal E
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
-dependencies = []
+dependencies = ["aioquic>=0.9.21"]  # UE 5.4+ SwitchboardListener (QUIC)
 
 [project.optional-dependencies]
 ui = ["PySide6>=6.4"]

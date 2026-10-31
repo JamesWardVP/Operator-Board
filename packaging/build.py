@@ -87,20 +87,23 @@ def fetch_hidapi() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hidapi", action="store_true", help="bundle hidapi.dll for Stream Deck support")
+    parser.add_argument("--dist", default=DIST, help="output folder (default: dist/). Use another folder "
+                        "when Operator Board is running from dist/, which Windows keeps locked.")
     args = parser.parse_args()
+    dist = os.path.abspath(args.dist)
     if args.hidapi:
         fetch_hidapi()
     write_version_info()
     subprocess.check_call([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
-                           "--distpath", DIST, "--workpath", os.path.join(ROOT, "build"),
+                           "--distpath", dist, "--workpath", os.path.join(ROOT, "build"),
                            os.path.join(HERE, "operator_board.spec")])
-    out = os.path.join(DIST, "OperatorBoard")
+    out = os.path.join(dist, "OperatorBoard")
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as fh:
         fh.write(QUICK_START.format(version=__version__))
     shutil.copytree(os.path.join(ROOT, "config"), os.path.join(out, "examples"), dirs_exist_ok=True)
     for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
         shutil.copy(os.path.join(ROOT, name), os.path.join(out, name if name != "LICENSE" else "LICENSE.txt"))
-    archive = shutil.make_archive(os.path.join(DIST, f"OperatorBoard-{__version__}-win64"), "zip", DIST,
+    archive = shutil.make_archive(os.path.join(dist, f"OperatorBoard-{__version__}-win64"), "zip", dist,
                                   "OperatorBoard")
     print(f"Built {out}\nArchive {archive}")
     return 0

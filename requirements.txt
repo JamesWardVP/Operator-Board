@@ -1,4 +1,6 @@
 PySide6>=6.4
+# UE 5.4+ SwitchboardListener connections (QUIC)
+aioquic>=0.9.21
 # Optional: direct Elgato Stream Deck support
 # streamdeck>=0.9.5
 # pillow>=9

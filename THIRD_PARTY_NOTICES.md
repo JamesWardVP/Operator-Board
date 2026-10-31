@@ -9,6 +9,14 @@ folder), so they can be replaced with other compatible builds.
 |---|---|---|---|
 | Python | Runtime | Python Software Foundation License 2.0 | https://www.python.org |
 | Qt 6 / PySide6 (Qt for Python) | User interface | LGPL-3.0 (also GPL-2.0 / GPL-3.0) | https://www.qt.io/qt-for-python · https://code.qt.io/cgit/pyside/pyside-setup.git |
+| aioquic | QUIC connection to UE 5.4+ SwitchboardListeners | BSD-3-Clause | https://github.com/aiortc/aioquic |
+| pylsqpack (with ls-qpack) | Used by aioquic | BSD-3-Clause (ls-qpack: MIT) | https://github.com/aiortc/pylsqpack |
+| cryptography (with OpenSSL) | TLS for QUIC | Apache-2.0 OR BSD-3-Clause (OpenSSL: Apache-2.0) | https://github.com/pyca/cryptography |
+| pyOpenSSL | Used by aioquic | Apache-2.0 | https://github.com/pyca/pyopenssl |
+| service-identity, attrs | Used by aioquic | MIT | https://github.com/pyca/service-identity · https://github.com/python-attrs/attrs |
+| cffi, pycparser | Used by cryptography | MIT-0 · BSD-3-Clause | https://github.com/python-cffi/cffi · https://github.com/eliben/pycparser |
+| certifi | Used by aioquic | MPL-2.0 | https://github.com/certifi/python-certifi |
+| typing_extensions | Used by pyOpenSSL | PSF-2.0 | https://github.com/python/typing_extensions |
 | Pillow | Stream Deck key images | MIT-CMU (HPND) | https://python-pillow.org |
 | python-elgato-streamdeck | Stream Deck hardware | MIT | https://github.com/abcminiuser/python-elgato-streamdeck |
 | HIDAPI (`hidapi.dll`) | Stream Deck USB access | BSD-3-Clause (one of its three license options) | https://github.com/libusb/hidapi |

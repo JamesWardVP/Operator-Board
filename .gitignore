@@ -7,3 +7,4 @@ dist/
 .pytest_cache/
 packaging/version_info.txt
 packaging/hidapi.dll
+dist-*/

@@ -14,7 +14,7 @@ operator_board/
     events.py            thread-safe pub/sub EventBus
     ue_versions.py       UE 5.2-5.8 table, Build.version detection
     switchboard_import.py  compatibility re-export of switchboard_config
-  listener/              SwitchboardListener protocol (null-terminated JSON over TCP 2980) + client
+  listener/              SwitchboardListener protocol: messages, TCP + QUIC clients, shared credential store
   devices/               launch command lines (editor / nDisplay / MU server) + DeviceManager
   multiuser/             MU server (local subprocess or via listener) + log-based client tracking
   led/                   transports (http/tcp/udp/osc), JSON protocol profiles, LEDProcessor, LEDManager
@@ -49,6 +49,22 @@ releases for `v*` tags. When frozen, logging also goes to `~/.operator_board/log
 - Switching stage copies the new `AppConfig` into the existing object (`stage.copy_into`), because every service
   holds a reference to it, then calls `reload_all()`.
 
+## SwitchboardListener connections
+- **UE 5.2 - 5.3:** plain TCP, null-terminated JSON (`listener/client.py`).
+- **UE 5.4+:** QUIC over UDP (ALPN `ue-switchboard`, `listener/quic.py`, using aioquic as Switchboard does). The listener's
+  certificate is self-signed: trust on first use, SHA-256 fingerprint stored with the credential and checked
+  afterwards (`FingerprintChanged`). The first message is `authenticate` (password, or a JWT on stores that are not
+  encrypted at rest); the reply's `bAuthenticated` is the string `"true"`/`"false"`.
+- **Message ids** come back from the listener as Unreal FGuid strings (uppercase, no dashes); always compare
+  them with `protocol.same_id`.
+- **Protocol choice** per device (`DeviceConfig.listener_protocol`): auto = QUIC first for 5.4+, TCP first before,
+  falling back to the other on connection failure but never on an authentication error.
+- **Credentials** (`listener/credentials.py`): Windows Credential Manager entries `Switchboard_<host>` (user name =
+  fingerprint, secret = password), the same ones Switchboard's `CredentialStoreWindows` uses, so either program
+  can use a password saved by the other. Elsewhere: JWTs in `~/.operator_board/listener_credentials.json`.
+- `DeviceManager.connect()` publishes `device.auth` (password / rejected / fingerprint); `ui/listener_login.py`
+  prompts once per machine and reconnects the other devices on it.
+
 ## Principles
 - **One action registry.** Every operator operation is an action (`led.freeze`, `group.start`, `camera.recall`, …). The UI buttons, Stream Deck keys, Companion HTTP calls and hotkeys all call `ctx.actions.invoke(id, **params)`. A new feature becomes available on every surface by registering it once in `context.py`.
 - **Core has no Qt dependency.** Services publish events on the `EventBus`. `ui/bridge.py` moves those events onto the GUI thread. Network calls from the UI run through `run_async` so the UI never blocks.
@@ -58,6 +74,6 @@ releases for `v*` tags. When frozen, logging also goes to `~/.operator_board/log
 ## Talking to Unreal
 | Channel | Used for |
 |---|---|
-| SwitchboardListener TCP 2980 | start/kill processes, stdout, `get sync status` metrics, sync jobs on nodes |
+| SwitchboardListener 2980 (QUIC/UDP for UE 5.4+, TCP for 5.2-5.3) | start/kill processes, stdout, `get sync status` metrics, sync jobs on nodes |
 | Remote Control HTTP 30010 | console commands, property get/set, function calls, presets, asset search |
 | Remote Control → `PythonScriptLibrary.ExecutePythonCommandEx` | editor-only operations; results are returned by printing `OPB_RESULT:<json>` |

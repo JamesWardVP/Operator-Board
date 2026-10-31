@@ -11,7 +11,8 @@ from typing import Any, Deque, Dict, List, Optional
 from operator_board.core.config import AppConfig, DeviceConfig
 from operator_board.core.events import EventBus
 from operator_board.devices.launcher import unreal_launch_spec
-from operator_board.listener.client import ListenerClient, decode_stdout
+from operator_board.listener.client import ListenerClient, client_for_device, decode_stdout, unreachable_hint
+from operator_board.listener.quic import FingerprintChanged, ListenerAuthError, PasswordRejected
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class DeviceRuntime:
     started_at: Optional[float] = None
     last_error: str = ""
     listener_version: str = ""
+    transport: str = ""  # "tcp" or "quic" once connected
     log_tail: Deque[str] = field(default_factory=lambda: deque(maxlen=500))
     last_metrics: Dict[str, Any] = field(default_factory=dict)
 
@@ -102,25 +104,43 @@ class DeviceManager:
         rt.state = state
         if error:
             rt.last_error = error
+            if state == ERROR:
+                log.warning("%s: %s", rt.name, error)
         self.bus.publish("device.state", name=rt.name, state=state, error=error)
 
     # ---- connection -------------------------------------------------------
-    def connect(self, name: str) -> None:
+    def connect(self, name: str, password: Optional[str] = None, trust_new_fingerprint: bool = False) -> None:
+        """Connect to the device's listener.
+
+        UE 5.4+ listeners need a password. Without a saved one (or with a wrong one, or
+        when the listener's security key changed) the device goes to ERROR and a
+        "device.auth" event asks the UI to prompt; it then calls connect() again with
+        the password or trust_new_fingerprint=True.
+        """
         rt = self._require(name)
         if rt.client and rt.client.connected:
             return
         self._set_state(rt, CONNECTING)
-        client = ListenerClient(
-            rt.config.address, rt.config.listener_port,
+        client = client_for_device(
+            rt.config, self.config.project().ue_version,
             on_message=lambda msg, rt=rt: self._on_message(rt, msg),
             on_disconnect=lambda reason, rt=rt: self._on_disconnect(rt, reason),
         )
         try:
-            client.connect()
+            client.connect(password=password, trust_new_fingerprint=trust_new_fingerprint)
+        except ListenerAuthError as exc:
+            kind = ("fingerprint" if isinstance(exc, FingerprintChanged)
+                    else "rejected" if isinstance(exc, PasswordRejected) else "password")
+            self._set_state(rt, ERROR, str(exc))
+            self.bus.publish("device.auth", name=rt.name, address=exc.host, kind=kind, message=str(exc),
+                             fingerprint=exc.fingerprint_display, subject=exc.subject)
+            return
         except OSError as exc:
-            self._set_state(rt, ERROR, f"Cannot reach listener at {rt.config.address}:{rt.config.listener_port} ({exc})")
+            self._set_state(rt, ERROR, f"Cannot reach listener at {rt.config.address}:{rt.config.listener_port} "
+                                       f"({exc}). {unreachable_hint(rt.config.address, rt.config.listener_port)}")
             return
         rt.client = client
+        rt.transport = client.transport
         self._set_state(rt, CONNECTED)
 
     def disconnect(self, name: str) -> None:

@@ -7,6 +7,7 @@ import time
 from operator_board import __version__
 from operator_board.qt import QShortcut, QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.bridge import EventBridge, run_async
+from operator_board.ui.listener_login import ListenerLogin
 from operator_board.ui.pages.analytics import AnalyticsPage
 from operator_board.ui.pages.devices import DevicesPage
 from operator_board.ui.pages.dlss import DLSSPage
@@ -85,6 +86,7 @@ class MainWindow(QtWidgets.QMainWindow):
         hint.setStyleSheet(f"color: {COLORS['muted']}; padding-right: 12px;")
         self.statusBar().addPermanentWidget(hint)
 
+        self.login = ListenerLogin(self)
         self.bridge = EventBridge(ctx.bus)
         self.bridge.event.connect(self._on_event)
         for key, action in HOTKEYS:
@@ -117,6 +119,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_event(self, topic: str, payload: dict) -> None:
         if topic in ("project.changed", "stage.changed"):
             self._update_title()
+        if topic == "device.auth":
+            self.login.handle(payload)
         if topic == "action.invoked" and not payload.get("ok"):
             self.notify(payload.get("message", ""), False)
         page = self.current_page()

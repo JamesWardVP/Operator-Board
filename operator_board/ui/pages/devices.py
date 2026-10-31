@@ -67,8 +67,12 @@ class DevicesPage(BasePage):
         return [self.ctx.config.devices[r] for r in rows if r < len(self.ctx.config.devices)]
 
     def _form_kwargs(self):
-        return dict(choices={"role": list(ROLES), "platform": ["Win64", "Linux"]},
+        return dict(choices={"role": list(ROLES), "platform": ["Win64", "Linux"],
+                             "listener_protocol": [("Automatic (QUIC for UE 5.4+, TCP before)", "auto"),
+                                                   ("QUIC with password (UE 5.4+)", "quic"),
+                                                   ("TCP (UE 5.2 - 5.3)", "tcp")]},
                     labels={"rc_enabled": "Remote Control enabled", "rc_port": "Remote Control port",
+                            "listener_protocol": "Listener connection",
                             "join_multiuser": "Join multi-user session"},
                     browse={"uproject_path_override": "file", "engine_dir_override": "dir"})
 
@@ -167,8 +171,9 @@ class DevicesPage(BasePage):
         self.table.setRowCount(0)
         for i, d in enumerate(self.ctx.config.devices):
             rt = self.ctx.devices.get(d.name)
+            listener = " ".join(x for x in (rt.listener_version, rt.transport.upper()) if x) if rt else ""
             set_row(self.table, i, [d.name, d.role, f"{d.address}:{d.listener_port}", d.ndisplay_node,
-                                    rt.state if rt else "", rt.listener_version if rt else "",
+                                    rt.state if rt else "", listener,
                                     rt.last_error if rt else ""])
         self.groups.setRowCount(0)
         for i, g in enumerate(self.ctx.config.groups):

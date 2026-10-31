@@ -47,6 +47,8 @@ class DeviceConfig:
     address: str = "127.0.0.1"
     role: str = ROLE_EDITOR
     listener_port: int = 2980
+    # auto (QUIC for UE 5.4+, TCP before) | quic | tcp
+    listener_protocol: str = "auto"
     platform: str = "Win64"
     enabled: bool = True
     # nDisplay
