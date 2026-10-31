@@ -53,7 +53,7 @@ class _Editor:
 
     def run_python(self, script):
         self.scripts.append(script)
-        reply = self.replies.pop(0)
+        reply = self.replies.pop(0) if self.replies else {"ok": True}
         if isinstance(reply, Exception):
             raise reply
         return reply
@@ -86,3 +86,66 @@ def test_failed_take_recorder_start_does_not_record():
     errors = takes.start()
     assert errors and "blocked" in errors[0]
     assert not takes.recording and takes.log.takes == []
+
+
+def test_python_error_inside_unreal_is_a_failure(monkeypatch):
+    reply = {"ReturnValue": True, "LogOutput": [{"Output": 'OPB_RESULT:{"error": "TakeRecorderPanel: boom"}'}]}
+    monkeypatch.setattr(RemoteControlClient, "call", lambda self, *a, **k: reply)
+    with pytest.raises(RemoteControlError, match="boom"):
+        RemoteControlClient("127.0.0.1").run_python("x")
+
+
+def test_no_sources_is_explained_and_nothing_records():
+    from operator_board.remote.takes import NO_SOURCES_HELP
+    no_sources = RemoteControlError("TakeRecorderPanel: There are no currently enabled or valid sources to record "
+                                    "from. Please add some above before recording.")
+    takes = _takes(_Editor([no_sources]))
+    errors = takes.start()
+    assert errors == [f"Take Recorder: {NO_SOURCES_HELP}"]
+    assert not takes.recording
+
+
+def test_take_preset_is_loaded_before_recording():
+    editor = _Editor([{"ok": True}, {"ok": True}])
+    takes = _takes(editor)
+    takes.settings.take_preset = "/Game/Takes/StagePreset"
+    assert takes.start() == []
+    assert "setup_for_recording_take_preset" in editor.scripts[0] and "/Game/Takes/StagePreset" in editor.scripts[0]
+    assert "start_recording" in editor.scripts[1]
+
+
+def test_take_changes_are_shown_in_the_editor_but_not_while_recording():
+    from operator_board.listener.client import wait_until
+    editor = _Editor([])
+    takes = _takes(editor)
+    takes.set_take(7)
+    assert wait_until(lambda: any("set_take_number(7)" in sc for sc in editor.scripts), 2)
+    takes.start()
+    count = len(editor.scripts)
+    takes.increment(1)
+    import time
+    time.sleep(0.2)
+    assert len(editor.scripts) == count  # no metadata changes during a recording
+
+
+def test_quick_take_changes_end_on_the_latest_value():
+    """Several quick Take + presses must leave the editor on the last number, not an older one."""
+    import threading
+    import time
+    from operator_board.listener.client import wait_until
+
+    class SlowEditor(_Editor):
+        def run_python(self, script):
+            time.sleep(0.05)  # a real editor takes a moment, so presses overlap
+            return super().run_python(script)
+
+    editor = SlowEditor([])
+    takes = _takes(editor)
+    threads = [threading.Thread(target=takes.increment, args=(1,)) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    final = takes.settings.take
+    assert wait_until(lambda: not takes._sync_running, 3)
+    assert f"set_take_number({final})" in editor.scripts[-1]

@@ -174,6 +174,38 @@ else:
 """
 
 
+def take_recorder_apply_preset(asset_path: str) -> str:
+    """Load a Take Preset (its sources and settings) into the Take Recorder panel."""
+    return f"""
+lib = unreal.TakeRecorderBlueprintLibrary
+panel = lib.get_take_recorder_panel()
+if panel is None:
+    lib.open_take_recorder_panel()
+    panel = lib.get_take_recorder_panel()
+preset = unreal.load_asset({_lit(asset_path)})
+if preset is None:
+    raise RuntimeError('Take Preset not found: ' + {_lit(asset_path)})
+panel.setup_for_recording_take_preset(preset)
+result = {{'ok': True}}
+"""
+
+
+def take_recorder_set_metadata(slate: str, take: int, description: str) -> str:
+    """Show Operator Board's slate / take in the Take Recorder panel, if it is open (never opens it)."""
+    return f"""
+panel = unreal.TakeRecorderBlueprintLibrary.get_take_recorder_panel()
+md = panel.get_take_meta_data() if panel is not None else None
+if md is None or unreal.TakeRecorderBlueprintLibrary.is_recording():
+    result = {{'synced': False}}
+else:
+    md.set_slate({_lit(slate)})
+    md.set_take_number({int(take)})
+    if hasattr(md, 'set_description'):
+        md.set_description({_lit(description)})
+    result = {{'synced': True}}
+"""
+
+
 def take_recorder_stop() -> str:
     return """
 lib = unreal.TakeRecorderBlueprintLibrary

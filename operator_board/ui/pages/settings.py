@@ -51,7 +51,9 @@ class SettingsPage(BasePage):
         section("Operator interface", cfg.ui, labels={"metrics_poll_s": "Metrics poll interval (s)",
                                                       "confirm_blackout": "Confirm before blackout",
                                                       "confirm_stop_all": "Confirm before Stop all"})
-        section("Takes", cfg.takes, browse={"take_log_path": "file"})
+        section("Takes", cfg.takes, browse={"take_log_path": "file"},
+                labels={"take_preset": "Take preset (optional asset path, e.g. /Game/Takes/StagePreset)",
+                        "record_with_take_recorder": "Record with Take Recorder in the primary editor"})
 
         save = QtWidgets.QPushButton("Save settings")
         save.setMinimumHeight(44)

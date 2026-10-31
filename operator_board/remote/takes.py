@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
+import threading
 import os
 import time
 from dataclasses import dataclass, field
@@ -14,6 +16,13 @@ from operator_board.core.serde import from_dict, to_dict
 from operator_board.remote import scripts
 from operator_board.remote.rc_client import python_result_wrapper
 from operator_board.remote.targets import TargetResolver
+
+log = logging.getLogger(__name__)
+
+_NO_SOURCES = "no currently enabled or valid sources"
+NO_SOURCES_HELP = ("Take Recorder has nothing to record. In the editor's Take Recorder panel, add sources "
+                   "(+ Source: for example your camera or actors), or save them as a Take Preset and enter its "
+                   "path under Operator Board > Takes > Take preset, so every recording uses it.")
 
 
 @dataclass
@@ -43,6 +52,9 @@ class TakeManager:
         self.bus = bus
         self.targets = targets
         self.log = TakeLog()
+        self._sync_lock = threading.Lock()
+        self._sync_wanted = False
+        self._sync_running = False
         self.current: Optional[TakeRecord] = None
         self.load()
 
@@ -83,6 +95,7 @@ class TakeManager:
             self.settings.take = self.next_take_for(slate)
         if description is not None:
             self.settings.description = description
+        self._sync_editor()
         self._publish()
 
     def next_take_for(self, slate: str) -> int:
@@ -91,6 +104,7 @@ class TakeManager:
 
     def set_take(self, take: int) -> None:
         self.settings.take = max(1, int(take))
+        self._sync_editor()
         self._publish()
 
     def increment(self, delta: int = 1) -> None:
@@ -106,15 +120,47 @@ class TakeManager:
                 self._start_take_recorder(s.slate, s.take, s.description)
             except Exception as exc:
                 # Unreal is not recording, so neither is Operator Board: no take is logged.
-                errors.append(f"Take Recorder: {exc}")
+                errors.append(f"Take Recorder: {NO_SOURCES_HELP if _NO_SOURCES in str(exc) else exc}")
                 self._publish()
                 return errors
         self.current = TakeRecord(slate=s.slate, take=s.take, description=s.description, level=level, started=time.time())
         self._publish()
         return errors
 
+    def _sync_editor(self) -> None:
+        """Show the slate / take in the editor's Take Recorder panel as soon as it changes (best effort)."""
+        if not (self.settings.record_with_take_recorder and self.targets) or self.recording:
+            return
+        # One background sender (the editor may be slow or away, and "Apply slate" runs on the UI
+        # thread). It sends the *latest* values until nothing changed, so quick Take +/- presses
+        # cannot arrive out of order.
+        with self._sync_lock:
+            self._sync_wanted = True
+            if self._sync_running:
+                return
+            self._sync_running = True
+        threading.Thread(target=self._sync_worker, daemon=True, name="take-recorder-sync").start()
+
+    def _sync_worker(self) -> None:
+        while True:
+            with self._sync_lock:
+                if not self._sync_wanted:
+                    self._sync_running = False
+                    return
+                self._sync_wanted = False
+            s = self.settings
+            if self.recording:
+                continue
+            try:
+                self.targets.primary().run_python(
+                    python_result_wrapper(scripts.take_recorder_set_metadata(s.slate, s.take, s.description)))
+            except Exception as exc:  # noqa: BLE001 - no editor running is normal
+                log.debug("Take Recorder sync skipped: %s", exc)
+
     def _start_take_recorder(self, slate: str, take: int, description: str, attempts: int = 6) -> None:
         editor = self.targets.primary()
+        if self.settings.take_preset:
+            editor.run_python(python_result_wrapper(scripts.take_recorder_apply_preset(self.settings.take_preset)))
         script = python_result_wrapper(scripts.take_recorder_start(slate, take, description))
         for _ in range(attempts):
             result = editor.run_python(script)

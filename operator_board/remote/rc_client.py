@@ -139,9 +139,13 @@ class RemoteControlClient:
             text = str(entry.get("Output", "")) if isinstance(entry, dict) else str(entry)
             if text.startswith(RESULT_MARKER):
                 try:
-                    return json.loads(text[len(RESULT_MARKER):])
+                    value = json.loads(text[len(RESULT_MARKER):])
                 except ValueError:
                     return text[len(RESULT_MARKER):]
+                # python_result_wrapper turns an exception inside Unreal into {'error': ...}
+                if isinstance(value, dict) and set(value) == {"error"}:
+                    raise RemoteControlError(str(value["error"]))
+                return value
         return result.get("CommandResult")
 
 

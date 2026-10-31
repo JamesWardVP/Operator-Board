@@ -137,6 +137,9 @@ class TakesConfig:
     description: str = ""
     auto_increment: bool = True
     record_with_take_recorder: bool = True
+    # Optional Take Preset asset (e.g. /Game/Takes/StagePreset) loaded into Take Recorder before each
+    # recording, so it always has its sources. Empty = use whatever the Take Recorder panel has.
+    take_preset: str = ""
     take_log_path: str = ""
 
 
