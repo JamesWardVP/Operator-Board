@@ -200,7 +200,10 @@ class FakeQuicListener(FakeListener):
                 authed = msg.get("password") == self.password or msg.get("jwt") == self.jwt
                 # The real listener echoes ids as Unreal FGuid strings (uppercase hex, no dashes).
                 fguid = msg["id"].replace("-", "").upper()
-                reply = {"command": "authenticate", "id": fguid, "bAuthenticated": "true" if authed else "false"}
+                # Like the real listener, acknowledge the command first, with the same id.
+                self._send(writer, {"command accepted": True, "command": "command accepted", "bAck": True,
+                                    "id": fguid})
+                reply ={"command": "authenticate", "id": fguid, "bAuthenticated": "true" if authed else "false"}
                 if authed and "password" in msg:
                     reply["jwt"] = self.jwt
                 self._send(writer, reply)
