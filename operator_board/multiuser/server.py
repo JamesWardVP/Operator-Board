@@ -26,7 +26,28 @@ MU_CALLER = "OperatorBoard_MultiUserServer"
 _PROJECT_REFUSAL = re.compile(r"Refusing user (?P<user>\S+) to join session .*Invalid project name "
                               r"\(expected '(?P<expected>[^']*)', got '(?P<got>[^']*)'\)")
 
+# Logged by the server while it starts, before it reports itself ready (checked on 5.8): every live
+# session it kept from last time (a forced stop keeps them) is recovered under its old name, so
+# clients asking for that name would join the *old* session.
+_RECOVERED = re.compile(r"Live session '(?P<name>.+?)' \([0-9A-Fa-f-]+\) was recovered")
+_READY = "Multi-User Editing Server Initialized"
+READY_TIMEOUT_S = 20.0
+
 log = logging.getLogger(__name__)
+
+
+def next_session_name(name: str, taken=()) -> str:
+    """VP_Session -> VP_Session_2 -> VP_Session_3; Day1_07 -> Day1_08 (keeps zero padding); skips taken names."""
+    m = re.match(r"^(.*?)(\d+)$", name)
+    if m and m.group(1):
+        stem, number, width = m.group(1), int(m.group(2)), len(m.group(2))
+    else:
+        stem, number, width = f"{name}_", 1, 1
+    while True:
+        number += 1
+        candidate = f"{stem}{number:0{width}d}"
+        if candidate not in taken:
+            return candidate
 
 PROGRAM_NAME = "multiuser_server"
 
@@ -81,6 +102,9 @@ class MultiUserServer:
         self.log: Deque[str] = deque(maxlen=1000)
         self.last_error = ""
         self.tracker = self._new_tracker()
+        self.existing_sessions: Set[str] = set()  # sessions the server recovered when it started
+        self.session_warning = ""  # set when this start moved to a new session because the name was taken
+        self._ready = threading.Event()
 
     def _new_tracker(self) -> ClientTracker:
         mu = self.config.multiuser
@@ -100,7 +124,8 @@ class MultiUserServer:
 
     def _publish(self) -> None:
         self.bus.publish("multiuser.state", running=self.running, clients=self.clients,
-                         server_name=self.server_name, error=self.last_error)
+                         server_name=self.server_name, error=self.last_error,
+                         session=self.config.multiuser.session_name, session_warning=self.session_warning)
 
     def feed_output(self, text: str) -> None:
         changed = False
@@ -109,6 +134,11 @@ class MultiUserServer:
                 continue
             self.log.append(line)
             changed |= self.tracker.feed_line(line)
+            recovered = _RECOVERED.search(line)
+            if recovered:
+                self.existing_sessions.add(recovered.group("name"))
+            if _READY in line:
+                self._ready.set()
             refusal = _PROJECT_REFUSAL.search(line)
             if refusal:
                 message = (f"The server refused {refusal.group('user')}: its session belongs to project "
@@ -130,6 +160,9 @@ class MultiUserServer:
             mu.session_name = session_name
         self.tracker = self._new_tracker()
         self.last_error = ""
+        self.session_warning = ""
+        self.existing_sessions = set()
+        self._ready.clear()
         host = mu.host or "local"
         device = self.config.device(host) if host != "local" else None
         try:
@@ -146,6 +179,29 @@ class MultiUserServer:
             self._start_remote(device, spec.exe, spec.args)
         self.running = True
         self.started_at = time.time()
+        self._publish()
+        # Clients are given the session name when they launch, so settle it before returning.
+        if not self._ready.wait(READY_TIMEOUT_S):
+            log.warning("The multi-user server did not report ready within %.0f s", READY_TIMEOUT_S)
+        self._check_session_name()
+
+    def _check_session_name(self) -> None:
+        mu = self.config.multiuser
+        old = mu.session_name
+        if old not in self.existing_sessions:
+            return
+        if not mu.auto_increment_session:
+            self.session_warning = (f"Joining the existing session '{old}' that the server kept from last time "
+                                    "(automatic session numbering is off).")
+            self._publish()
+            return
+        new = next_session_name(old, self.existing_sessions)
+        mu.session_name = new
+        self.session_warning = (f"Session '{old}' already exists on the server, so this is a NEW session: '{new}'. "
+                                f"It is NOT the previous session; work that was only in '{old}' is not in it.")
+        log.warning(self.session_warning)
+        self.bus.publish("multiuser.session_renamed", old=old, new=new, reason="exists",
+                         warning=self.session_warning)
         self._publish()
 
     def _start_local(self, exe: str, args: str) -> None:
@@ -202,6 +258,7 @@ class MultiUserServer:
         self._publish()
 
     def stop(self) -> None:
+        was_running = self.running
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
             try:
@@ -219,3 +276,13 @@ class MultiUserServer:
             self._remote = None
             self._remote_program = None
         self._on_stopped()
+        mu = self.config.multiuser
+        if was_running and mu.auto_increment_session:
+            # Every server run gets its own session; the next start (and every editor or node
+            # launched after this) uses the next name.
+            old = mu.session_name
+            mu.session_name = next_session_name(old, self.existing_sessions)
+            self.session_warning = ""
+            self.bus.publish("multiuser.session_renamed", old=old, new=mu.session_name, reason="stopped",
+                             warning="")
+            self._publish()

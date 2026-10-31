@@ -60,6 +60,7 @@ class AppContext:
         self.api: Optional[ApiServer] = None
         self.streamdeck = None
         self._stop = threading.Event()
+        self.bus.subscribe("multiuser.session_renamed", lambda _t, _p: self._save_quietly())
         self.bus.subscribe("device.metrics", lambda _t, p: self.metrics.add_raw(p["name"], p.get("metrics") or {}))
         self._register_actions()
 
@@ -118,6 +119,13 @@ class AppContext:
 
     def save(self) -> str:
         return self.store.save(self.config)
+
+    def _save_quietly(self) -> None:
+        """Keep a setting changed by Operator Board itself (the next session name) across restarts."""
+        try:
+            self.save()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not save the configuration: %s", exc)
 
     # ---- stage (Switchboard config) switching ----------------------------------------------
     @property
@@ -325,12 +333,24 @@ class AppContext:
               params=[ActionParam("group", "Group", "choice", choices_provider=group_names)])
 
         # Multi-user
-        a.add("multiuser.start", "Start multi-user server", "Multi-User", lambda server_name="", session_name="":
-              mu.start(server_name or None, session_name or None), state=lambda: mu.running,
+        def start_mu(server_name="", session_name="") -> ActionResult:
+            mu.start(server_name or None, session_name or None)
+            if mu.session_warning:
+                return ActionResult(False, f"Multi-user server started. Warning: {mu.session_warning}")
+            return ActionResult(True, f"Multi-user server started (session '{self.config.multiuser.session_name}')")
+
+        def stop_mu() -> ActionResult:
+            mu.stop()
+            if self.config.multiuser.auto_increment_session:
+                return ActionResult(True, f"Multi-user server stopped; the next session will be "
+                                          f"'{self.config.multiuser.session_name}'")
+            return ActionResult(True, "Multi-user server stopped")
+
+        a.add("multiuser.start", "Start multi-user server", "Multi-User", start_mu, state=lambda: mu.running,
               params=[ActionParam("server_name", "Server name"), ActionParam("session_name", "Session name")])
-        a.add("multiuser.stop", "Stop multi-user server", "Multi-User", mu.stop)
+        a.add("multiuser.stop", "Stop multi-user server", "Multi-User", stop_mu)
         a.add("multiuser.toggle", "Multi-user server (toggle)", "Multi-User",
-              lambda: mu.stop() if mu.running else mu.start(), state=lambda: mu.running)
+              lambda: stop_mu() if mu.running else start_mu(), state=lambda: mu.running)
 
         # Levels & projects
         level_paths = lambda: [l.path for l in self.level_cache]

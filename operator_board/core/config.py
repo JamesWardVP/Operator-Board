@@ -81,6 +81,9 @@ class MultiUserConfig:
     clean_history: bool = False
     # Start the server automatically when an editor or node that joins multi-user is started.
     auto_start: bool = True
+    # Move to the next session name (VP_Session -> VP_Session_2) whenever the server is stopped,
+    # and when it starts with a session of that name still on it.
+    auto_increment_session: bool = True
     extra_args: str = ""
     udp_unicast_endpoint: str = ""
     udp_static_endpoints: str = ""

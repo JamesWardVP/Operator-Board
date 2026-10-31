@@ -147,6 +147,11 @@ class OperatePage(BasePage):
         mu.add_layout(hbox(self.mu_count, muted("connected clients"), None))
         self.mu_clients = muted("")
         mu.add(self.mu_clients)
+        self.mu_warning = QtWidgets.QLabel()
+        self.mu_warning.setWordWrap(True)
+        self.mu_warning.setStyleSheet(f"color: {COLORS['warn']}; font-weight: 600;")
+        self.mu_warning.hide()
+        mu.add(self.mu_warning)
         mu.layout_.addStretch(1)
         grid.addWidget(mu, 2, 2)
 
@@ -328,6 +333,18 @@ class OperatePage(BasePage):
     # ---- refresh -----------------------------------------------------------------
     NO_DATA = "No data"
 
+    def on_event(self, topic: str, payload) -> None:
+        super().on_event(topic, payload)
+        if topic == "multiuser.session_renamed" and payload.get("reason") == "exists":
+            # Hard to miss on purpose: the operator may expect the previous session's work to be there.
+            box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, "New multi-user session",
+                                        payload.get("warning") or "", QtWidgets.QMessageBox.Ok, self)
+            box.setInformativeText("Editors and nDisplay nodes started now join the new session. To carry on in "
+                                   "the old one instead, type its name in the Session box and turn off "
+                                   "'Number sessions' in Settings > Multi-user server.")
+            box.setAttribute(Qt.WA_DeleteOnClose)
+            box.open()
+
     def _update_timing(self) -> None:
         if not self.isVisible() and self.tc_value.text():
             return
@@ -435,6 +452,8 @@ class OperatePage(BasePage):
             self.mu_clients.setText(", ".join(mu.clients) or mu.last_error or "Waiting for clients to join")
         else:
             self.mu_clients.setText(mu.last_error or "Server not running")
+        self.mu_warning.setText(f"⚠ {mu.session_warning}" if mu.session_warning else "")
+        self.mu_warning.setVisible(bool(mu.session_warning))
 
         # project & levels
         projects = [p.name for p in self.ctx.config.projects]
