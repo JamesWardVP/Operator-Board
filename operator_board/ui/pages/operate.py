@@ -1,10 +1,10 @@
 """Main operator dashboard: LED wall, Unreal instances, multi-user, level, takes and cameras at a glance."""
 from __future__ import annotations
 
-from operator_board.qt import QtCore, QtWidgets, Qt
+from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
-from operator_board.ui.widgets import Banner, BigButton, Card, StateDot, clear_layout, hbox, muted, scroll
+from operator_board.ui.widgets import Banner, BigButton, Card, HazardOverlay, StateDot, clear_layout, hbox, muted, scroll
 
 
 class DeviceTile(QtWidgets.QFrame):
@@ -87,6 +87,11 @@ class OperatePage(BasePage):
         self.proc_row = QtWidgets.QHBoxLayout()
         wall.add_layout(self.proc_row)
         grid.addWidget(wall, 1, 0, 1, 3)
+        self.wall_controls = [self.freeze_btn, self.blackout_btn, self.normal_btn, self.pattern_combo,
+                              self.pattern_btn, self.pattern_off_btn]
+        self.wall_overlay = HazardOverlay(wall)
+        self._wall_state = None      # None (usable), "none" (no processor) or "offline:<names>"
+        self._wall_dismissed = None  # a state the operator chose to "use anyway"
 
         # --- Unreal instances ---------------------------------------------------
         inst = Card("Unreal Instances")
@@ -165,12 +170,29 @@ class OperatePage(BasePage):
         self.take_label.setObjectName("Big")
         self.rec_btn = BigButton("● RECORD", COLORS["err"], height=60)
         self.rec_btn.clicked.connect(lambda: self.invoke("takes.toggle_record"))
+        self.scene_edit = QtWidgets.QLineEdit()
+        self.scene_edit.setPlaceholderText("Scene name")
+        self.scene_edit.setToolTip("Scene (slate) name. Press Enter to apply; a new scene starts at its next "
+                                   "unused take.")
+        self.scene_edit.editingFinished.connect(self._scene_changed)
+        self.take_edit = QtWidgets.QLineEdit()  # not a QSpinBox: styled spin boxes clip their text
+        self.take_edit.setValidator(QtGui.QIntValidator(1, 9999, self.take_edit))
+        self.take_edit.setAlignment(Qt.AlignCenter)
+        self.take_edit.setToolTip("Take number: type any number and press Enter")
+        self.take_edit.editingFinished.connect(self._take_changed)
         minus = QtWidgets.QPushButton("Take −")
         plus = QtWidgets.QPushButton("Take +")
         minus.clicked.connect(lambda: self.invoke("takes.prev_take"))
         plus.clicked.connect(lambda: self.invoke("takes.next_take"))
+        self.take_controls = [self.scene_edit, self.take_edit, minus, plus]
         takes.add(self.take_label)
-        takes.add_layout(hbox(minus, plus))
+        scene_row = hbox(QtWidgets.QLabel("Scene"), self.scene_edit)
+        scene_row.setStretch(1, 1)
+        takes.add_layout(scene_row)
+        take_row = hbox(minus, self.take_edit, plus)
+        for i in range(3):
+            take_row.setStretch(i, 1)
+        takes.add_layout(take_row)
         takes.add(self.rec_btn)
         grid.addWidget(takes, 4, 0)
 
@@ -194,6 +216,68 @@ class OperatePage(BasePage):
         else:
             self.invoke("multiuser.start", server_name=self.mu_server.text().strip(),
                         session_name=self.mu_session.text().strip())
+
+    # ---- LED wall availability ------------------------------------------------------
+    def _wall_unavailable(self):
+        """None if the wall controls can be used, else a state key for the overlay."""
+        active = self.ctx.led.active()
+        if not active:
+            return "none"
+        if all(p.state.online is False for p in active):
+            return "offline:" + ", ".join(p.name for p in active)
+        return None
+
+    def _update_wall_overlay(self) -> None:
+        state = self._wall_unavailable()
+        if state == self._wall_state:
+            return
+        self._wall_state = state
+        blocked = state is not None and state != self._wall_dismissed
+        for control in self.wall_controls:
+            control.setEnabled(not blocked)
+        if not blocked:
+            self.wall_overlay.hide()
+            return
+        setup = ("Set up LED processors", self._open_led_setup)
+        if state == "none":
+            self.wall_overlay.show_message(
+                "LED WALL CONTROL UNAVAILABLE",
+                "No LED processor is set up. Add your processor (type and IP address) to use Freeze, "
+                "Blackout and test patterns from here.", [setup])
+        else:
+            names = state.split(":", 1)[1]
+            self.wall_overlay.show_message(
+                "LED PROCESSORS NOT CONNECTED",
+                f"{names} could not be reached. Check the network and the IP address and port.",
+                [("Retry connection", self._retry_led), setup, ("Use anyway", self._use_wall_anyway)])
+
+    def _open_led_setup(self) -> None:
+        titles = [p.title for p in self.window_.pages]
+        if "LED Processors" in titles:
+            self.window_.nav.setCurrentRow(titles.index("LED Processors"))
+
+    def _retry_led(self) -> None:
+        self.background(self.ctx.led.check_all, lambda _r: self.refresh(), "LED connection check")
+
+    def _use_wall_anyway(self) -> None:
+        """Lift the overlay for this state; it comes back if the state changes."""
+        self._wall_dismissed = self._wall_state
+        self._wall_state = "dismissed"  # force the next update to re-evaluate
+        self._update_wall_overlay()
+
+    def _scene_changed(self) -> None:
+        name = self.scene_edit.text().strip()
+        if not name:
+            self.scene_edit.setText(self.ctx.config.takes.slate)
+        elif name != self.ctx.config.takes.slate:
+            self.invoke("takes.set_slate", done=lambda _r: self.save_config(), slate=name)
+
+    def _take_changed(self) -> None:
+        text = self.take_edit.text().strip()
+        if not text.isdigit() or int(text) < 1:
+            self.take_edit.setText(str(self.ctx.config.takes.take))
+        elif int(text) != self.ctx.config.takes.take:
+            self.invoke("takes.set_take", done=lambda _r: self.save_config(), take=int(text))
 
     def _auto_mu_changed(self, on: bool) -> None:
         if self.ctx.config.multiuser.auto_start != on:
@@ -251,6 +335,7 @@ class OperatePage(BasePage):
                                                              "#2f9e44" if st.online else "#3d8bfd")
             chip.setStyleSheet(f"background: {color}; border-radius: 10px; padding: 4px; color: white;")
             chip.setToolTip(st.last_error or st.last_command or "No commands sent yet")
+        self._update_wall_overlay()
 
         # devices & groups
         devices = self.ctx.devices.devices()
@@ -326,6 +411,12 @@ class OperatePage(BasePage):
         # takes
         t = self.ctx.config.takes
         self.take_label.setText(f"{t.slate}  ·  T{t.take:03d}")
+        if not self.scene_edit.hasFocus() and self.scene_edit.text() != t.slate:
+            self.scene_edit.setText(t.slate)
+        if not self.take_edit.hasFocus() and self.take_edit.text() != str(t.take):
+            self.take_edit.setText(str(t.take))
+        for control in self.take_controls:  # no renaming or renumbering mid-take
+            control.setEnabled(not self.ctx.takes.recording)
         self.rec_btn.setText("■ STOP" if self.ctx.takes.recording else "● RECORD")
         self.rec_btn.set_active(self.ctx.takes.recording)
 

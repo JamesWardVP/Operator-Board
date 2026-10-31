@@ -40,7 +40,7 @@ Want to try it without any hardware? Choose the **Simulator** LED processor type
 ### Operate: the whole stage on one page
 Freeze, blackout and test patterns for the wall; connect to, start and stop every Unreal instance (each machine has its own Connect / Disconnect button, and there is a Disconnect all), or a whole group; the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
 
-Blackout asks for confirmation by default, so the wall cannot be blacked out by accident (Settings > Confirm before blackout). When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
+If no LED processor is set up, or none can be reached, the LED Wall section is greyed out behind hazard tape with what to do (set up, retry, or use anyway); Operator Board checks processors when it starts and while any is offline. Blackout asks for confirmation by default, so the wall cannot be blacked out by accident (Settings > Confirm before blackout). When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
 
 ![Operate page with the WALL FROZEN banner and the Freeze button lit](docs/images/operate_frozen.png)
 
@@ -84,7 +84,7 @@ Manage several projects and switch between them, or find `.uproject` files on di
 ![Levels & Cameras page with projects and the levels in the active project](docs/images/levels.png)
 
 ### Takes
-Slate, take number and description with auto-increment. Recording drives **Take Recorder** in the primary editor, and every take goes into a persistent log with Good, Circle and NG ratings and notes. The log exports to CSV.
+Scene (slate) name, take number and description with auto-increment. Type a new scene name or jump straight to any take number on the Operate page (or use Take − / Take +); changes show straight away in the editor's Take Recorder panel. Recording drives **Take Recorder** in the primary editor, which records the **sources** set in its panel (cameras, actors and so on). Save them as a Take Preset and enter its path in Settings > Takes, and every recording uses it. If the take is empty, Operator Board adds the stage camera and records: the nDisplay setup's ICVFX camera, otherwise the cine camera in the level (or the actor named in Settings > Takes > Take camera), and says which one it added. Every take goes into a persistent log with Good, Circle and NG ratings and notes; the log exports to CSV.
 
 ![Takes page with the slate, the Record button and the take log](docs/images/takes.png)
 
@@ -128,7 +128,7 @@ Operator Board detects the engine version from `Engine/Build/Build.version` when
 | Feature | Needs |
 |---|---|
 | Start / stop instances, sync on nodes, analytics | SwitchboardListener running on each machine (port 2980: UDP for UE 5.4+, TCP for 5.2 – 5.3), with a password set in its window for UE 5.4+ |
-| Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`) |
+| Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`). Unreal's Remote Control blocks remote Python, console commands and (5.8) most function calls by default; Operator Board allows them on the editors and nodes **it starts** (Settings > Remote Control). For an editor started another way, enable them in Project Settings > Plugins > Remote Control > Security. |
 | Level loading, sub-levels, data layers, viewport cameras, Take Recorder | **Python Editor Script Plugin** in the editor |
 | DLSS page | NVIDIA DLSS / Streamline plugins |
 

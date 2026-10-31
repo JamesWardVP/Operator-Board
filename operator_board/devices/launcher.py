@@ -61,9 +61,20 @@ NDISPLAY_INI = [
 ]
 
 
+# Remote Control's security switches (Project Settings > Plugins > Remote Control > Security), all off by
+# default. Operator Board runs editor Python (Take Recorder, levels, sub-levels, cameras), console commands
+# and functions outside Epic's allowlist (5.8), so it turns them on for the instances it launches.
+# Engines that lack a switch (e.g. 5.2 has only the Python one) ignore it.
+_RC_SECTION = "[/Script/RemoteControlCommon.RemoteControlSettings]"
+REMOTE_CONTROL_UNLOCK = ("-ini:RemoteControl:"
+                         f"{_RC_SECTION}:bEnableRemotePythonExecution=True,"
+                         f"{_RC_SECTION}:bAllowConsoleCommandRemoteExecution=True,"
+                         f"{_RC_SECTION}:bAllowAnyRemoteFunctionCall=True")
+
+
 def unreal_launch_spec(device: DeviceConfig, project: ProjectConfig, multiuser: Optional[MultiUserConfig] = None,
                        map_override: str = "", ndisplay_cfg: str = "", window=None,
-                       multiprocess: bool = False) -> LaunchSpec:
+                       multiprocess: bool = False, allow_remote_features: bool = True) -> LaunchSpec:
     """Command line for an editor or an nDisplay node.
 
     For nDisplay, ``ndisplay_cfg`` is the .ndisplay path *on the node* (written there
@@ -121,6 +132,8 @@ def unreal_launch_spec(device: DeviceConfig, project: ProjectConfig, multiuser: 
     args.append(f"-SessionName={_quote('OperatorBoard_' + device.name)}")
     if device.rc_enabled:
         args += ["-RCWebControlEnable", "-RCWebInterfaceEnable", f"-RCWebControlPort={device.rc_port}"]
+        if allow_remote_features:
+            args.append(REMOTE_CONTROL_UNLOCK)
     if multiuser and device.join_multiuser:
         args += multiuser_client_args(multiuser, device.name)
         if device.role == ROLE_NDISPLAY:

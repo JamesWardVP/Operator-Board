@@ -41,3 +41,77 @@ def test_main_window_pages(tmp_path):
     assert "Switchboard" not in window.windowTitle()
     window.skip_save_on_close = True
     window.close()
+
+
+def test_operate_scene_and_take_can_be_typed():
+    from operator_board.context import AppContext
+    from operator_board.core.config import AppConfig
+    from operator_board.listener.client import wait_until
+    from operator_board.ui.main_window import MainWindow
+
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    cfg = AppConfig()
+    cfg.takes.record_with_take_recorder = False
+    ctx = AppContext(cfg)
+    window = MainWindow(ctx)
+    page = window.pages[0]
+    page.refresh()
+    assert page.scene_edit.text() == cfg.takes.slate and page.take_edit.text() == str(cfg.takes.take)
+
+    page.scene_edit.setText("Car_Chase")
+    page.scene_edit.editingFinished.emit()
+    assert wait_until(lambda: (app.processEvents() or cfg.takes.slate == "Car_Chase"), 3)
+    assert cfg.takes.take == 1  # a new scene starts at take 1
+
+    page.take_edit.setText("57")  # typing 57 and pressing Enter
+    page.take_edit.editingFinished.emit()
+    assert wait_until(lambda: (app.processEvents() or cfg.takes.take == 57), 3)
+    page.refresh()
+    assert page.take_label.text() == "Car_Chase  ·  T057"
+
+    ctx.takes.start()
+    page.refresh()
+    assert not page.scene_edit.isEnabled() and not page.take_edit.isEnabled()
+    ctx.takes.stop()
+    page.refresh()
+    assert page.take_edit.isEnabled() and page.take_edit.text() == "58"  # auto-increment after the take
+    window.skip_save_on_close = True
+    window.close()
+
+
+def test_led_wall_overlay_when_unavailable():
+    from operator_board.context import AppContext
+    from operator_board.core.config import AppConfig, LEDProcessorConfig
+    from operator_board.ui.main_window import MainWindow
+
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    # no processor set up
+    ctx = AppContext(AppConfig())
+    window = MainWindow(ctx)
+    window.show()
+    page = window.pages[0]
+    page.refresh()
+    assert page.wall_overlay.isVisible() and "UNAVAILABLE" in page.wall_overlay.title.text()
+    assert not page.freeze_btn.isEnabled()
+    window.skip_save_on_close = True
+    window.close()
+
+    # a processor that cannot be reached, then "Use anyway", then it comes back
+    ctx = AppContext(AppConfig(led_processors=[LEDProcessorConfig(name="Wall A", profile_id="simulator")]))
+    window = MainWindow(ctx)
+    window.show()
+    page = window.pages[0]
+    proc = ctx.led.processors[0]
+    proc.state.online = False
+    page.refresh()
+    assert page.wall_overlay.isVisible() and "NOT CONNECTED" in page.wall_overlay.title.text()
+    assert "Wall A" in page.wall_overlay.text.text()
+    page._use_wall_anyway()
+    page.refresh()
+    assert not page.wall_overlay.isVisible() and page.freeze_btn.isEnabled()
+    proc.state.online = True
+    page.refresh()
+    assert not page.wall_overlay.isVisible() and page.freeze_btn.isEnabled()
+    window.skip_save_on_close = True
+    window.close()
+    app.processEvents()

@@ -42,14 +42,20 @@ class SettingsPage(BasePage):
         section("Remote Control", cfg.remote_control, choices={
             "primary_target": editors,
             "level_load_mode": ["editor", "nodes", "relaunch", "all"]},
-            labels={"primary_target": "Primary editor", "timeout_s": "Request timeout (s)"})
+            labels={"primary_target": "Primary editor", "timeout_s": "Request timeout (s)",
+                    "allow_remote_features": "Allow Take Recorder, levels and cameras on launched instances "
+                                             "(remote Python and console commands)"})
         section("Control surfaces & API", cfg.surfaces,
                 labels={"api_bind": "API bind address (0.0.0.0 = all networks)", "api_token": "API token (optional)",
                         "layout_path": "Surface layout file"}, browse={"layout_path": "file"})
         section("Operator interface", cfg.ui, labels={"metrics_poll_s": "Metrics poll interval (s)",
                                                       "confirm_blackout": "Confirm before blackout",
                                                       "confirm_stop_all": "Confirm before Stop all"})
-        section("Takes", cfg.takes, browse={"take_log_path": "file"})
+        section("Takes", cfg.takes, browse={"take_log_path": "file"},
+                labels={"take_preset": "Take preset (optional asset path, e.g. /Game/Takes/StagePreset)",
+                        "auto_add_camera": "If the take is empty, add the stage camera and record",
+                        "take_camera": "Take camera (optional actor name; default: nDisplay ICVFX / cine camera)",
+                        "record_with_take_recorder": "Record with Take Recorder in the primary editor"})
 
         save = QtWidgets.QPushButton("Save settings")
         save.setMinimumHeight(44)
