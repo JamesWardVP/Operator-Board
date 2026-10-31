@@ -51,8 +51,10 @@ def _config(port):
     cfg.projects = [ProjectConfig(name="P", uproject_path="D:/P/P.uproject", engine_dir="C:/UE",
                                   ndisplay_config=_ndisplay_file())]
     cfg.active_project = "P"
-    cfg.devices = [DeviceConfig(name="Ed", address="127.0.0.1", listener_port=port),
-                   DeviceConfig(name="N1", address="127.0.0.1", listener_port=port, role="ndisplay", ndisplay_node="N1")]
+    # FakeListener speaks TCP (the UE 5.2 - 5.3 protocol); "auto" would try QUIC first and wait for it to time out.
+    cfg.devices = [DeviceConfig(name="Ed", address="127.0.0.1", listener_port=port, listener_protocol="tcp"),
+                   DeviceConfig(name="N1", address="127.0.0.1", listener_port=port, role="ndisplay", ndisplay_node="N1",
+                                listener_protocol="tcp")]
     cfg.groups = [GroupConfig(name="Nodes", devices=["N1"])]
     return cfg
 
@@ -125,11 +127,11 @@ def test_editor_and_node_on_one_listener_stop_independently():
         ed, n1 = mgr.get("Ed"), mgr.get("N1")
         mgr.connect("N1")
         mgr.start("Ed")
-        assert wait_until(lambda: ed.state == "running", 3)
+        assert wait_until(lambda: ed.state == "running", 3), (ed.state, ed.last_error)
         time.sleep(0.3)
         assert n1.state == "connected"  # the editor's announcement is not taken as the node's
         mgr.start("N1")
-        assert wait_until(lambda: n1.state == "running", 3)
+        assert wait_until(lambda: n1.state == "running", 3), (n1.state, n1.last_error)
         start_ed = next(m for m in listener.received if m["command"] == "start" and m["caller"] == "Ed")
 
         mgr.stop("Ed")

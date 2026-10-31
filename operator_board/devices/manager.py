@@ -181,9 +181,11 @@ class DeviceManager:
             self._set_state(rt, ERROR, str(exc))
             return
         rt.log_tail.append(f"> {spec.as_command_line()}")
+        # Mark it starting *before* sending: a local listener can report "program started"
+        # before start_process() returns, and that RUNNING must not be overwritten.
+        self._set_state(rt, STARTING)
         rt.pending_start_id = rt.client.start_process(
             exe=spec.exe, args=spec.args, name=PROGRAM_NAME, caller=rt.name, working_dir=spec.working_dir)
-        self._set_state(rt, STARTING)
 
     def _prepare_ndisplay(self, rt: DeviceRuntime) -> Dict[str, Any]:
         """Write this launch's .ndisplay config on the node and return launch_spec extras.
@@ -217,8 +219,8 @@ class DeviceManager:
         """Ask the listener to close Unreal (it is forced after a few seconds, as in Switchboard)."""
         rt = self._require(name)
         if rt.program_id and rt.client and rt.client.connected:
+            self._set_state(rt, STOPPING)  # before sending, for the same reason as in start()
             rt.client.kill_process(rt.program_id)
-            self._set_state(rt, STOPPING)
         elif rt.state in (STARTING, RUNNING):
             if rt.client and rt.client.connected:
                 self._set_state(rt, ERROR, "Cannot stop: the listener has not reported this program's id yet")

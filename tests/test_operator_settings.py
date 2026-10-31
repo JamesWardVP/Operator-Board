@@ -11,6 +11,10 @@ from operator_board.core.config import AppConfig
 from operator_board.listener.client import wait_until
 
 
+def _states(ctx):
+    return [(d.name, d.state, d.last_error) for d in ctx.devices.devices()]
+
+
 def _ctx_with_fake_mu(listener, auto_start=True):
     cfg = _config(listener.port)
     cfg.multiuser.auto_start = auto_start
@@ -31,7 +35,7 @@ def test_auto_start_multiuser_once_before_unreal():
     ctx, calls = _ctx_with_fake_mu(listener)
     try:
         ctx.devices.start_all()
-        assert wait_until(lambda: all(d.state == "running" for d in ctx.devices.devices()), 5)
+        assert wait_until(lambda: all(d.state == "running" for d in ctx.devices.devices()), 5), _states(ctx)
         assert len(calls) == 1  # one server, even though two devices started in parallel
     finally:
         ctx.shutdown()
@@ -43,11 +47,11 @@ def test_no_auto_start_when_off_or_not_joining():
     ctx, calls = _ctx_with_fake_mu(listener, auto_start=False)
     try:
         ctx.devices.start("Ed")
-        assert wait_until(lambda: ctx.devices.get("Ed").state == "running", 5)
+        assert wait_until(lambda: ctx.devices.get("Ed").state == "running", 5), _states(ctx)
         ctx.config.multiuser.auto_start = True
         ctx.config.device("N1").join_multiuser = False
         ctx.devices.start("N1")
-        assert wait_until(lambda: ctx.devices.get("N1").state == "running", 5)
+        assert wait_until(lambda: ctx.devices.get("N1").state == "running", 5), _states(ctx)
         assert calls == []
     finally:
         ctx.shutdown()
