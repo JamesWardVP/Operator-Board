@@ -115,3 +115,29 @@ def test_connect_and_disconnect_one_device_by_action():
     finally:
         ctx.shutdown()
         listener.close()
+
+
+def test_editor_and_node_on_one_listener_stop_independently():
+    """Both devices share a listener, which announces every program to every connection."""
+    listener = FakeListener()
+    mgr = DeviceManager(_config(listener.port), EventBus())
+    try:
+        ed, n1 = mgr.get("Ed"), mgr.get("N1")
+        mgr.connect("N1")
+        mgr.start("Ed")
+        assert wait_until(lambda: ed.state == "running", 3)
+        time.sleep(0.3)
+        assert n1.state == "connected"  # the editor's announcement is not taken as the node's
+        mgr.start("N1")
+        assert wait_until(lambda: n1.state == "running", 3)
+        start_ed = next(m for m in listener.received if m["command"] == "start" and m["caller"] == "Ed")
+
+        mgr.stop("Ed")
+        assert wait_until(lambda: ed.state == "connected", 3)
+        kill = listener.kills[-1]
+        assert protocol.same_id(kill["uuid"], start_ed["id"]) and kill["soft_kill_timeout"] == 3.0
+        time.sleep(0.3)
+        assert n1.state == "running"  # stopping the editor leaves the node alone
+    finally:
+        mgr.disconnect_all()
+        listener.close()

@@ -7,18 +7,18 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional
 
 from operator_board.core.config import ROLE_NDISPLAY, AppConfig, DeviceConfig
 from operator_board.devices import ndisplay
 from operator_board.core.events import EventBus
 from operator_board.devices.launcher import unreal_launch_spec
+from operator_board.listener import protocol
 from operator_board.listener.client import ListenerClient, client_for_device, decode_stdout, unreachable_hint
 from operator_board.listener.quic import FingerprintChanged, ListenerAuthError, PasswordRejected
 
 log = logging.getLogger(__name__)
 
-CALLER = "OperatorBoard"
 PROGRAM_NAME = "unreal"  # same program name Switchboard uses, so either tool can see the other's processes
 
 DISCONNECTED = "disconnected"
@@ -67,6 +67,8 @@ class DeviceManager:
         self.bus = bus
         self._lock = threading.RLock()
         self._devices: Dict[str, DeviceRuntime] = {}
+        # Called with the DeviceConfig just before Unreal is launched (multi-user auto start).
+        self.before_start: Optional[Callable[[DeviceConfig], None]] = None
         self.reload()
 
     # ---- registry ---------------------------------------------------------
@@ -169,6 +171,8 @@ class DeviceManager:
             self.connect(name)
             if not (rt.client and rt.client.connected):
                 return
+        if self.before_start is not None:
+            self.before_start(rt.config)
         try:
             extra = self._prepare_ndisplay(rt) if rt.config.role == ROLE_NDISPLAY else {}
             spec = unreal_launch_spec(rt.config, self.config.project(), self.config.multiuser, map_override,
@@ -178,7 +182,7 @@ class DeviceManager:
             return
         rt.log_tail.append(f"> {spec.as_command_line()}")
         rt.pending_start_id = rt.client.start_process(
-            exe=spec.exe, args=spec.args, name=PROGRAM_NAME, caller=CALLER, working_dir=spec.working_dir)
+            exe=spec.exe, args=spec.args, name=PROGRAM_NAME, caller=rt.name, working_dir=spec.working_dir)
         self._set_state(rt, STARTING)
 
     def _prepare_ndisplay(self, rt: DeviceRuntime) -> Dict[str, Any]:
@@ -210,12 +214,16 @@ class DeviceManager:
                 "multiprocess": bool(cohosted) and node != cohosted[0]}
 
     def stop(self, name: str) -> None:
+        """Ask the listener to close Unreal (it is forced after a few seconds, as in Switchboard)."""
         rt = self._require(name)
         if rt.program_id and rt.client and rt.client.connected:
             rt.client.kill_process(rt.program_id)
             self._set_state(rt, STOPPING)
         elif rt.state in (STARTING, RUNNING):
-            self._set_state(rt, CONNECTED if rt.client else DISCONNECTED)
+            if rt.client and rt.client.connected:
+                self._set_state(rt, ERROR, "Cannot stop: the listener has not reported this program's id yet")
+            else:
+                self._set_state(rt, ERROR, "Cannot stop: not connected to this machine's listener")
 
     def restart(self, name: str, map_override: str = "") -> None:
         rt = self._require(name)
@@ -255,29 +263,40 @@ class DeviceManager:
     # ---- listener messages -----------------------------------------------------
     def _on_message(self, rt: DeviceRuntime, msg: Dict[str, Any]) -> None:
         cmd = str(msg.get("command", ""))
+        # Several devices can share one listener (an editor and a node on one PC) and every
+        # connection hears about every program, so only programs whose caller is this
+        # device are ours - the same rule Switchboard uses.
         if cmd == "state":
             rt.listener_version = str(msg.get("version", rt.listener_version))
             for proc in msg.get("runningProcesses", []) or []:
-                if proc.get("name") == PROGRAM_NAME and rt.program_id is None:
+                if self._is_ours(rt, proc) and rt.program_id is None:
                     rt.program_id = proc.get("uuid")
                     rt.pid = proc.get("pid")
                     rt.started_at = time.time()
                     self._set_state(rt, RUNNING)
         elif cmd == "start" and msg.get("bAck") is False:
-            rt.pending_start_id = None
-            self._set_state(rt, ERROR, f"Listener refused start: {msg.get('error', 'unknown error')}")
+            if protocol.same_id(msg.get("id"), rt.pending_start_id):
+                rt.pending_start_id = None
+                self._set_state(rt, ERROR, f"Listener refused start: {msg.get('error', 'unknown error')}")
         elif cmd == "program started":
-            if msg.get("name", PROGRAM_NAME) == PROGRAM_NAME:
-                rt.program_id = msg.get("process_id") or msg.get("uuid") or msg.get("program_id")
-                rt.pid = msg.get("pid")
+            proc = protocol.program_info(msg)
+            if msg.get("bAck") is False:
+                if protocol.same_id(proc.get("uuid"), rt.pending_start_id):
+                    rt.pending_start_id = None
+                    self._set_state(rt, ERROR, f"Could not start Unreal: {msg.get('error', 'unknown error')}")
+            elif self._is_ours(rt, proc):
+                rt.program_id = proc.get("uuid")
+                rt.pid = proc.get("pid")
                 rt.started_at = time.time()
                 rt.pending_start_id = None
                 self._set_state(rt, RUNNING)
-        elif cmd in ("program start failed", "program killed failed", "program kill failed"):
-            self._set_state(rt, ERROR, str(msg.get("error", cmd)))
+        elif cmd == "program killed":
+            proc = protocol.program_info(msg)
+            if msg.get("bAck") is False and protocol.same_id(proc.get("uuid"), rt.program_id):
+                self._set_state(rt, ERROR, f"Could not stop Unreal: {msg.get('error', 'unknown error')}")
         elif cmd == "program ended":
-            pid = msg.get("process_id") or msg.get("uuid")
-            if pid is None or pid == rt.program_id:
+            proc = protocol.program_info(msg)
+            if rt.program_id and protocol.same_id(proc.get("uuid"), rt.program_id):
                 rt.program_id = None
                 rt.pid = None
                 code = msg.get("returncode")
@@ -287,6 +306,8 @@ class DeviceManager:
                 rt.log_tail.append(f"< process ended (return code {code})")
                 self._set_state(rt, CONNECTED if rt.client else DISCONNECTED)
         elif cmd == "programstdout":
+            if not self._is_ours(rt, protocol.program_info(msg)):
+                return
             text = decode_stdout(msg)
             if text:
                 rt.log_tail.extend(text.splitlines())
@@ -295,6 +316,14 @@ class DeviceManager:
             metrics = _find_metrics(msg)
             rt.last_metrics = metrics
             self.bus.publish("device.metrics", name=rt.name, metrics=metrics)
+
+    @staticmethod
+    def _is_ours(rt: DeviceRuntime, proc: Dict[str, Any]) -> bool:
+        if proc.get("name") not in (None, PROGRAM_NAME):
+            return False
+        caller = proc.get("caller")
+        return caller is None or caller == rt.name or (rt.program_id is not None
+                                                       and protocol.same_id(proc.get("uuid"), rt.program_id))
 
     def _on_disconnect(self, rt: DeviceRuntime, reason: str) -> None:
         rt.client = None

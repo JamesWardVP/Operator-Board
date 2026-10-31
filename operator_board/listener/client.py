@@ -272,8 +272,8 @@ def unreachable_hint(address: str, port: int) -> str:
 
 
 def decode_stdout(msg: Dict[str, Any]) -> str:
-    """Extract stdout text from a 'programstdout' message."""
-    raw = msg.get("partialStdoutB64") or msg.get("output") or ""
+    """Extract stdout text from a 'programstdout' or 'program ended' message."""
+    raw = msg.get("partialStdoutB64") or msg.get("stdoutB64") or msg.get("output") or ""
     if not raw:
         return ""
     try:

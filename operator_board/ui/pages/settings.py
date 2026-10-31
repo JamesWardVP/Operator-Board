@@ -35,6 +35,8 @@ class SettingsPage(BasePage):
 
         section("Multi-user server", cfg.multiuser, choices={"host": hosts},
                 labels={"host": "Run server on", "use_slate_server": "Use Slate (GUI) server",
+                        "auto_start": "Auto start multi-user (start the server before Unreal)",
+                        "clean_history": "Clean history (forget saved sessions on next start)",
                         "client_join_pattern": "Client joined log pattern (regex)",
                         "client_leave_pattern": "Client left log pattern (regex)"})
         section("Remote Control", cfg.remote_control, choices={
@@ -44,7 +46,9 @@ class SettingsPage(BasePage):
         section("Control surfaces & API", cfg.surfaces,
                 labels={"api_bind": "API bind address (0.0.0.0 = all networks)", "api_token": "API token (optional)",
                         "layout_path": "Surface layout file"}, browse={"layout_path": "file"})
-        section("Operator interface", cfg.ui, labels={"metrics_poll_s": "Metrics poll interval (s)"})
+        section("Operator interface", cfg.ui, labels={"metrics_poll_s": "Metrics poll interval (s)",
+                                                      "confirm_blackout": "Confirm before blackout",
+                                                      "confirm_stop_all": "Confirm before Stop all"})
         section("Takes", cfg.takes, browse={"take_log_path": "file"})
 
         save = QtWidgets.QPushButton("Save settings")

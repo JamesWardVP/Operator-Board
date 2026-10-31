@@ -126,6 +126,11 @@ class OperatePage(BasePage):
         self.mu_btn = BigButton("START SERVER", COLORS["mu"], height=60)
         self.mu_btn.clicked.connect(self._toggle_mu)
         mu.add(self.mu_btn)
+        self.mu_auto = QtWidgets.QCheckBox("Auto start multi-user")
+        self.mu_auto.setToolTip("Start the multi-user server first whenever an editor or nDisplay node that "
+                                "joins multi-user is started")
+        self.mu_auto.toggled.connect(self._auto_mu_changed)
+        mu.add(self.mu_auto)
         self.mu_count = QtWidgets.QLabel("0")
         self.mu_count.setObjectName("Big")
         mu.add_layout(hbox(self.mu_count, muted("connected clients"), None))
@@ -189,6 +194,11 @@ class OperatePage(BasePage):
         else:
             self.invoke("multiuser.start", server_name=self.mu_server.text().strip(),
                         session_name=self.mu_session.text().strip())
+
+    def _auto_mu_changed(self, on: bool) -> None:
+        if self.ctx.config.multiuser.auto_start != on:
+            self.ctx.config.multiuser.auto_start = on
+            self.save_config()
 
     def _switch_project(self) -> None:
         name = self.project_combo.currentText()
@@ -282,9 +292,16 @@ class OperatePage(BasePage):
         if not self.mu_session.hasFocus():
             self.mu_session.setText(self.ctx.config.multiuser.session_name)
         self.mu_btn.setText("STOP SERVER" if mu.running else "START SERVER")
+        if self.mu_auto.isChecked() != self.ctx.config.multiuser.auto_start:
+            self.mu_auto.blockSignals(True)
+            self.mu_auto.setChecked(self.ctx.config.multiuser.auto_start)
+            self.mu_auto.blockSignals(False)
         self.mu_btn.set_active(mu.running)
         self.mu_count.setText(str(mu.client_count) if mu.running else "–")
-        self.mu_clients.setText(", ".join(mu.clients) if mu.running else (mu.last_error or "Server not running"))
+        if mu.running:
+            self.mu_clients.setText(", ".join(mu.clients) or mu.last_error or "Waiting for clients to join")
+        else:
+            self.mu_clients.setText(mu.last_error or "Server not running")
 
         # project & levels
         projects = [p.name for p in self.ctx.config.projects]

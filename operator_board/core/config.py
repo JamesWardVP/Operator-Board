@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 from operator_board.core.serde import from_dict, to_dict
 from operator_board.core.ue_versions import DEFAULT_VERSION
 
-CONFIG_SCHEMA_VERSION = 1
+CONFIG_SCHEMA_VERSION = 2
 
 
 def app_home() -> str:
@@ -79,6 +79,8 @@ class MultiUserConfig:
     host: str = "local"  # "local" or the name of a device whose listener should run the server
     use_slate_server: bool = False
     clean_history: bool = False
+    # Start the server automatically when an editor or node that joins multi-user is started.
+    auto_start: bool = True
     extra_args: str = ""
     udp_unicast_endpoint: str = ""
     udp_static_endpoints: str = ""
@@ -148,7 +150,7 @@ class SurfacesConfig:
 
 @dataclass
 class UIConfig:
-    confirm_blackout: bool = False
+    confirm_blackout: bool = True  # ask before blacking out the wall, so it cannot happen by accident
     confirm_stop_all: bool = True
     metrics_poll_s: float = 2.0
 
@@ -200,7 +202,17 @@ class AppConfig:
 
     @classmethod
     def from_json(cls, text: str) -> "AppConfig":
-        return from_dict(cls, json.loads(text))
+        return migrate(from_dict(cls, json.loads(text)))
+
+
+def migrate(cfg: "AppConfig") -> "AppConfig":
+    """Bring settings saved by older versions up to date."""
+    if cfg.schema_version < 2:
+        # Blackout confirmation became the default in schema 2. Older files saved the old
+        # default (off) without anyone choosing it, so switch it on once.
+        cfg.ui.confirm_blackout = True
+    cfg.schema_version = CONFIG_SCHEMA_VERSION
+    return cfg
 
 
 def load_config(path: Optional[str] = None) -> AppConfig:

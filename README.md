@@ -40,7 +40,7 @@ Want to try it without any hardware? Choose the **Simulator** LED processor type
 ### Operate: the whole stage on one page
 Freeze, blackout and test patterns for the wall; connect to, start and stop every Unreal instance (each machine has its own Connect / Disconnect button, and there is a Disconnect all), or a whole group; the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
 
-When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
+Blackout asks for confirmation by default, so the wall cannot be blacked out by accident (Settings > Confirm before blackout). When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
 
 ![Operate page with the WALL FROZEN banner and the Freeze button lit](docs/images/operate_frozen.png)
 
@@ -76,7 +76,7 @@ Editors and nDisplay nodes are started through SwitchboardListener (port 2980) w
 ![Devices page with editor and nDisplay nodes running, groups and the device log](docs/images/devices.png)
 
 ### Multi-user
-Start and stop the multi-user (Concert) server on this machine or on any listener machine, as a console or Slate server. Name the server and session; editors and nodes join automatically. The connected-client count and names come from the server log, and the log patterns can be changed.
+Start and stop the multi-user (Concert) server on this machine or on any listener machine, as a console or Slate server. Name the server and session; editors and nodes join automatically. With **Auto start multi-user** (on by default) the server is started first whenever an editor or node that joins multi-user is launched. If the server refuses clients because its session belongs to another project, Operator Board says so and how to fix it. The connected-client count and names come from the server log, and the log patterns can be changed.
 
 ### Levels & Cameras
 Manage several projects and switch between them, or find `.uproject` files on disk. Levels are listed from the project's Content folder or from the editor through Remote Control. Load a level in the editor, change level on the nodes at runtime, or relaunch the nDisplay nodes on the new level. Show or hide **streaming sub-levels** (for example, lighting setups) and toggle **World Partition data layers**. **Camera positions** capture and recall the editor viewport or any camera or nDisplay root actor.

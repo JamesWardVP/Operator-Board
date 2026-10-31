@@ -67,8 +67,28 @@ def start_process(
     )
 
 
-def kill_process(program_id: str) -> Tuple[str, bytes]:
-    return _new("kill", uuid=program_id)
+# Seconds the listener lets a program close itself before forcing it (Switchboard's default).
+SOFT_KILL_TIMEOUT_S = 3.0
+
+
+def kill_process(program_id: str, soft_kill_timeout: Optional[float] = SOFT_KILL_TIMEOUT_S) -> Tuple[str, bytes]:
+    fields: Dict[str, Any] = {"uuid": program_id}
+    if soft_kill_timeout is not None:
+        fields["soft_kill_timeout"] = soft_kill_timeout  # older listeners ignore it and kill at once
+    return _new("kill", **fields)
+
+
+def program_info(msg: Dict[str, Any]) -> Dict[str, Any]:
+    """uuid / pid / name / caller of the program a listener message is about.
+
+    Real listeners (5.2 - 5.8) nest them: {"command": "program started", "bAck": true,
+    "process": {"uuid", "pid", "name", "caller", ...}}. Failures carry "puuid" instead.
+    """
+    proc = msg.get("process")
+    if isinstance(proc, dict):
+        return proc
+    return {"uuid": msg.get("puuid") or msg.get("process_id") or msg.get("uuid"),
+            "pid": msg.get("pid"), "name": msg.get("name"), "caller": msg.get("caller")}
 
 
 # SyncStatusRequestFlags (UE 5.4+, SwitchboardTasks.h): the cheap per-machine metrics

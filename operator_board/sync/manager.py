@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional
 
 from operator_board.core.config import AppConfig, SyncJobConfig
 from operator_board.core.events import EventBus
+from operator_board.listener import protocol
 from operator_board.listener.client import client_for_device, decode_stdout
 from operator_board.sync.providers import PROVIDERS
 
@@ -89,7 +90,11 @@ class SyncManager:
         done = threading.Event()
         state = {"code": -1, "out": []}
 
+        caller = f"OperatorBoard_Sync_{device_name}"
+
         def on_msg(msg):
+            if protocol.program_info(msg).get("caller") not in (None, caller):
+                return  # another program on the same listener
             if msg.get("command") == "programstdout":
                 state["out"].append(decode_stdout(msg))
             elif msg.get("command") == "program ended":
@@ -104,7 +109,7 @@ class SyncManager:
         client.connect()
         try:
             quoted = " ".join(f'"{a}"' if " " in a else a for a in args)
-            client.start_process(exe=exe, args=quoted, name="operatorboard_sync", caller="OperatorBoard",
+            client.start_process(exe=exe, args=quoted, name="operatorboard_sync", caller=caller,
                                  update_clients_with_stdout=True)
             if not done.wait(6 * 3600):
                 raise TimeoutError("Sync job timed out")

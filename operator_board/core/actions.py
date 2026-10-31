@@ -46,7 +46,11 @@ class Action:
     params: List[ActionParam] = field(default_factory=list)
     # Optional callable returning the current on/off state, used for toggle buttons.
     state: Optional[Callable[[], Optional[bool]]] = None
-    confirm: bool = False
+    # Ask before running from the UI: a bool, or a callable so it follows the current settings.
+    confirm: Any = False
+
+    def needs_confirm(self) -> bool:
+        return bool(self.confirm() if callable(self.confirm) else self.confirm)
 
 
 class ActionRegistry:

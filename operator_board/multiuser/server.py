@@ -17,7 +17,14 @@ from typing import Deque, List, Optional, Set
 from operator_board.core.config import AppConfig
 from operator_board.core.events import EventBus
 from operator_board.devices.launcher import multiuser_server_spec, split_args
+from operator_board.listener import protocol
 from operator_board.listener.client import ListenerClient, client_for_device, decode_stdout
+
+MU_CALLER = "OperatorBoard_MultiUserServer"
+
+# "Refusing user james to join session X (..., Reason: Invalid project name (expected '', got 'P'))"
+_PROJECT_REFUSAL = re.compile(r"Refusing user (?P<user>\S+) to join session .*Invalid project name "
+                              r"\(expected '(?P<expected>[^']*)', got '(?P<got>[^']*)'\)")
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +109,14 @@ class MultiUserServer:
                 continue
             self.log.append(line)
             changed |= self.tracker.feed_line(line)
+            refusal = _PROJECT_REFUSAL.search(line)
+            if refusal:
+                message = (f"The server refused {refusal.group('user')}: its session belongs to project "
+                           f"'{refusal.group('expected')}', not '{refusal.group('got')}'. Stop the server, "
+                           "tick 'Clean history' (Settings > Multi-user server) and start it again.")
+                if message != self.last_error:
+                    self.last_error = message
+                    changed = True
         if changed:
             self._publish()
 
@@ -153,7 +168,7 @@ class MultiUserServer:
                                    on_disconnect=self._on_remote_disconnect)
         client.connect()
         self._remote = client
-        client.start_process(exe=exe, args=args, name=PROGRAM_NAME, caller="OperatorBoard",
+        client.start_process(exe=exe, args=args, name=PROGRAM_NAME, caller=MU_CALLER,
                              update_clients_with_stdout=True)
 
     def _on_remote_disconnect(self, reason: str) -> None:
@@ -162,13 +177,17 @@ class MultiUserServer:
 
     def _on_remote_message(self, msg) -> None:
         cmd = msg.get("command")
-        if cmd == "program started" and msg.get("name", PROGRAM_NAME) == PROGRAM_NAME:
-            self._remote_program = msg.get("process_id") or msg.get("uuid")
+        proc = protocol.program_info(msg)
+        if proc.get("caller") not in (None, MU_CALLER):
+            return  # another program on the same listener
+        if cmd == "program started" and msg.get("bAck") is not False:
+            self._remote_program = proc.get("uuid")
+        elif cmd == "program started":
+            self._on_stopped(f"Listener could not start the server: {msg.get('error', '')}")
         elif cmd == "programstdout":
             self.feed_output(decode_stdout(msg))
         elif cmd == "program ended":
-            pid = msg.get("process_id") or msg.get("uuid")
-            if pid is None or pid == self._remote_program:
+            if self._remote_program is None or protocol.same_id(proc.get("uuid"), self._remote_program):
                 self.feed_output(decode_stdout(msg))
                 self._on_stopped()
         elif cmd == "start" and msg.get("bAck") is False:
