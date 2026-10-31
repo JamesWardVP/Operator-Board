@@ -26,9 +26,30 @@ def test_start_message_matches_switchboard_fields():
     assert payload.endswith(b"\x00")
 
 
+NDISPLAY_JSON = json.dumps({"nDisplay": {
+    "version": "5.00", "assetPath": "/Game/Wall.Wall",
+    "cluster": {
+        "primaryNode": {"id": "N1", "ports": {"ClusterEventsJson": 41003, "ClusterEventsBinary": 41004}},
+        "sync": {"renderSyncPolicy": {"type": "Ethernet", "parameters": {}}},
+        "nodes": {
+            "N1": {"host": "10.0.0.1", "window": {"x": 0, "y": 0, "w": 1920, "h": 1080}, "fullScreen": False},
+            "N2": {"host": "10.0.0.2", "window": {"x": 0, "y": 0, "w": 1920, "h": 1080}, "fullScreen": True},
+        }}}})
+
+
+def _ndisplay_file():
+    import os
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(prefix="opb_nd_"), "wall.ndisplay")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(NDISPLAY_JSON)
+    return path
+
+
 def _config(port):
     cfg = AppConfig()
-    cfg.projects = [ProjectConfig(name="P", uproject_path="D:/P/P.uproject", engine_dir="C:/UE", ndisplay_config="D:/w.ndisplay")]
+    cfg.projects = [ProjectConfig(name="P", uproject_path="D:/P/P.uproject", engine_dir="C:/UE",
+                                  ndisplay_config=_ndisplay_file())]
     cfg.active_project = "P"
     cfg.devices = [DeviceConfig(name="Ed", address="127.0.0.1", listener_port=port),
                    DeviceConfig(name="N1", address="127.0.0.1", listener_port=port, role="ndisplay", ndisplay_node="N1")]
@@ -49,6 +70,13 @@ def test_device_lifecycle_against_fake_listener():
         assert mgr.get("Ed").state == "disconnected"
         start = next(m for m in listener.received if m["command"] == "start")
         assert "-dc_node=N1" in start["args"] and start["name"] == "unreal"
+        # the config was written to the node first, with only our node, pointing at its address
+        written = json.loads(listener.files["C:/Temp/ndisplay/4242.ndisplay"])
+        assert list(written["nDisplay"]["cluster"]["nodes"]) == ["N1"]
+        assert written["nDisplay"]["cluster"]["nodes"]["N1"]["host"] == "127.0.0.1"
+        assert '-dc_cfg="C:/Temp/ndisplay/4242.ndisplay"' in start["args"]
+        assert "GameEngine=/Script/DisplayCluster.DisplayClusterGameEngine" in start["args"]
+        assert "-windowed -forceres WinX=0 WinY=0 ResX=1920 ResY=1080" in start["args"]
 
         metrics = []
         bus.subscribe("device.metrics", lambda t, p: metrics.append(p))

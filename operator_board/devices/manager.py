@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional
 
-from operator_board.core.config import AppConfig, DeviceConfig
+from operator_board.core.config import ROLE_NDISPLAY, AppConfig, DeviceConfig
+from operator_board.devices import ndisplay
 from operator_board.core.events import EventBus
 from operator_board.devices.launcher import unreal_launch_spec
 from operator_board.listener.client import ListenerClient, client_for_device, decode_stdout, unreachable_hint
@@ -168,14 +170,44 @@ class DeviceManager:
             if not (rt.client and rt.client.connected):
                 return
         try:
-            spec = unreal_launch_spec(rt.config, self.config.project(), self.config.multiuser, map_override)
-        except ValueError as exc:
+            extra = self._prepare_ndisplay(rt) if rt.config.role == ROLE_NDISPLAY else {}
+            spec = unreal_launch_spec(rt.config, self.config.project(), self.config.multiuser, map_override,
+                                      **extra)
+        except (ValueError, OSError) as exc:
             self._set_state(rt, ERROR, str(exc))
             return
         rt.log_tail.append(f"> {spec.as_command_line()}")
         rt.pending_start_id = rt.client.start_process(
             exe=spec.exe, args=spec.args, name=PROGRAM_NAME, caller=CALLER, working_dir=spec.working_dir)
         self._set_state(rt, STARTING)
+
+    def _prepare_ndisplay(self, rt: DeviceRuntime) -> Dict[str, Any]:
+        """Write this launch's .ndisplay config on the node and return launch_spec extras.
+
+        As Switchboard: the JSON comes out of the project's nDisplay Config asset (or a
+        .ndisplay file), keeps only our nDisplay devices with each node's host set to the
+        device's address, and is written through the listener to %TEMP%/ndisplay.
+        """
+        src = self.config.project().ndisplay_config
+        if not src:
+            raise ValueError("Set the nDisplay config (the nDisplay Config asset or a .ndisplay file) "
+                             "on the project before starting nDisplay nodes")
+        if not os.path.exists(src):
+            raise ValueError(f"nDisplay config not found on this computer: {src}")
+        text = ndisplay.extract_config_json(src)
+        node = rt.config.ndisplay_node or rt.config.name
+        known = ndisplay.node_names(text)
+        if node not in known:
+            raise ValueError(f"'{node}' is not a node in the nDisplay config (its nodes: {', '.join(known)}). "
+                             "Name the device, or its nDisplay node, after a cluster node.")
+        devices = [d for d in self.config.devices if d.role == ROLE_NDISPLAY and d.enabled]
+        nodes = {(d.ndisplay_node or d.name): d.address for d in devices}
+        text = ndisplay.apply_local_overrides(text, nodes)
+        cohosted = sorted(n for n, address in nodes.items() if address == rt.config.address and n in known)
+        path = rt.client.send_file_content(text.encode("utf-8"), ndisplay.CONFIG_DESTINATION)
+        rt.log_tail.append(f"nDisplay config written to {path}")
+        return {"ndisplay_cfg": path, "window": ndisplay.node_window(text, node),
+                "multiprocess": bool(cohosted) and node != cohosted[0]}
 
     def stop(self, name: str) -> None:
         rt = self._require(name)

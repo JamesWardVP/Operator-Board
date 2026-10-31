@@ -28,6 +28,7 @@ class FakeListener:
         self.port = self.sock.getsockname()[1]
         self.received = []
         self.unknown = []
+        self.files = {}
         self.stdout_lines = stdout_lines or []
         self.exit_code = 0
         self._conns = []
@@ -67,7 +68,11 @@ class FakeListener:
 
     def _handle(self, conn, msg):
         cmd = msg["command"]
-        if cmd == "start":
+        if cmd == "send file":
+            path = msg["destination"].replace("%TEMP%", "C:/Temp").replace("%RANDOM%", "4242")
+            self.files[path] = base64.b64decode(msg["content"])
+            self._send(conn, {"command": "send file", "send file complete": True, "destination": path})
+        elif cmd == "start":
             self._send(conn, {"command": "start", "bAck": True, "id": msg["id"]})
             pid = "proc-" + msg["id"][:8]
             self._send(conn, {"command": "program started", "process_id": pid, "pid": 1234, "name": msg["name"],
@@ -155,6 +160,7 @@ class FakeQuicListener(FakeListener):
         self.received = []
         self.auth_attempts = []
         self.unknown = []
+        self.files = {}
         self.stdout_lines = stdout_lines or []
         self.exit_code = 0
 

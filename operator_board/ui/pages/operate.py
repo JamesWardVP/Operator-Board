@@ -99,7 +99,7 @@ class OperatePage(BasePage):
         disconnect_all.clicked.connect(lambda: self.invoke("devices.disconnect_all"))
         start_all.clicked.connect(lambda: self.invoke("devices.start_all"))
         stop_all.clicked.connect(lambda: self.invoke("devices.stop_all"))
-        for b in (start_all, stop_all):
+        for b in (connect_all, disconnect_all, start_all, stop_all):
             b.setMinimumHeight(44)
         inst.add_layout(hbox(connect_all, disconnect_all, start_all, stop_all))
         self.groups_box = QtWidgets.QVBoxLayout()

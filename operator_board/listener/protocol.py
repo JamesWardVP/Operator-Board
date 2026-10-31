@@ -99,6 +99,14 @@ def authenticate(jwt: Optional[str] = None, password: Optional[str] = None) -> T
     return _new("authenticate", **fields)
 
 
+def send_file_content(content: bytes, destination: str, force_overwrite: bool = False) -> Tuple[str, bytes]:
+    """Write content to a file on the listener machine. The listener expands %TEMP% and
+    %RANDOM% in the destination and replies with "send file complete" and the real path."""
+    import base64
+    return _new("send file", destination=destination, content=base64.b64encode(content).decode("ascii"),
+                force_overwrite=force_overwrite)
+
+
 def disconnect() -> Tuple[str, bytes]:
     return _new("disconnect")
 
