@@ -20,6 +20,9 @@ ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 # every size. The margin is the smallest that keeps the artwork clear of the rounded corners.
 TILE_MARGIN = 0.035
 TILE_RADIUS = 0.16
+# Inno Setup "modern" wizard picture sizes at 100 %, 150 % and 200 % display scale.
+WIZARD_IMAGE = ((164, 314), (246, 471), (328, 628))
+WIZARD_SMALL = (55, 83, 110)
 
 
 def content_box(renderer: QtSvg.QSvgRenderer) -> QtCore.QRectF:
@@ -68,6 +71,21 @@ def render(renderer: QtSvg.QSvgRenderer, box: QtCore.QRectF, size: int, margin: 
     return img
 
 
+def render_black(renderer: QtSvg.QSvgRenderer, box: QtCore.QRectF, size: int, margin: float = TILE_MARGIN) -> QtGui.QImage:
+    """The logo in black on a transparent square."""
+    logo = render(renderer, box, size, margin)
+    p = QtGui.QPainter(logo)  # recolour: keep the shape (alpha), paint it black
+    p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceIn)
+    p.fillRect(logo.rect(), QtGui.QColor("#000000"))
+    p.end()
+    return logo
+
+
+def _bmp(img: QtGui.QImage, path: str) -> None:
+    """24-bit BMP (what every Inno Setup version reads)."""
+    img.convertToFormat(QtGui.QImage.Format_RGB888).save(path, "BMP")
+
+
 def render_tile(renderer: QtSvg.QSvgRenderer, box: QtCore.QRectF, size: int) -> QtGui.QImage:
     """The application icon: the logo in black, as large as it fits, on a white rounded-corner square."""
     img = QtGui.QImage(size, size, QtGui.QImage.Format_ARGB32)
@@ -79,11 +97,7 @@ def render_tile(renderer: QtSvg.QSvgRenderer, box: QtCore.QRectF, size: int) -> 
     radius = size * TILE_RADIUS
     p.drawRoundedRect(QtCore.QRectF(0, 0, size, size), radius, radius)
     p.end()
-    logo = render(renderer, box, size, TILE_MARGIN)
-    p = QtGui.QPainter(logo)  # recolour: keep the shape (alpha), paint it black
-    p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceIn)
-    p.fillRect(logo.rect(), QtGui.QColor("#000000"))
-    p.end()
+    logo = render_black(renderer, box, size)
     p = QtGui.QPainter(img)
     p.drawImage(0, 0, logo)
     p.end()
@@ -118,6 +132,22 @@ def main() -> int:
     images = [Image.open(io.BytesIO(to_png_bytes(render_tile(renderer, box, s)))) for s in ICO_SIZES]
     images[-1].save(os.path.join(HERE, "operator_board.ico"), format="ICO", sizes=[(s, s) for s in ICO_SIZES],
                     append_images=images[:-1])
+    # Installer wizard pictures (instead of Inno Setup's own), at 100/150/200 % display scale.
+    for i, (w, h) in enumerate(WIZARD_IMAGE):
+        side = render_black(renderer, box, round(w * 0.8))
+        page = QtGui.QImage(w, h, QtGui.QImage.Format_ARGB32)
+        page.fill(QtGui.QColor("#ffffff"))
+        p = QtGui.QPainter(page)
+        p.drawImage((w - side.width()) // 2, (h - side.height()) // 2, side)
+        p.end()
+        _bmp(page, os.path.join(HERE, f"wizard_image_{i}.bmp"))
+    for i, s in enumerate(WIZARD_SMALL):
+        page = QtGui.QImage(s, s, QtGui.QImage.Format_ARGB32)
+        page.fill(QtGui.QColor("#ffffff"))  # the wizard header is white, so a plain square sits flush
+        p = QtGui.QPainter(page)
+        p.drawImage(0, 0, render_black(renderer, box, s))
+        p.end()
+        _bmp(page, os.path.join(HERE, f"wizard_small_{i}.bmp"))
     print("logo images written")
     return 0
 
