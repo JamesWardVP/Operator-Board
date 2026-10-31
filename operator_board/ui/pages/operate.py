@@ -1,7 +1,7 @@
 """Main operator dashboard: LED wall, Unreal instances, multi-user, level, takes and cameras at a glance."""
 from __future__ import annotations
 
-from operator_board.qt import QtCore, QtWidgets, Qt
+from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
 from operator_board.ui.widgets import Banner, BigButton, Card, StateDot, clear_layout, hbox, muted, scroll
@@ -165,12 +165,29 @@ class OperatePage(BasePage):
         self.take_label.setObjectName("Big")
         self.rec_btn = BigButton("● RECORD", COLORS["err"], height=60)
         self.rec_btn.clicked.connect(lambda: self.invoke("takes.toggle_record"))
+        self.scene_edit = QtWidgets.QLineEdit()
+        self.scene_edit.setPlaceholderText("Scene name")
+        self.scene_edit.setToolTip("Scene (slate) name. Press Enter to apply; a new scene starts at its next "
+                                   "unused take.")
+        self.scene_edit.editingFinished.connect(self._scene_changed)
+        self.take_edit = QtWidgets.QLineEdit()  # not a QSpinBox: styled spin boxes clip their text
+        self.take_edit.setValidator(QtGui.QIntValidator(1, 9999, self.take_edit))
+        self.take_edit.setAlignment(Qt.AlignCenter)
+        self.take_edit.setToolTip("Take number: type any number and press Enter")
+        self.take_edit.editingFinished.connect(self._take_changed)
         minus = QtWidgets.QPushButton("Take −")
         plus = QtWidgets.QPushButton("Take +")
         minus.clicked.connect(lambda: self.invoke("takes.prev_take"))
         plus.clicked.connect(lambda: self.invoke("takes.next_take"))
+        self.take_controls = [self.scene_edit, self.take_edit, minus, plus]
         takes.add(self.take_label)
-        takes.add_layout(hbox(minus, plus))
+        scene_row = hbox(QtWidgets.QLabel("Scene"), self.scene_edit)
+        scene_row.setStretch(1, 1)
+        takes.add_layout(scene_row)
+        take_row = hbox(minus, self.take_edit, plus)
+        for i in range(3):
+            take_row.setStretch(i, 1)
+        takes.add_layout(take_row)
         takes.add(self.rec_btn)
         grid.addWidget(takes, 4, 0)
 
@@ -194,6 +211,20 @@ class OperatePage(BasePage):
         else:
             self.invoke("multiuser.start", server_name=self.mu_server.text().strip(),
                         session_name=self.mu_session.text().strip())
+
+    def _scene_changed(self) -> None:
+        name = self.scene_edit.text().strip()
+        if not name:
+            self.scene_edit.setText(self.ctx.config.takes.slate)
+        elif name != self.ctx.config.takes.slate:
+            self.invoke("takes.set_slate", done=lambda _r: self.save_config(), slate=name)
+
+    def _take_changed(self) -> None:
+        text = self.take_edit.text().strip()
+        if not text.isdigit() or int(text) < 1:
+            self.take_edit.setText(str(self.ctx.config.takes.take))
+        elif int(text) != self.ctx.config.takes.take:
+            self.invoke("takes.set_take", done=lambda _r: self.save_config(), take=int(text))
 
     def _auto_mu_changed(self, on: bool) -> None:
         if self.ctx.config.multiuser.auto_start != on:
@@ -326,6 +357,12 @@ class OperatePage(BasePage):
         # takes
         t = self.ctx.config.takes
         self.take_label.setText(f"{t.slate}  ·  T{t.take:03d}")
+        if not self.scene_edit.hasFocus() and self.scene_edit.text() != t.slate:
+            self.scene_edit.setText(t.slate)
+        if not self.take_edit.hasFocus() and self.take_edit.text() != str(t.take):
+            self.take_edit.setText(str(t.take))
+        for control in self.take_controls:  # no renaming or renumbering mid-take
+            control.setEnabled(not self.ctx.takes.recording)
         self.rec_btn.setText("■ STOP" if self.ctx.takes.recording else "● RECORD")
         self.rec_btn.set_active(self.ctx.takes.recording)
 

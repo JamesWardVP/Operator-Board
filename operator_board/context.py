@@ -354,8 +354,10 @@ class AppContext:
         a.add("takes.prev_take", "Take -1", "Takes", lambda: takes.increment(-1))
         a.add("takes.rate_good", "Mark last take good", "Takes", lambda: takes.rate_last("good"))
         a.add("takes.rate_ng", "Mark last take NG", "Takes", lambda: takes.rate_last("ng"))
-        a.add("takes.set_slate", "Set slate", "Takes", lambda slate: takes.set_slate(slate),
-              params=[ActionParam("slate", "Slate")])
+        a.add("takes.set_slate", "Set scene (slate)", "Takes", lambda slate: takes.set_slate(slate),
+              params=[ActionParam("slate", "Scene / slate name")])
+        a.add("takes.set_take", "Set take number", "Takes", lambda take: takes.set_take(int(take)),
+              params=[ActionParam("take", "Take number", "int")])
 
         # DLSS
         a.add("dlss.set", "Set DLSS option", "DLSS",

@@ -84,7 +84,7 @@ Manage several projects and switch between them, or find `.uproject` files on di
 ![Levels & Cameras page with projects and the levels in the active project](docs/images/levels.png)
 
 ### Takes
-Slate, take number and description with auto-increment; changes show straight away in the editor's Take Recorder panel. Recording drives **Take Recorder** in the primary editor, which records the **sources** set in its panel (cameras, actors and so on). Save them as a Take Preset and enter its path in Settings > Takes, and every recording uses it. If Take Recorder has nothing to record, Operator Board says so and does not log a take. Every take goes into a persistent log with Good, Circle and NG ratings and notes; the log exports to CSV.
+Scene (slate) name, take number and description with auto-increment. Type a new scene name or jump straight to any take number on the Operate page (or use Take − / Take +); changes show straight away in the editor's Take Recorder panel. Recording drives **Take Recorder** in the primary editor, which records the **sources** set in its panel (cameras, actors and so on). Save them as a Take Preset and enter its path in Settings > Takes, and every recording uses it. If Take Recorder has nothing to record, Operator Board says so and does not log a take. Every take goes into a persistent log with Good, Circle and NG ratings and notes; the log exports to CSV.
 
 ![Takes page with the slate, the Record button and the take log](docs/images/takes.png)
 

@@ -88,3 +88,12 @@ def test_multiuser_project_refusal_is_explained():
                               "got 'UpdatedMyProjectV2'))")
     assert "UpdatedMyProjectV2" in ctx.multiuser.last_error and "Clean history" in ctx.multiuser.last_error
     ctx.shutdown()
+
+
+def test_set_scene_and_take_actions_for_surfaces_and_companion():
+    ctx = AppContext(AppConfig())
+    ctx.config.takes.record_with_take_recorder = False
+    assert ctx.actions.invoke("takes.set_slate", slate="Scene_40").ok
+    assert ctx.actions.invoke("takes.set_take", take="123").ok  # Companion sends query values as text
+    assert (ctx.config.takes.slate, ctx.config.takes.take) == ("Scene_40", 123)
+    ctx.shutdown()
