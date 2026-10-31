@@ -100,16 +100,28 @@ class TakeManager:
         if self.recording:
             return []
         s = self.settings
-        self.current = TakeRecord(slate=s.slate, take=s.take, description=s.description, level=level, started=time.time())
         errors = []
         if s.record_with_take_recorder and self.targets:
             try:
-                self.targets.primary().run_python(
-                    python_result_wrapper(scripts.take_recorder_start(s.slate, s.take, s.description)))
+                self._start_take_recorder(s.slate, s.take, s.description)
             except Exception as exc:
+                # Unreal is not recording, so neither is Operator Board: no take is logged.
                 errors.append(f"Take Recorder: {exc}")
+                self._publish()
+                return errors
+        self.current = TakeRecord(slate=s.slate, take=s.take, description=s.description, level=level, started=time.time())
         self._publish()
         return errors
+
+    def _start_take_recorder(self, slate: str, take: int, description: str, attempts: int = 6) -> None:
+        editor = self.targets.primary()
+        script = python_result_wrapper(scripts.take_recorder_start(slate, take, description))
+        for _ in range(attempts):
+            result = editor.run_python(script)
+            if not (isinstance(result, dict) and result.get("retry")):
+                return
+            time.sleep(0.5)  # the Take Recorder panel was just opened; give the editor a tick
+        raise RuntimeError("the Take Recorder panel did not become ready in the editor")
 
     def stop(self) -> List[str]:
         if not self.recording:

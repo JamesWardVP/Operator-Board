@@ -153,19 +153,24 @@ result = {{'actors': out}}
 
 
 def take_recorder_start(slate: str, take: int, description: str) -> str:
+    # A panel that was only just opened has no take data until the editor has ticked
+    # (UE 5.8), so report 'retry' and let the caller call again a moment later.
     return f"""
 lib = unreal.TakeRecorderBlueprintLibrary
 panel = lib.get_take_recorder_panel()
 if panel is None:
     lib.open_take_recorder_panel()
     panel = lib.get_take_recorder_panel()
-md = panel.get_take_meta_data()
-md.set_slate({_lit(slate)})
-md.set_take_number({int(take)})
-if hasattr(md, 'set_description'):
-    md.set_description({_lit(description)})
-panel.start_recording()
-result = {{'ok': True}}
+md = panel.get_take_meta_data() if panel is not None else None
+if md is None:
+    result = {{'ok': False, 'retry': True}}
+else:
+    md.set_slate({_lit(slate)})
+    md.set_take_number({int(take)})
+    if hasattr(md, 'set_description'):
+        md.set_description({_lit(description)})
+    panel.start_recording()
+    result = {{'ok': True}}
 """
 
 

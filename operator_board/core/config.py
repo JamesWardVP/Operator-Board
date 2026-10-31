@@ -109,6 +109,9 @@ class RemoteControlConfig:
     primary_target: str = ""
     # How "Load level" behaves: editor | nodes (console 'open') | relaunch (restart nDisplay nodes on the map) | all
     level_load_mode: str = "editor"
+    # Remote Control blocks remote Python, console commands and (5.8) most function calls by default.
+    # Operator Board needs them, so it allows them on the editors and nodes it launches.
+    allow_remote_features: bool = True
 
 
 @dataclass

@@ -176,6 +176,7 @@ class DeviceManager:
         try:
             extra = self._prepare_ndisplay(rt) if rt.config.role == ROLE_NDISPLAY else {}
             spec = unreal_launch_spec(rt.config, self.config.project(), self.config.multiuser, map_override,
+                                      allow_remote_features=self.config.remote_control.allow_remote_features,
                                       **extra)
         except (ValueError, OSError) as exc:
             self._set_state(rt, ERROR, str(exc))

@@ -42,7 +42,9 @@ class SettingsPage(BasePage):
         section("Remote Control", cfg.remote_control, choices={
             "primary_target": editors,
             "level_load_mode": ["editor", "nodes", "relaunch", "all"]},
-            labels={"primary_target": "Primary editor", "timeout_s": "Request timeout (s)"})
+            labels={"primary_target": "Primary editor", "timeout_s": "Request timeout (s)",
+                    "allow_remote_features": "Allow Take Recorder, levels and cameras on launched instances "
+                                             "(remote Python and console commands)"})
         section("Control surfaces & API", cfg.surfaces,
                 labels={"api_bind": "API bind address (0.0.0.0 = all networks)", "api_token": "API token (optional)",
                         "layout_path": "Surface layout file"}, browse={"layout_path": "file"})
