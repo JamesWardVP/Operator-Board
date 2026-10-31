@@ -190,6 +190,56 @@ result = {{'ok': True}}
 """
 
 
+def take_recorder_add_camera(preferred_label: str = "") -> str:
+    """Add the stage camera as a Take Recorder source and say which actor it was.
+
+    Choice, first match wins: the actor labelled ``preferred_label``; the external CineCameraActor
+    of an nDisplay ICVFX camera; the nDisplay root actor holding an ICVFX camera (records the
+    component); a CineCameraActor in the level (one with "main" in its label, else the first by
+    label); the nDisplay root actor itself (its viewpoint).
+    """
+    return f"""
+lib = unreal.TakeRecorderBlueprintLibrary
+panel = lib.get_take_recorder_panel()
+if panel is None:
+    lib.open_take_recorder_panel()
+    panel = lib.get_take_recorder_panel()
+actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+preferred = {_lit(preferred_label)}
+roots = [a for a in actors if isinstance(a, unreal.DisplayClusterRootActor)]
+cines = sorted((a for a in actors if isinstance(a, unreal.CineCameraActor)), key=lambda a: a.get_actor_label())
+chosen, why = None, ''
+if preferred:
+    chosen = next((a for a in actors if a.get_actor_label() == preferred), None)
+    if chosen is None:
+        raise RuntimeError('Take camera not found in the level: ' + preferred)
+    why = 'the take camera set in Operator Board'
+for root in roots:
+    if chosen is not None:
+        break
+    for comp in root.get_components_by_class(unreal.DisplayClusterICVFXCameraComponent):
+        ext = None
+        try:
+            ext = comp.get_editor_property('camera_settings').get_editor_property('external_camera_actor')
+        except Exception:
+            pass
+        if isinstance(ext, unreal.Actor):
+            chosen, why = ext, 'the ICVFX camera of ' + root.get_actor_label()
+        else:
+            chosen, why = root, 'it holds the ICVFX camera ' + comp.get_name()
+        break
+if chosen is None and cines:
+    chosen = next((c for c in cines if 'main' in c.get_actor_label().lower()), cines[0])
+    why = 'the cine camera in the level' if len(cines) == 1 else 'one of %d cine cameras in the level' % len(cines)
+if chosen is None and roots:
+    chosen, why = roots[0], 'the nDisplay setup (its viewpoint)'
+if chosen is None:
+    raise RuntimeError('no nDisplay setup or cine camera found in the level to record')
+unreal.TakeRecorderActorSource.add_source_for_actor(chosen, panel.get_sources())
+result = {{'added': chosen.get_actor_label(), 'why': why}}
+"""
+
+
 def take_recorder_set_metadata(slate: str, take: int, description: str) -> str:
     """Show Operator Board's slate / take in the Take Recorder panel, if it is open (never opens it)."""
     return f"""

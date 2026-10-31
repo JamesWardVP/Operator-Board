@@ -77,3 +77,41 @@ def test_operate_scene_and_take_can_be_typed():
     assert page.take_edit.isEnabled() and page.take_edit.text() == "58"  # auto-increment after the take
     window.skip_save_on_close = True
     window.close()
+
+
+def test_led_wall_overlay_when_unavailable():
+    from operator_board.context import AppContext
+    from operator_board.core.config import AppConfig, LEDProcessorConfig
+    from operator_board.ui.main_window import MainWindow
+
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    # no processor set up
+    ctx = AppContext(AppConfig())
+    window = MainWindow(ctx)
+    window.show()
+    page = window.pages[0]
+    page.refresh()
+    assert page.wall_overlay.isVisible() and "UNAVAILABLE" in page.wall_overlay.title.text()
+    assert not page.freeze_btn.isEnabled()
+    window.skip_save_on_close = True
+    window.close()
+
+    # a processor that cannot be reached, then "Use anyway", then it comes back
+    ctx = AppContext(AppConfig(led_processors=[LEDProcessorConfig(name="Wall A", profile_id="simulator")]))
+    window = MainWindow(ctx)
+    window.show()
+    page = window.pages[0]
+    proc = ctx.led.processors[0]
+    proc.state.online = False
+    page.refresh()
+    assert page.wall_overlay.isVisible() and "NOT CONNECTED" in page.wall_overlay.title.text()
+    assert "Wall A" in page.wall_overlay.text.text()
+    page._use_wall_anyway()
+    page.refresh()
+    assert not page.wall_overlay.isVisible() and page.freeze_btn.isEnabled()
+    proc.state.online = True
+    page.refresh()
+    assert not page.wall_overlay.isVisible() and page.freeze_btn.isEnabled()
+    window.skip_save_on_close = True
+    window.close()
+    app.processEvents()

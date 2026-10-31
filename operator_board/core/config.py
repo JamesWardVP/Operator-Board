@@ -140,6 +140,10 @@ class TakesConfig:
     # Optional Take Preset asset (e.g. /Game/Takes/StagePreset) loaded into Take Recorder before each
     # recording, so it always has its sources. Empty = use whatever the Take Recorder panel has.
     take_preset: str = ""
+    # When Take Recorder has no sources, add the stage camera (the nDisplay ICVFX camera, else a cine
+    # camera in the level) and record. take_camera names a specific actor (its label) instead.
+    auto_add_camera: bool = True
+    take_camera: str = ""
     take_log_path: str = ""
 
 

@@ -97,3 +97,13 @@ def test_set_scene_and_take_actions_for_surfaces_and_companion():
     assert ctx.actions.invoke("takes.set_take", take="123").ok  # Companion sends query values as text
     assert (ctx.config.takes.slate, ctx.config.takes.take) == ("Scene_40", 123)
     ctx.shutdown()
+
+
+def test_led_monitor_checks_processors_at_startup():
+    from operator_board.core.config import LEDProcessorConfig
+    ctx = AppContext(AppConfig(led_processors=[LEDProcessorConfig(name="Sim", profile_id="simulator")]))
+    assert ctx.led.processors[0].state.online is None  # not known until checked
+    ctx._stop.set()  # run just the first pass
+    ctx._led_monitor()
+    assert ctx.led.processors[0].state.online is True
+    ctx.shutdown()

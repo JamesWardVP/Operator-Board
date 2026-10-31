@@ -63,6 +63,105 @@ class StateDot(QtWidgets.QLabel):
         self.setToolTip(state)
 
 
+class HazardOverlay(QtWidgets.QWidget):
+    """Greys out a card with crossed hazard tape and a message, e.g. "LED wall unavailable".
+
+    Sits on top of ``target`` (usually a Card) and follows its size. ``show_message`` sets the
+    text and buttons; ``hide`` removes it.
+    """
+
+    TAPE_YELLOW = QtGui.QColor("#f5c400")
+    TAPE_BLACK = QtGui.QColor("#16181c")
+
+    def __init__(self, target: QtWidgets.QWidget) -> None:
+        super().__init__(target)
+        self.target = target
+        target.installEventFilter(self)
+        self.setAttribute(Qt.WA_StyledBackground, False)
+        self.panel = QtWidgets.QFrame(self)
+        self.panel.setObjectName("HazardPanel")
+        self.panel.setStyleSheet(
+            f"QFrame#HazardPanel {{ background: #121417; border: 2px solid {self.TAPE_YELLOW.name()};"
+            " border-radius: 10px; }")
+        lay = QtWidgets.QVBoxLayout(self.panel)
+        lay.setContentsMargins(20, 14, 20, 14)
+        lay.setSpacing(6)
+        self.title = QtWidgets.QLabel()
+        self.title.setAlignment(Qt.AlignCenter)
+        self.title.setStyleSheet(f"color: {self.TAPE_YELLOW.name()}; font-size: 18px; font-weight: 900;"
+                                 " letter-spacing: 1px;")
+        self.text = QtWidgets.QLabel()
+        self.text.setAlignment(Qt.AlignCenter)
+        self.text.setWordWrap(True)
+        self.text.setStyleSheet(f"color: {COLORS['text']};")
+        self.buttons = QtWidgets.QHBoxLayout()
+        self.buttons.setSpacing(8)
+        lay.addWidget(self.title)
+        lay.addWidget(self.text)
+        lay.addLayout(self.buttons)
+        self.hide()
+
+    def show_message(self, title: str, text: str, buttons: Sequence[Tuple[str, object]] = ()) -> None:
+        self.title.setText(title)
+        self.text.setText(text)
+        clear_layout(self.buttons)
+        self.buttons.addStretch(1)
+        for label, callback in buttons:
+            button = QtWidgets.QPushButton(label)
+            button.clicked.connect(callback)
+            self.buttons.addWidget(button)
+        self.buttons.addStretch(1)
+        self._place()
+        self.show()
+        self.raise_()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+        if obj is self.target and event.type() in (QtCore.QEvent.Resize, QtCore.QEvent.Show):
+            self._place()
+        return False
+
+    def _place(self) -> None:
+        self.setGeometry(self.target.rect())
+        hint = self.panel.sizeHint()
+        width = min(max(hint.width(), 420), max(200, self.width() - 40))
+        height = self.panel.heightForWidth(width) if self.panel.hasHeightForWidth() else hint.height()
+        height = max(height, hint.height())
+        self.panel.setGeometry((self.width() - width) // 2, (self.height() - height) // 2, width, height)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(QtCore.QRectF(self.rect()), 10, 10)
+        p.setClipPath(path)
+        p.fillRect(self.rect(), QtGui.QColor(10, 11, 13, 190))  # grey the card out
+        w, h = self.width(), self.height()
+        angle = 18 if w > 2 * h else 30
+        for sign in (1, -1):  # two tapes crossing in an X
+            p.save()
+            p.translate(w / 2, h / 2)
+            p.rotate(sign * angle)
+            self._tape(p, length=int((w ** 2 + h ** 2) ** 0.5) + 40, thickness=30)
+            p.restore()
+        p.end()
+
+    def _tape(self, p: QtGui.QPainter, length: int, thickness: int) -> None:
+        band = QtCore.QRectF(-length / 2, -thickness / 2, length, thickness)
+        p.fillRect(band, self.TAPE_YELLOW)
+        p.save()
+        p.setClipRect(band)
+        p.setPen(Qt.NoPen)
+        p.setBrush(self.TAPE_BLACK)
+        stripe = thickness
+        x = -length / 2 - thickness
+        while x < length / 2 + thickness:
+            p.drawPolygon(QtGui.QPolygonF([
+                QtCore.QPointF(x, thickness / 2), QtCore.QPointF(x + stripe / 2, thickness / 2),
+                QtCore.QPointF(x + stripe / 2 + thickness, -thickness / 2), QtCore.QPointF(x + thickness, -thickness / 2)]))
+            x += stripe
+        p.restore()
+
+
 class Banner(QtWidgets.QLabel):
     """Full-width status banner, e.g. 'WALL FROZEN'."""
 

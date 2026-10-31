@@ -95,16 +95,6 @@ def test_python_error_inside_unreal_is_a_failure(monkeypatch):
         RemoteControlClient("127.0.0.1").run_python("x")
 
 
-def test_no_sources_is_explained_and_nothing_records():
-    from operator_board.remote.takes import NO_SOURCES_HELP
-    no_sources = RemoteControlError("TakeRecorderPanel: There are no currently enabled or valid sources to record "
-                                    "from. Please add some above before recording.")
-    takes = _takes(_Editor([no_sources]))
-    errors = takes.start()
-    assert errors == [f"Take Recorder: {NO_SOURCES_HELP}"]
-    assert not takes.recording
-
-
 def test_take_preset_is_loaded_before_recording():
     editor = _Editor([{"ok": True}, {"ok": True}])
     takes = _takes(editor)
@@ -149,3 +139,49 @@ def test_quick_take_changes_end_on_the_latest_value():
     final = takes.settings.take
     assert wait_until(lambda: not takes._sync_running, 3)
     assert f"set_take_number({final})" in editor.scripts[-1]
+
+
+_EMPTY_TAKE = RemoteControlError("TakeRecorderPanel: There are no currently enabled or valid sources to record "
+                                 "from. Please add some above before recording.")
+
+
+def test_empty_take_adds_the_stage_camera_and_records():
+    editor = _Editor([_EMPTY_TAKE, {"added": "CineCameraActor1", "why": "the cine camera in the level"},
+                      {"ok": True}])
+    takes = _takes(editor)
+    assert takes.start() == []
+    assert takes.recording
+    assert "add_source_for_actor" in editor.scripts[1]
+    assert takes.notice == "added CineCameraActor1 to Take Recorder (the cine camera in the level)"
+
+
+def test_take_camera_setting_is_used():
+    editor = _Editor([_EMPTY_TAKE, {"added": "Hero_Cam", "why": "the take camera set in Operator Board"},
+                      {"ok": True}])
+    takes = _takes(editor)
+    takes.settings.take_camera = "Hero_Cam"
+    takes.start()
+    assert "Hero_Cam" in editor.scripts[1]
+
+
+def test_empty_take_without_auto_camera_explains():
+    from operator_board.remote.takes import NO_SOURCES_HELP
+    takes = _takes(_Editor([_EMPTY_TAKE]))
+    takes.settings.auto_add_camera = False
+    assert takes.start() == [f"Take Recorder: {NO_SOURCES_HELP}"] and not takes.recording
+
+
+def test_no_camera_found_does_not_record():
+    takes = _takes(_Editor([_EMPTY_TAKE, RemoteControlError("no nDisplay setup or cine camera found")]))
+    errors = takes.start()
+    assert "no nDisplay setup or cine camera" in errors[0] and not takes.recording
+
+
+def test_record_action_reports_the_added_camera():
+    from operator_board.context import AppContext
+    ctx = AppContext(AppConfig())
+    ctx.takes.targets = _Targets(_Editor([_EMPTY_TAKE, {"added": "CineCameraActor1", "why": "x"}, {"ok": True}]))
+    result = ctx.actions.invoke("takes.toggle_record")
+    assert result.ok and result.message == "Recording: added CineCameraActor1 to Take Recorder (x)"
+    assert ctx.actions.invoke("takes.toggle_record").message == "Stopped"
+    ctx.shutdown()

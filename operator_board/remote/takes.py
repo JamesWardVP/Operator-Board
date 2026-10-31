@@ -52,6 +52,7 @@ class TakeManager:
         self.bus = bus
         self.targets = targets
         self.log = TakeLog()
+        self.notice = ""  # what the last start did besides recording, e.g. which camera it added
         self._sync_lock = threading.Lock()
         self._sync_wanted = False
         self._sync_running = False
@@ -115,9 +116,19 @@ class TakeManager:
             return []
         s = self.settings
         errors = []
+        self.notice = ""
         if s.record_with_take_recorder and self.targets:
             try:
-                self._start_take_recorder(s.slate, s.take, s.description)
+                try:
+                    self._start_take_recorder(s.slate, s.take, s.description)
+                except Exception as exc:
+                    if _NO_SOURCES not in str(exc) or not s.auto_add_camera:
+                        raise
+                    # The take is empty: add the stage camera, then try once more.
+                    added = self.targets.primary().run_python(
+                        python_result_wrapper(scripts.take_recorder_add_camera(s.take_camera)))
+                    self.notice = f"added {added.get('added')} to Take Recorder ({added.get('why')})"
+                    self._start_take_recorder(s.slate, s.take, s.description)
             except Exception as exc:
                 # Unreal is not recording, so neither is Operator Board: no take is logged.
                 errors.append(f"Take Recorder: {NO_SOURCES_HELP if _NO_SOURCES in str(exc) else exc}")

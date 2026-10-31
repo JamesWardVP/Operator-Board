@@ -86,6 +86,7 @@ class AppContext:
                 self.streamdeck = StreamDeckBackend(self.surface, self.bus, s.streamdeck_brightness)
                 self.streamdeck.start()
         threading.Thread(target=self._metrics_loop, daemon=True, name="metrics-poll").start()
+        threading.Thread(target=self._led_monitor, daemon=True, name="led-monitor").start()
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -151,6 +152,20 @@ class AppContext:
         self.devices.reload()
         self.led.reload()
         self.bus.publish("config.changed")
+
+    LED_CHECK_S = 15.0
+
+    def _led_monitor(self) -> None:
+        """Check LED processors at start-up, then while any is not confirmed reachable, so the
+        Operate page can show when the wall cannot be controlled (and clear it when it can)."""
+        first = True
+        while first or not self._stop.wait(self.LED_CHECK_S):
+            first = False
+            try:
+                if any(p.state.online is not True for p in self.led.active()):
+                    self.led.check_all()
+            except Exception:
+                log.exception("LED connection check failed")
 
     def _metrics_loop(self) -> None:
         while not self._stop.wait(max(0.5, self.config.ui.metrics_poll_s)):
@@ -345,10 +360,14 @@ class AppContext:
         a.add("camera.capture_next", "Save current viewport as new camera", "Cameras", capture_next)
 
         # Takes
+        def start_take() -> ActionResult:
+            errors = takes.start()
+            return _errors_result(f"Recording: {takes.notice}" if takes.notice else "Recording", errors)
+
         a.add("takes.toggle_record", "Record (toggle)", "Takes",
-              lambda: _errors_result("Recording" if not takes.recording else "Stopped", takes.toggle()),
+              lambda: _errors_result("Stopped", takes.stop()) if takes.recording else start_take(),
               state=lambda: takes.recording)
-        a.add("takes.start", "Start recording", "Takes", lambda: _errors_result("Recording", takes.start()))
+        a.add("takes.start", "Start recording", "Takes", start_take)
         a.add("takes.stop", "Stop recording", "Takes", lambda: _errors_result("Stopped", takes.stop()))
         a.add("takes.next_take", "Take +1", "Takes", lambda: takes.increment(1))
         a.add("takes.prev_take", "Take -1", "Takes", lambda: takes.increment(-1))

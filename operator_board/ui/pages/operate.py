@@ -4,7 +4,7 @@ from __future__ import annotations
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
-from operator_board.ui.widgets import Banner, BigButton, Card, StateDot, clear_layout, hbox, muted, scroll
+from operator_board.ui.widgets import Banner, BigButton, Card, HazardOverlay, StateDot, clear_layout, hbox, muted, scroll
 
 
 class DeviceTile(QtWidgets.QFrame):
@@ -87,6 +87,11 @@ class OperatePage(BasePage):
         self.proc_row = QtWidgets.QHBoxLayout()
         wall.add_layout(self.proc_row)
         grid.addWidget(wall, 1, 0, 1, 3)
+        self.wall_controls = [self.freeze_btn, self.blackout_btn, self.normal_btn, self.pattern_combo,
+                              self.pattern_btn, self.pattern_off_btn]
+        self.wall_overlay = HazardOverlay(wall)
+        self._wall_state = None      # None (usable), "none" (no processor) or "offline:<names>"
+        self._wall_dismissed = None  # a state the operator chose to "use anyway"
 
         # --- Unreal instances ---------------------------------------------------
         inst = Card("Unreal Instances")
@@ -212,6 +217,54 @@ class OperatePage(BasePage):
             self.invoke("multiuser.start", server_name=self.mu_server.text().strip(),
                         session_name=self.mu_session.text().strip())
 
+    # ---- LED wall availability ------------------------------------------------------
+    def _wall_unavailable(self):
+        """None if the wall controls can be used, else a state key for the overlay."""
+        active = self.ctx.led.active()
+        if not active:
+            return "none"
+        if all(p.state.online is False for p in active):
+            return "offline:" + ", ".join(p.name for p in active)
+        return None
+
+    def _update_wall_overlay(self) -> None:
+        state = self._wall_unavailable()
+        if state == self._wall_state:
+            return
+        self._wall_state = state
+        blocked = state is not None and state != self._wall_dismissed
+        for control in self.wall_controls:
+            control.setEnabled(not blocked)
+        if not blocked:
+            self.wall_overlay.hide()
+            return
+        setup = ("Set up LED processors", self._open_led_setup)
+        if state == "none":
+            self.wall_overlay.show_message(
+                "LED WALL CONTROL UNAVAILABLE",
+                "No LED processor is set up. Add your processor (type and IP address) to use Freeze, "
+                "Blackout and test patterns from here.", [setup])
+        else:
+            names = state.split(":", 1)[1]
+            self.wall_overlay.show_message(
+                "LED PROCESSORS NOT CONNECTED",
+                f"{names} could not be reached. Check the network and the IP address and port.",
+                [("Retry connection", self._retry_led), setup, ("Use anyway", self._use_wall_anyway)])
+
+    def _open_led_setup(self) -> None:
+        titles = [p.title for p in self.window_.pages]
+        if "LED Processors" in titles:
+            self.window_.nav.setCurrentRow(titles.index("LED Processors"))
+
+    def _retry_led(self) -> None:
+        self.background(self.ctx.led.check_all, lambda _r: self.refresh(), "LED connection check")
+
+    def _use_wall_anyway(self) -> None:
+        """Lift the overlay for this state; it comes back if the state changes."""
+        self._wall_dismissed = self._wall_state
+        self._wall_state = "dismissed"  # force the next update to re-evaluate
+        self._update_wall_overlay()
+
     def _scene_changed(self) -> None:
         name = self.scene_edit.text().strip()
         if not name:
@@ -282,6 +335,7 @@ class OperatePage(BasePage):
                                                              "#2f9e44" if st.online else "#3d8bfd")
             chip.setStyleSheet(f"background: {color}; border-radius: 10px; padding: 4px; color: white;")
             chip.setToolTip(st.last_error or st.last_command or "No commands sent yet")
+        self._update_wall_overlay()
 
         # devices & groups
         devices = self.ctx.devices.devices()

@@ -53,6 +53,8 @@ class SettingsPage(BasePage):
                                                       "confirm_stop_all": "Confirm before Stop all"})
         section("Takes", cfg.takes, browse={"take_log_path": "file"},
                 labels={"take_preset": "Take preset (optional asset path, e.g. /Game/Takes/StagePreset)",
+                        "auto_add_camera": "If the take is empty, add the stage camera and record",
+                        "take_camera": "Take camera (optional actor name; default: nDisplay ICVFX / cine camera)",
                         "record_with_take_recorder": "Record with Take Recorder in the primary editor"})
 
         save = QtWidgets.QPushButton("Save settings")
