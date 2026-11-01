@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from operator_board.core.events import EventBus
 from operator_board.surfaces.controller import SurfaceController
@@ -38,10 +38,12 @@ def input_names() -> List[str]:
 
 
 class MidiBackend:
-    def __init__(self, controller: SurfaceController, bus: EventBus, port_name: str = "") -> None:
+    def __init__(self, controller: SurfaceController, bus: EventBus, port_name: str = "",
+                 taken: Sequence[str] = ()) -> None:
         self.controller = controller
         self.bus = bus
         self.port_name = port_name
+        self.taken = set(taken)  # inputs other MIDI surfaces already use
         self.input = None
         self.output = None
         self.opened = ""
@@ -52,11 +54,9 @@ class MidiBackend:
         return AVAILABLE
 
     def _match(self, names: List[str]) -> Optional[str]:
-        if not names:
-            return None
-        if not self.port_name:
-            return names[0]
-        return next((n for n in names if self.port_name.lower() in n.lower()), None)
+        if self.port_name:
+            return next((n for n in names if self.port_name.lower() in n.lower()), None)
+        return next((n for n in names if n not in self.taken), None)
 
     def start(self) -> bool:
         if not AVAILABLE:
@@ -72,8 +72,9 @@ class MidiBackend:
             log.warning("Could not open MIDI input %s: %s", name, exc)
             return False
         try:  # same device's output, for the pad lights (best effort)
-            out = self._match([n for n in mido.get_output_names() if n.split(" ")[0] in name] or
-                              mido.get_output_names())
+            outputs = mido.get_output_names()
+            out = next((n for n in outputs if n.split(" ")[0] in name), None) or (
+                next((n for n in outputs if self.port_name.lower() in n.lower()), None) if self.port_name else None)
             self.output = mido.open_output(out) if out else None
         except Exception:  # noqa: BLE001
             self.output = None

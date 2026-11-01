@@ -23,8 +23,7 @@ from operator_board.remote.timing import TimingMonitor
 from operator_board.remote.editor_watch import EditorWatcher
 from operator_board.remote.targets import TargetResolver
 from operator_board.surfaces.api_server import ApiServer
-from operator_board.surfaces.controller import SurfaceController
-from operator_board.surfaces.layout import default_layout, load_layout
+from operator_board.surfaces.manager import SurfaceManager
 from operator_board.sync.manager import SyncManager
 
 log = logging.getLogger(__name__)
@@ -58,32 +57,32 @@ class AppContext:
         self.metrics = MetricStore()
         self.level_cache: List[LevelInfo] = []
         self.selected_level = 0
-        self.surface = SurfaceController(self._load_surface_layout(), self.actions, self.bus)
+        self.surfaces = SurfaceManager(self.config, self.actions, self.bus)
         self.api: Optional[ApiServer] = None
         self.streamdeck = None
         self.osc = None
-        self.midi = None
+        self.midi: List[Any] = []  # one MidiBackend per MIDI surface with a controller found
+        self._hardware = True
+        self._scan_lock = threading.Lock()
+        self._midi_inputs: List[str] = []
         self._stop = threading.Event()
         self.bus.subscribe("multiuser.session_renamed", lambda _t, _p: self._save_quietly())
         self.bus.subscribe("device.metrics", lambda _t, p: self.metrics.add_raw(p["name"], p.get("metrics") or {}))
         self._register_actions()
 
     # ---- lifecycle ------------------------------------------------------------
-    def _load_surface_layout(self):
-        path = self.config.surfaces.layout_path
-        if path:
-            try:
-                return load_layout(path)
-            except (OSError, ValueError, TypeError) as exc:
-                log.warning("Could not load surface layout %s (%s); using default", path, exc)
-        return default_layout()
+    @property
+    def surface(self):
+        """The first control surface (older code and tests talk to one surface)."""
+        return self.surfaces.primary
 
     def start_services(self, enable_hardware: bool = True) -> None:
         s = self.config.surfaces
+        self._hardware = enable_hardware
         if s.api_server_enabled:
             try:
                 self.api = ApiServer(self.actions, self.state_snapshot, s.api_bind, s.api_port, s.api_token,
-                                     surface=self.surface)
+                                     surface=self.surfaces)
                 self.api.start()
             except OSError as exc:
                 log.warning("API server could not start on %s:%s: %s", s.api_bind, s.api_port, exc)
@@ -91,38 +90,90 @@ class AppContext:
         if enable_hardware and s.streamdeck_enabled:
             from operator_board.surfaces.streamdeck import StreamDeckBackend
             if StreamDeckBackend.available():
-                self.streamdeck = StreamDeckBackend(self.surface, self.bus, s.streamdeck_brightness)
+                self.streamdeck = StreamDeckBackend(self.surfaces, self.bus, s.streamdeck_brightness)
                 self.streamdeck.start()
         self.start_surface_backends(enable_hardware)
+        self.bus.subscribe("surface.list_changed", lambda _t, _p: self._restart_midi())
         threading.Thread(target=self._metrics_loop, daemon=True, name="metrics-poll").start()
         threading.Thread(target=self._led_monitor, daemon=True, name="led-monitor").start()
         self.refresh_levels_in_background()
         self.timing.start()
         self.editor.start()
 
-    def start_surface_backends(self, enable_hardware: bool = True) -> None:
-        """OSC and MIDI surfaces, when switched on in Settings > Control surfaces (restartable)."""
+    def start_surface_backends(self, enable_hardware: Optional[bool] = None) -> None:
+        """The OSC listener (when switched on) and a MIDI input for every MIDI surface (restartable)."""
+        if enable_hardware is not None:
+            self._hardware = enable_hardware
         self.stop_surface_backends()
         s = self.config.surfaces
         if s.osc_enabled:
             from operator_board.surfaces.osc import OscServer
             try:
-                self.osc = OscServer(self.surface, s.osc_port)
+                self.osc = OscServer(self.surfaces, s.osc_port)
                 self.osc.start()
             except OSError as exc:
                 log.warning("OSC could not listen on UDP %s: %s", s.osc_port, exc)
                 self.osc = None
-        if enable_hardware and s.midi_enabled:
-            from operator_board.surfaces.midi import MidiBackend
-            backend = MidiBackend(self.surface, self.bus, s.midi_port)
-            self.midi = backend if backend.start() else None
+        self._start_midi()
+
+    def _start_midi(self) -> None:
+        """MIDI surfaces: each takes its chosen input, or the next input no other surface uses. Custom
+        surfaces use MIDI only when an input is chosen for them."""
+        if not self._hardware:
+            return
+        from operator_board.surfaces.midi import MidiBackend
+        if not MidiBackend.available():
+            return
+        wanted = [c for c in self.surfaces.of_kind("midi", "custom")
+                  if c.layout.kind == "midi" or c.layout.device]
+        taken: List[str] = []
+        for controller in sorted(wanted, key=lambda c: not c.layout.device):  # named inputs first
+            backend = MidiBackend(controller, self.bus, controller.layout.device, taken)
+            if backend.start():
+                taken.append(backend.opened)
+                self.midi.append(backend)
+
+    def _stop_midi(self) -> None:
+        for backend in self.midi:
+            backend.stop()
+        self.midi = []
+
+    def _restart_midi(self) -> None:
+        self._stop_midi()
+        self._start_midi()
+
+    def midi_for(self, controller):
+        return next((m for m in self.midi if m.controller is controller), None)
+
+    def refresh_surface_devices(self, only_if_changed: bool = False) -> str:
+        """Look for control surfaces again (plugged in or unplugged since the last look): Stream
+        Decks and MIDI controllers. Called by Refresh devices and when Windows reports a device change
+        (``only_if_changed``: MIDI inputs are reopened only when the list of inputs changed)."""
+        from operator_board.surfaces.midi import input_names
+        with self._scan_lock:
+            s = self.config.surfaces
+            decks = 0
+            if self._hardware and s.streamdeck_enabled:
+                from operator_board.surfaces.streamdeck import StreamDeckBackend
+                if self.streamdeck is None and StreamDeckBackend.available():
+                    self.streamdeck = StreamDeckBackend(self.surfaces, self.bus, s.streamdeck_brightness)
+                    decks = self.streamdeck.start()
+                elif self.streamdeck is not None:
+                    decks = self.streamdeck.scan()
+            inputs = input_names()
+            if not only_if_changed or inputs != self._midi_inputs:
+                self._restart_midi()
+            self._midi_inputs = inputs
+        self.bus.publish("surface.devices")
+        midi = len(self.midi)
+        return (f"Found {decks} Stream Deck{'' if decks == 1 else 's'} and {midi} MIDI controller"
+                f"{'' if midi == 1 else 's'} in use")
 
     def stop_surface_backends(self) -> None:
-        for name in ("osc", "midi"):
-            backend = getattr(self, name, None)
-            if backend is not None:
-                backend.stop()
-            setattr(self, name, None)
+        if self.osc is not None:
+            self.osc.stop()
+        self.osc = None
+        self._stop_midi()
 
     def restart_api(self) -> str:
         """Restart the HTTP API / web panel with the current settings; returns an error or ''."""
@@ -134,7 +185,7 @@ class AppContext:
             return ""
         try:
             self.api = ApiServer(self.actions, self.state_snapshot, s.api_bind, s.api_port, s.api_token,
-                                 surface=self.surface)
+                                 surface=self.surfaces)
             self.api.start()
         except OSError as exc:
             self.api = None
@@ -169,6 +220,7 @@ class AppContext:
                 log.warning("Could not start the multi-user server automatically: %s", exc)
 
     def save(self) -> str:
+        self.surfaces.store()
         return self.store.save(self.config)
 
     def _save_quietly(self) -> None:
@@ -185,6 +237,10 @@ class AppContext:
 
     def _switch_to(self, new: AppConfig) -> None:
         copy_into(self.config, new)
+        self.surfaces.load()
+        if self.streamdeck:
+            self.streamdeck.assign()
+        self._restart_midi()
         self.multiuser.tracker = self.multiuser._new_tracker()
         self.level_cache = []
         self.selected_level = 0

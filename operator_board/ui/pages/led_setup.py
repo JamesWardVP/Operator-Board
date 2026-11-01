@@ -5,6 +5,7 @@ from operator_board.core.config import LEDProcessorConfig
 from operator_board.led.profiles import CONFIDENCE_LABELS
 from operator_board.qt import QtGui, QtWidgets, Qt
 from operator_board.ui.forms import edit_dataclass, unique_name_validator
+from operator_board.ui.led_commands import edit_led_commands
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.widgets import Card, hbox, make_table, muted, set_row
 
@@ -69,8 +70,17 @@ class LEDSetupPage(BasePage):
         self.cmds.setWordWrap(True)
         cmds.add(self.cmds)
         cmds.add(muted("Green: matches the published Bitfocus Companion module source. Amber: the endpoint is known "
-                       "but the value format is assumed. Red: assumed. Test amber and red commands on your hardware "
-                       "before a show. Edit a processor and fill 'Command overrides' to replace any command."))
+                       "but the value format is assumed. Red: assumed. Blue: your own. Test amber and red commands on "
+                       "your hardware before a show."))
+        self.edit_cmds = QtWidgets.QPushButton("Edit commands…")
+        self.edit_cmds.setToolTip("Change this processor type's commands and test patterns. Built-in types are "
+                                  "kept as they are: your changes are saved as a custom copy.")
+        self.edit_cmds.clicked.connect(self._edit_commands)
+        self.delete_custom = QtWidgets.QPushButton("Delete custom version")
+        self.delete_custom.setToolTip("Delete this custom processor type; processors using it go back to the "
+                                      "type it was based on")
+        self.delete_custom.clicked.connect(self._delete_custom)
+        cmds.add_layout(hbox(self.edit_cmds, self.delete_custom, None))
         bottom.addWidget(cmds, 1)
         lay.addLayout(bottom, 3)
 
@@ -114,6 +124,47 @@ class LEDSetupPage(BasePage):
         self.save_config()
         self.refresh()
 
+    def _edit_commands(self) -> None:
+        cfg = self._selected_cfg()
+        if cfg is None:
+            self.notify("Select a processor first", False)
+            return
+        if self.ctx.led.registry.get(cfg.profile_id) is None:
+            self.notify(f"Unknown processor type {cfg.profile_id}", False)
+            return
+        saved = edit_led_commands(self, self.ctx.led.registry, cfg.profile_id)
+        if not saved:
+            return
+        was = cfg.profile_id
+        cfg.profile_id = saved["id"]
+        self._changed()
+        self.notify(f"{cfg.name} now uses {saved['name']}" if was != saved["id"] else f"Saved {saved['name']}")
+
+    def _delete_custom(self) -> None:
+        cfg = self._selected_cfg()
+        registry = self.ctx.led.registry
+        if cfg is None or registry.is_builtin(cfg.profile_id) or registry.get(cfg.profile_id) is None:
+            return
+        profile = registry.get(cfg.profile_id)
+        users = [c for c in self.ctx.config.led_processors if c.profile_id == cfg.profile_id]
+        based_on = profile.get("based_on")
+        if QtWidgets.QMessageBox.question(
+                self, "Delete custom version",
+                f"Delete {profile.get('name')}?\n\n"
+                + (f"{', '.join(c.name for c in users)} will use "
+                   f"{(registry.get(based_on) or {}).get('name', based_on)} again." if based_on else
+                   "Processors using it will need another type.")) != QtWidgets.QMessageBox.Yes:
+            return
+        try:
+            registry.delete_custom(cfg.profile_id)
+        except OSError as exc:
+            self.notify(f"Could not delete: {exc}", False)
+            return
+        if based_on:
+            for c in users:
+                c.profile_id = based_on
+        self._changed()
+
     def _processor(self):
         cfg = self._selected_cfg()
         return self.ctx.led.get(cfg.name) if cfg else None
@@ -144,6 +195,11 @@ class LEDSetupPage(BasePage):
         p = self._processor()
         self.cmds.setRowCount(0)
         self.pattern.clear()
+        cfg = self._selected_cfg()
+        custom = bool(cfg and cfg.profile_id and not self.ctx.led.registry.is_builtin(cfg.profile_id)
+                      and self.ctx.led.registry.get(cfg.profile_id))
+        self.edit_cmds.setEnabled(cfg is not None)
+        self.delete_custom.setVisible(custom)
         if p is None:
             self.notes.setText("Select a processor to control it individually.")
             self.history.clear()

@@ -155,7 +155,10 @@ class TakesConfig:
 
 @dataclass
 class SurfacesConfig:
-    layout_path: str = ""  # empty = built-in default layout
+    # Every control surface (surfaces.layout.SurfaceLayout as a dict; see surfaces/manager.py).
+    devices: List[Dict[str, Any]] = field(default_factory=list)
+    devices_migrated: bool = False  # set once layout_path / midi_* below became the first surface
+    layout_path: str = ""  # older versions: one layout file (empty = built-in default)
     streamdeck_enabled: bool = True
     streamdeck_brightness: int = 60
     api_server_enabled: bool = True

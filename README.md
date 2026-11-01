@@ -7,7 +7,7 @@
 [![Windows build](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml/badge.svg)](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Version:** 0.4.0 · **Unreal Engine 5.2 – 5.8** · **Windows**
+**Version:** 0.5.0 · **Unreal Engine 5.2 – 5.8** · **Windows**
 
 ![Operator Board's Operate page: LED wall controls, Unreal instances, multi-user, project and level, take and camera positions](docs/images/operate.png)
 
@@ -21,8 +21,9 @@ Running an LED volume means watching many things at once: the wall, the render n
 - **Start and stop** the editor and every nDisplay node, one at a time or in groups.
 - **Run the multi-user session** and see who is connected.
 - **Change level**, toggle lighting sub-levels and **recall camera positions**.
+- **Adjust lights and cine cameras** (brightness, colour, focal length, focus) without opening the editor's panels.
 - **Slate and record takes**, with a take log, timecode and genlock status.
-- Drive it all from a **Stream Deck** or **Bitfocus Companion**.
+- Drive it all from **Stream Decks**, a **phone or tablet**, **MIDI pad controllers**, **OSC** or **Bitfocus Companion**, several at once.
 
 It uses the same building blocks as Switchboard: **SwitchboardListener** on each machine and the **Remote Control API** inside Unreal. It even reads and writes **Switchboard's own config files**, so the two tools can share one stage setup. Switchboard does not need to be open.
 
@@ -70,7 +71,9 @@ Choose the processor type, enter its IP address and port, and the wall buttons d
 | Generic HTTP / TCP / UDP / OSC | user defined | ✅ | ✅ | ✅ | ✅ |
 | Simulator (no hardware, for training) | – | ✅ | ✅ | ✅ | ✅ |
 
-Every command shows how it was verified. Some come straight from the published Companion module sources; others should be checked against your processor's firmware before a show (see [docs/LED_PROCESSORS.md](docs/LED_PROCESSORS.md)). You can override any command per processor, and add new processor types as JSON profiles without changing any code.
+Every command shows how it was verified. Some come straight from the published Companion module sources; others should be checked against your processor's firmware before a show (see [docs/LED_PROCESSORS.md](docs/LED_PROCESSORS.md)).
+
+**Edit commands…** changes a processor type's commands (freeze, blackout, test pattern off, brightness, the connection check) and its test patterns, and adds or removes test patterns. The built-in types are never changed: saving makes a custom copy, such as "Brompton Tessera (custom)", which the processor then uses and which appears in the Processor type list for other processors too. Commands you change are marked as your own. Editing a custom type again saves it in place, and **Delete custom version** removes it and puts its processors back on the type it was based on. Custom types are kept in `%USERPROFILE%\.operator_board\led_profiles\`. You can also override single commands per processor, and add whole new processor types as JSON profiles without changing any code.
 
 ### Devices: Unreal instances and groups
 Editors and nDisplay nodes are started through SwitchboardListener (port 2980) with the same command-line flags as Switchboard. Operator Board connects the way each engine's Switchboard does: an encrypted QUIC connection with the listener's password for UE 5.4 – 5.8, and plain TCP for 5.2 – 5.3, chosen automatically (or set per device). Listener passwords are saved in Windows Credential Manager and shared with Switchboard, so a machine you have already connected to from Switchboard needs no password, and if a listener's security key changes you are warned before connecting. Put them in groups that start and stop together, and check each device's log for its launch command line and process events. You can also import devices from any Switchboard config.
@@ -96,7 +99,19 @@ Live CPU, GPU, GPU clock, GPU temperature and memory for every running instance,
 ![Analytics page graphing CPU and GPU use for a render node](docs/images/analytics.png)
 
 ### Control Surfaces: Stream Deck, phones and tablets, MIDI, OSC and Companion
-Drive an **Elgato Stream Deck** directly (Mini, 15-key / MK.2, XL, +, Neo), with several pages and live key colours. The same layouts work on a **phone or tablet**: the built-in **web panel** shows the buttons in any browser on the stage network (one click lets phones and tablets in, with a secret token in the address). **MIDI pad controllers** (Akai APC mini, Novation Launchpad in programmer mode, 16-pad controllers such as the Akai MPD, or any controller on a custom layout) press the key in the same position, with pad lights where supported. **OSC** apps such as TouchOSC and Open Stage Control send `/operator/key <n>`, `/operator/action/<id>` or `/operator/page next`. A **Custom** surface can be any size. The device list can be searched by typing. A default layout is included; edit it on the on-screen deck, and **save it to or load it from a file** to take it to another machine. **Bitfocus Companion** (Generic HTTP module), or anything else that can send HTTP, can call any action through the local HTTP API, with an optional token.
+Set up as many control surfaces as you like, all working at the same time, including several of one type: two Stream Deck Minis with different buttons, a phone and a tablet, a Stream Deck and a MIDI controller. Pick a type from the list (type to search it) and it is added to your surfaces. Click a surface to edit its buttons, double-click its name to rename it, untick it to stop using it, or duplicate it for a second device of the same type.
+
+- **Elgato Stream Deck** directly (Mini, 15-key / MK.2, XL, +, Neo), with several pages and live key colours. With more than one deck of a size, choose which deck each surface drives (by serial number); otherwise each surface takes the next free deck with the right number of keys.
+- **Phone or tablet:** the built-in **web panel** shows a surface's buttons in any browser on the stage network (one click lets phones and tablets in, with a secret token in the address). Each surface has its own address.
+- **MIDI pad controllers** (Akai APC mini, Novation Launchpad in programmer mode, 16-pad controllers such as the Akai MPD, or any controller on a custom layout) press the key in the same position, with pad lights where supported. Each MIDI surface uses its own controller.
+- **OSC** apps such as TouchOSC and Open Stage Control send `/operator/key <n>`, `/operator/action/<id>` or `/operator/page next`, or `/operator/surface/<number>/key <n>` for a particular surface.
+- A **Custom** surface can be any size.
+
+Stream Decks and MIDI controllers plugged in or unplugged while Operator Board is open are picked up by themselves when Windows reports the change, and **Refresh devices** looks again on demand.
+
+New surfaces get the default buttons, spread over as many pages as the surface needs. With more than one page, every page gets a **Next page** key (the last key) so you can always move on; you can still change it. Each key has its action, label, colour and active colour, plus **text colour**, **font size** (or Auto, as large as fits), **font weight** and **word wrap** (on by default), so long labels break onto more lines instead of running off the key. Every colour has a **colour picker** as well as a hex box. The on-screen deck shows the keys as the Stream Deck will.
+
+Surfaces are saved on this computer and stay the same whichever stage is open. **Export selected…** or **Export all…** saves them to a file for backup or another machine, and **Import…** adds surfaces from a file without replacing any you have. **Bitfocus Companion** (Generic HTTP module), or anything else that can send HTTP, can call any action through the local HTTP API, with an optional token.
 
 ![Control Surfaces page with the Stream Deck layout editor](docs/images/control_surfaces.png)
 
@@ -164,7 +179,7 @@ pip install -r requirements.txt
 python -m operator_board
 ```
 
-For direct Stream Deck support, also run `pip install streamdeck pillow`.
+For direct Stream Deck support, also run `pip install streamdeck pillow`; for MIDI controllers, `pip install mido python-rtmidi`.
 
 **Running with Switchboard's own Python:** `scripts\run_with_switchboard_python.bat "C:\Program Files\Epic Games\UE_5.6"` uses the Python environment that ships with Switchboard, so nothing extra is installed. PySide2 (UE 5.2/5.3) and PySide6 are both supported.
 
@@ -173,8 +188,8 @@ For direct Stream Deck support, also run `pip install streamdeck pillow`.
 | Option | What it does |
 |---|---|
 | `--switchboard-config PATH` | Open this Switchboard config (`.json`) as the stage. |
-| `--headless` | No window: only the HTTP API and Stream Deck, for a stage rack PC. |
-| `--no-hardware` | Do not open Stream Deck hardware. |
+| `--headless` | No window: only the HTTP API and control surfaces, for a stage rack PC. |
+| `--no-hardware` | Do not open Stream Decks or MIDI controllers. |
 | `--config PATH` | Use another Operator Board settings file. |
 | `--verbose` | More detailed logging. |
 
@@ -194,7 +209,7 @@ python -m pytest
 Build the Windows executables: `dist/OperatorBoard/`, a zip and the setup file. The setup file is built whenever [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed (`winget install JRSoftware.InnoSetup`). Close Operator Board first if it is running from `dist/`.
 
 ```bash
-pip install -e .[ui,build,streamdeck]
+pip install -e .[ui,build,streamdeck,midi]
 python packaging/build.py --hidapi
 ```
 

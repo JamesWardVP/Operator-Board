@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 from operator_board import __version__
@@ -99,6 +100,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(1000)
+        # Windows sends WM_DEVICECHANGE to every window when a USB device comes or goes; look for
+        # control surfaces again once the burst of messages has settled.
+        self._device_timer = QtCore.QTimer(self)
+        self._device_timer.setSingleShot(True)
+        self._device_timer.setInterval(1500)
+        self._device_timer.timeout.connect(self._devices_changed)
         self._tick()
         if ctx.store.load_error:
             self.notify(ctx.store.load_error, False)
@@ -168,6 +175,22 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self.current_page()
         if isinstance(page, OperatePage):
             page.refresh()
+
+    WM_DEVICECHANGE = 0x0219
+
+    def nativeEvent(self, event_type, message):  # noqa: N802 - Qt override
+        if sys.platform == "win32" and bytes(event_type) == b"windows_generic_MSG":
+            try:
+                import ctypes.wintypes
+                msg = ctypes.wintypes.MSG.from_address(int(message))
+                if msg.message == self.WM_DEVICECHANGE:
+                    self._device_timer.start()
+            except (ValueError, TypeError, AttributeError, OSError):
+                pass
+        return False, 0
+
+    def _devices_changed(self) -> None:
+        run_async(lambda: self.ctx.refresh_surface_devices(only_if_changed=True))
 
     def closeEvent(self, event) -> None:
         if not self.skip_save_on_close:

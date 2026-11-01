@@ -38,7 +38,7 @@ class ApiServer:
     def __init__(self, actions: ActionRegistry, state_provider: Callable[[], Dict[str, Any]],
                  bind: str = "127.0.0.1", port: int = 8765, token: str = "", surface=None) -> None:
         self.actions = actions
-        self.surface = surface  # SurfaceController for the web panel (optional)
+        self.surface = surface  # SurfaceManager (or one SurfaceController) for the web panel (optional)
         self.state_provider = state_provider
         self.bind = bind
         self.port = port
@@ -88,7 +88,10 @@ class ApiServer:
                                              "params": [p.name for p in a.params]} for a in server_ref.actions.all()])
                 if parts == ["api", "state"]:
                     return self._send(200, server_ref.state_provider())
-                surface = server_ref.surface
+                surface = server_ref.surface_for(query.pop("surface", None))
+                if parts == ["api", "surfaces"]:
+                    manager = server_ref.surface
+                    return self._send(200, manager.state() if hasattr(manager, "state") else [])
                 if parts[:2] == ["api", "surface"] and surface is None:
                     return self._send(404, {"ok": False, "message": "no control surface"})
                 if parts == ["api", "surface"]:
@@ -130,6 +133,15 @@ class ApiServer:
         self._server = ThreadingHTTPServer((self.bind, self.port), Handler)
         self.port = self._server.server_address[1]
         threading.Thread(target=self._server.serve_forever, daemon=True, name="api-server").start()
+
+    def surface_for(self, ref=None):
+        """The surface a web panel request is for: ``?surface=<id|name|number>``, else the first
+        web panel surface (else the first Custom surface, else the first surface)."""
+        if self.surface is None or not hasattr(self.surface, "controllers"):
+            return self.surface
+        if ref:
+            return self.surface.find(ref)
+        return self.surface.first_of(("web", "custom"))
 
     def stop(self) -> None:
         if self._server:

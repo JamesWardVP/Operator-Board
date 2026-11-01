@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from operator_board.surfaces.controller import SurfaceController
+from operator_board.surfaces.render import css_weight
 
 
 def surface_state(controller: SurfaceController) -> Dict[str, Any]:
@@ -22,8 +23,12 @@ def surface_state(controller: SurfaceController) -> Dict[str, Any]:
         active = controller.is_active(index) if assigned else False
         keys.append({"label": (binding.label or binding.action) if assigned else "",
                      "color": (binding.active_color if active else binding.color) if assigned else "#1b1e23",
-                     "active": active, "assigned": assigned})
-    return {"name": layout.name, "columns": layout.columns, "rows": layout.rows,
+                     "active": active, "assigned": assigned,
+                     "text_color": binding.text_color if assigned else "#ffffff",
+                     "font_size": binding.font_size if assigned else 0,
+                     "font_weight": css_weight(binding.font_weight) if assigned else 700,
+                     "wrap": binding.word_wrap if assigned else True})
+    return {"name": layout.name, "id": layout.id, "columns": layout.columns, "rows": layout.rows,
             "page": page.name if page else "", "page_index": controller.page, "pages": len(layout.pages),
             "keys": keys}
 
@@ -48,8 +53,9 @@ PANEL_HTML = r"""<!doctype html>
   #grid { flex: 1; display: grid; gap: 8px; }
   .key { border: 2px solid #30353d; border-radius: 12px; color: #fff; font-weight: 700; font-size: 15px;
          display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px;
-         overflow: hidden; overflow-wrap: normal; word-break: normal; hyphens: auto; line-height: 1.15;
-         touch-action: manipulation; }
+         overflow: hidden; overflow-wrap: anywhere; word-break: normal; line-height: 1.15;
+         white-space: pre-line; touch-action: manipulation; }
+  .key.nowrap { white-space: pre; overflow-wrap: normal; }
   .key.active { border-color: #fff; }
   .key.empty { opacity: .35; }
   .key:active { transform: scale(.96); }
@@ -57,12 +63,14 @@ PANEL_HTML = r"""<!doctype html>
   #status.bad { color: #ff6b6b; }
 </style></head>
 <body>
-<header><h1>OPERATOR BOARD</h1><button id="prev">&#9664;</button><span id="page"></span><button id="next">&#9654;</button></header>
+<header><h1 id="title">OPERATOR BOARD</h1><button id="prev">&#9664;</button><span id="page"></span><button id="next">&#9654;</button></header>
 <div id="grid"></div>
 <div id="status">Connecting...</div>
 <script>
-const token = new URLSearchParams(location.search).get("token") || "";
-const q = token ? ("?token=" + encodeURIComponent(token)) : "";
+const args = new URLSearchParams(location.search);
+const token = args.get("token") || "", which = args.get("surface") || "";
+const q = "?" + [token ? "token=" + encodeURIComponent(token) : "", which ? "surface=" + encodeURIComponent(which) : ""]
+  .filter(Boolean).join("&");
 const grid = document.getElementById("grid"), status = document.getElementById("status");
 let last = "";
 function say(text, bad) { status.textContent = text; status.className = bad ? "bad" : ""; }
@@ -76,20 +84,24 @@ function draw(s) {
   const sig = JSON.stringify(s);
   if (sig === last) return;
   last = sig;
+  document.getElementById("title").textContent = s.name ? s.name.toUpperCase() : "OPERATOR BOARD";
   document.getElementById("page").textContent = s.page + (s.pages > 1 ? " (" + (s.page_index + 1) + "/" + s.pages + ")" : "");
   grid.style.gridTemplateColumns = "repeat(" + s.columns + ", 1fr)";
   grid.style.gridTemplateRows = "repeat(" + s.rows + ", 1fr)";
   grid.innerHTML = "";
-  // Text sized to the button width, so whole words fit on narrow phone columns.
+  // Automatic text is sized to the button width, so whole words fit on narrow phone columns;
+  // a key's own size is given for a 72-pixel key and scaled to the button.
   const longest = Math.max(4, ...s.keys.map(k => Math.max(0, ...(k.label || "").split(/\s+/).map(w => w.length))));
   const width = (grid.clientWidth || window.innerWidth) / s.columns - 16;
-  const size = Math.max(10, Math.min(18, Math.floor(width / (longest * 0.68))));
+  const auto = Math.max(10, Math.min(18, Math.floor(width / (longest * 0.68))));
   s.keys.forEach((k, i) => {
     const b = document.createElement("div");
-    b.className = "key" + (k.active ? " active" : "") + (k.assigned ? "" : " empty");
+    b.className = "key" + (k.active ? " active" : "") + (k.assigned ? "" : " empty") + (k.wrap ? "" : " nowrap");
     b.style.background = k.color;
+    b.style.color = k.text_color;
+    b.style.fontWeight = k.font_weight;
     b.textContent = k.label;
-    b.style.fontSize = size + "px";
+    b.style.fontSize = (k.font_size ? Math.max(6, Math.round(k.font_size * (width + 12) / 72)) : auto) + "px";
     if (k.assigned) b.addEventListener("click", () => call("/api/surface/press/" + i));
     grid.appendChild(b);
   });

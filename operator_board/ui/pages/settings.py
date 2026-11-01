@@ -50,7 +50,9 @@ class SettingsPage(BasePage):
                                              "(remote Python and console commands)"})
         section("Control surfaces & API", cfg.surfaces,
                 labels={"api_bind": "API bind address (0.0.0.0 = all networks)", "api_token": "API token (optional)",
-                        "layout_path": "Surface layout file"}, browse={"layout_path": "file"})
+                        "streamdeck_enabled": "Use Elgato Stream Decks directly"},
+                hidden=("devices", "devices_migrated", "layout_path", "midi_enabled", "midi_port", "osc_enabled",
+                        "osc_port"))
         section("Operator interface", cfg.ui, labels={"metrics_poll_s": "Metrics poll interval (s)",
                                                       "confirm_blackout": "Confirm before blackout",
                                                       "confirm_stop_all": "Confirm before Stop all"})
