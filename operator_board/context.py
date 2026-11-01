@@ -264,12 +264,15 @@ class AppContext:
         return {"slate": t.slate, "take": t.take, "timecode": self.timing.timecode() or "",
                 "project": self.config.active_project, "level": getattr(self.editor, "level", "") or ""}
 
-    NOT_LOGGED = ("surface.",)
+    # Not settings, so not in the change log: control surface page turns, LED wall / group states
+    # (freeze, blackout, test pattern, locate, normal) and connecting, starting or stopping instances.
+    NOT_LOGGED = ("surface.", "led.", "devices.", "group.")
+    LOGGED_ANYWAY = ("led.brightness",)  # a setting, not a state
 
     def _log_action(self, payload: Dict[str, Any]) -> None:
         """Every action run from a button, key, surface or the API goes into the change log."""
         action_id = payload.get("action_id", "")
-        if any(action_id.startswith(p) for p in self.NOT_LOGGED):
+        if any(action_id.startswith(p) for p in self.NOT_LOGGED) and action_id not in self.LOGGED_ANYWAY:
             return
         params = payload.get("params") or {}
         if action_id == MACRO_ACTION:  # its steps are logged one by one

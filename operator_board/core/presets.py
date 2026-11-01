@@ -256,7 +256,6 @@ def _apply_led(ctx, data) -> str:
             if ctx.led.get(name).mode != want.get("mode") or want.get("mode") == "pattern" else []
         if errors:
             raise PresetProblem(f"{name}: " + "; ".join(errors))
-        ctx.changes.record("LED Wall", name, "Mode", want.get("mode"), None, source="Preset")
     wrong = [n for n, want in modes.items() if ctx.led.get(n).mode != want.get("mode", "normal")]
     if wrong:
         raise PresetProblem("Not in the saved mode: " + ", ".join(wrong))

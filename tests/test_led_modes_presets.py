@@ -59,11 +59,19 @@ def test_status_bar_groups_processors_by_state(ctx):
 
 def test_changes_are_logged_with_slate_take_and_values(ctx, tmp_path):
     ctx.config.takes.slate, ctx.config.takes.take = "Sc_12", 4
-    ctx.actions.invoke("led.set_mode", target="Walls", mode="frozen")
-    rec = ctx.changes.records[-1]
+    before = len(ctx.changes.records)
+    for action, params in (("led.set_mode", {"target": "Walls", "mode": "frozen"}), ("led.freeze", {}),
+                           ("led.locate", {}), ("led.restore", {}), ("devices.connect_all", {}),
+                           ("devices.stop_all", {})):
+        ctx.actions.invoke(action, **params)
+    assert len(ctx.changes.records) == before  # wall states and device control are not settings
+    ctx.actions.invoke("takes.set_description", description="Wide")
+    ctx.actions.invoke("led.brightness", percent=80)
+    rec = ctx.changes.records[-2]
     assert (rec.category, rec.setting, rec.slate, rec.take, rec.result) == (
-        "LED Wall", "Set LED processor / group mode", "Sc_12", 4, "ok")
-    assert rec.value["target"] == "Walls" and rec.date and rec.time
+        "Takes", "Set take description", "Sc_12", 4, "ok")
+    assert rec.value == {"description": "Wide"} and rec.date and rec.time
+    assert ctx.changes.records[-1].setting == "Set wall brightness"
     ctx.changes.record("Remote Objects", "RectLight", "Intensity", 6.0, 3.0, kind="quick",
                        ref={"path": "/Game/M.M:PersistentLevel.RectLight", "control": "intensity"})
     ctx.changes.record("Remote Objects", "RectLight", "Intensity", 8.0, 6.0, kind="quick",
@@ -82,7 +90,7 @@ def test_changes_are_logged_with_slate_take_and_values(ctx, tmp_path):
 
 def test_production_spreadsheet(ctx, tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
-    ctx.actions.invoke("led.set_mode", target="C", mode="locate")
+    ctx.led.set_mode("C", "locate")
     path = str(tmp_path / "production.xlsx")
     ctx.production_export(path)
     wb = openpyxl.load_workbook(path)
