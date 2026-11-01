@@ -13,7 +13,8 @@ from operator_board.qt import QtGui, QtWidgets, Qt
 from operator_board.ui.widgets import hbox, muted
 
 STANDARD = [("freeze_on", "Freeze on"), ("freeze_off", "Freeze off"), ("blackout_on", "Blackout on"),
-            ("blackout_off", "Blackout off"), ("test_pattern_off", "Test pattern off"), ("brightness", "Brightness")]
+            ("blackout_off", "Blackout off"), ("test_pattern_off", "Test pattern off"),
+            ("locate_on", "Locate on"), ("locate_off", "Locate off"), ("brightness", "Brightness")]
 STATUS = "status_command"
 
 SCHEMA_HELP = {

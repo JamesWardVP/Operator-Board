@@ -38,8 +38,26 @@ class ObjectsPage(BasePage):
         tabs.addTab(self._actors_tab(), "Actor browser")
         # Shown while anything on this page is loading from or changing Unreal.
         self.busy = BusyIndicator("...Actioning")
-        tabs.setCornerWidget(self.busy, Qt.TopRightCorner)
+        corner = QtWidgets.QWidget()
+        corner.setObjectName("PlainRow")
+        corner_lay = QtWidgets.QHBoxLayout(corner)
+        corner_lay.setContentsMargins(0, 0, 0, 4)
+        self.undo_btn = QtWidgets.QPushButton("↶ Undo")
+        self.undo_btn.setToolTip("Put back the last value changed here (the value before it, as set from here or "
+                                 "as read from the editor)")
+        self.undo_btn.clicked.connect(self._undo)
+        export = QtWidgets.QPushButton("Export changes…")
+        export.setToolTip("Save every value changed here since Operator Board started, to use as a saved "
+                          "settings preset (Saved Settings page)")
+        export.clicked.connect(self._export_changes)
+        corner_lay.addWidget(self.busy)
+        corner_lay.addWidget(self.undo_btn)
+        corner_lay.addWidget(export)
+        tabs.setCornerWidget(corner, Qt.TopRightCorner)
         lay.addWidget(tabs)
+        self._known = {}  # (kind, ref, setting) -> the value it has now, as read or as last set
+        self._undo_stack = []  # change records made from this page, newest last
+        self._update_undo()
 
     def background(self, fn, done=None, what: str = "Operation", quiet: bool = False, failed=None) -> None:
         """As BasePage.background, with the "...Actioning" spinner showing until it has finished."""
@@ -141,6 +159,9 @@ class ObjectsPage(BasePage):
             text = json.dumps(value)
             self.value.setText(text)
             self.rows.setItem(idx, 3, QtWidgets.QTableWidgetItem(text))
+            for target in ("primary", "editors", "ndisplay", "all"):  # what Undo goes back to
+                self._known[self._key("preset", {"preset": preset, "label": row["label"], "target": target},
+                                      row["label"])] = value
         self.background(lambda: self.ctx.objects.get_preset_value(preset, row["label"]), show, "Reading value")
 
     def _write_value(self) -> None:
@@ -149,8 +170,14 @@ class ObjectsPage(BasePage):
         if row is None:
             return
         value, target = parse_value(self.value.text()), self.target.currentText()
+        ref = {"preset": preset, "label": row["label"], "target": target}
+
+        def done(errors) -> None:
+            self.report(f"Set {row['label']}")(errors)
+            if not errors:
+                self._changed("preset", ref, preset, row["label"], value)
         self.background(lambda: self.ctx.objects.set_preset_value(preset, row["label"], value, target),
-                        self.report(f"Set {row['label']}"), "Setting value")
+                        done, "Setting value")
 
     def _call(self) -> None:
         idx, row = self._current_row()
@@ -268,11 +295,80 @@ class ObjectsPage(BasePage):
                                    self._quick_widget(path, c))
         self.quick_card.show()
 
+    # ---- change log and undo ------------------------------------------------------------------
+    @staticmethod
+    def _key(kind: str, ref: dict, setting: str) -> tuple:
+        return (kind, json.dumps(ref, sort_keys=True), setting)
+
+    def _actor_label(self) -> str:
+        item = self.actors.currentItem()
+        return item.text().split("  (")[0] if item else ""
+
+    def _changed(self, kind: str, ref: dict, item: str, setting: str, value) -> None:
+        """A value was set from this page: log it (with the value before) and make it undoable."""
+        key = self._key(kind, ref, setting)
+        previous = self._known.get(key)
+        rec = self.ctx.changes.record("Remote Objects", item, setting, value, previous, kind=kind, ref=ref)
+        self._known[key] = value
+        self._undo_stack.append(rec)
+        self._update_undo()
+
+    def _update_undo(self) -> None:
+        last = self._undo_stack[-1] if self._undo_stack else None
+        self.undo_btn.setEnabled(last is not None)
+        self.undo_btn.setToolTip(f"Put {last.item} {last.setting} back to {last.previous!r}" if last else
+                                 "Nothing changed from here yet")
+
+    def _undo(self) -> None:
+        if not self._undo_stack:
+            return
+        rec = self._undo_stack[-1]
+        if rec.previous is None:
+            self._undo_stack.pop()
+            self._update_undo()
+            self.notify(f"Cannot undo {rec.item} {rec.setting}: its value before the change was not read", False)
+            return
+
+        def done(_r) -> None:
+            self._undo_stack.pop()
+            self._known[rec.key] = rec.previous
+            self.ctx.changes.record("Remote Objects", rec.item, rec.setting, rec.previous, rec.value,
+                                    source="Undo", kind=rec.kind, ref=rec.ref)
+            self._update_undo()
+            self.notify(f"Undone: {rec.item} {rec.setting} is {rec.previous!r} again")
+            path = rec.ref.get("path")
+            current = self.actors.currentItem()
+            if path and current is not None and current.data(Qt.UserRole) == path:
+                self._reload_quick(path)
+        self.background(lambda: self.ctx.apply_setting(rec.kind, rec.ref, rec.previous), done,
+                        f"Undo {rec.setting}")
+
+    def _export_changes(self) -> None:
+        from operator_board.core.presets import export_preset
+        settings = self.ctx.changed_settings()
+        if not settings:
+            self.notify("Nothing has been changed from Operator Board yet", False)
+            return
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export changed settings", "remote_objects_settings.json",
+                                                        "Settings preset (*.json)")
+        if not path:
+            return
+        try:
+            export_preset(path, {"name": "Remote Objects changes",
+                                 "items": [{"type": "object_settings", "data": settings}]})
+        except OSError as exc:
+            self.notify(f"Could not export: {exc}", False)
+            return
+        self.notify(f"Exported {len(settings)} changed value{'s' if len(settings) != 1 else ''} to {path}")
+
     def _quick_widget(self, path: str, c) -> QtWidgets.QWidget:
         locked = c.get("locked") or ""
+        ref = {"path": path, "control": c["id"]}
+        self._known[self._key("quick", ref, c["label"])] = c["value"]  # as read from Unreal
+        record = lambda value: self._changed("quick", ref, self._actor_label(), c["label"], value)  # noqa: E731
         apply = lambda value, cid=c["id"]: self.background(  # noqa: E731
             lambda: self.ctx.objects.set_quick_control(path, cid, value),
-            lambda _r: self.notify(f"{c['label']} set"), f"Setting {c['label']}")
+            lambda _r: (record(value), self.notify(f"{c['label']} set")), f"Setting {c['label']}")
         if c["type"] == "choice":
             w = QtWidgets.QComboBox()
             for value, label in c.get("options") or []:
@@ -283,7 +379,7 @@ class ObjectsPage(BasePage):
                 value = combo.currentData()
                 # Changing units converts the intensity (as the Details panel does): show the new value.
                 self.background(lambda: self.ctx.objects.set_quick_control(path, cid, value),
-                                lambda _r: (self.notify(f"{c['label']}: {combo.currentText()}"),
+                                lambda _r: (record(value), self.notify(f"{c['label']}: {combo.currentText()}"),
                                             self._reload_quick(path)), f"Setting {c['label']}")
             w.currentIndexChanged.connect(changed)
         elif c["type"] == "bool":
@@ -309,7 +405,8 @@ class ObjectsPage(BasePage):
             live = LiveSetter(self, lambda value, cid=c["id"]: self.ctx.objects.set_quick_control(path, cid, value),
                               f"Setting {c['label']}")
             w.dragging.connect(lambda value: live(value))
-            w.committed.connect(lambda value: live(value, lambda _r: self.notify(f"{c['label']} set to {value:g}")))
+            w.committed.connect(lambda value: live(value, lambda _r: (record(value),
+                                                                      self.notify(f"{c['label']} set to {value:g}"))))
         if locked:
             w.setEnabled(False)
             w.setToolTip(locked + ", which would overwrite a change made here")
@@ -348,5 +445,18 @@ class ObjectsPage(BasePage):
         path, prop = self._selected_prop()
         if path:
             value, target = parse_value(self.prop_value.text()), self.target.currentText()
-            self.background(lambda: self.ctx.objects.set_property(path, prop, value, target),
-                            self.report(f"Set {prop}"), "Setting property")
+            ref = {"path": path, "prop": prop, "target": target}
+            key = self._key("property", ref, prop)
+            if key not in self._known:  # the value shown in the list is the one read from Unreal
+                row = sorted({i.row() for i in self.props.selectedIndexes()})
+                shown = self.props.item(row[0], 2).text() if row and self.props.item(row[0], 2) else ""
+                if shown:
+                    self._known[key] = parse_value(shown)
+            label = self._actor_label()
+
+            def done(errors) -> None:
+                self.report(f"Set {prop}")(errors)
+                if not errors:
+                    self._changed("property", ref, label, prop, value)
+            self.background(lambda: self.ctx.objects.set_property(path, prop, value, target), done,
+                            "Setting property")

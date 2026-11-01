@@ -73,6 +73,14 @@ class GroupConfig:
 
 
 @dataclass
+class LEDGroupConfig:
+    """LED processors controlled together (e.g. "Ceiling", "Back wall")."""
+    name: str = "LED group"
+    processors: List[str] = field(default_factory=list)
+    color: str = "#1fa2ff"
+
+
+@dataclass
 class MultiUserConfig:
     server_name: str = "OperatorBoard_MU"
     session_name: str = "VP_Session"
@@ -198,6 +206,7 @@ class AppConfig:
     groups: List[GroupConfig] = field(default_factory=list)
     multiuser: MultiUserConfig = field(default_factory=MultiUserConfig)
     led_processors: List[LEDProcessorConfig] = field(default_factory=list)
+    led_groups: List[LEDGroupConfig] = field(default_factory=list)
     remote_control: RemoteControlConfig = field(default_factory=RemoteControlConfig)
     cameras: List[CameraPreset] = field(default_factory=list)
     sync_jobs: List[SyncJobConfig] = field(default_factory=list)
@@ -206,6 +215,8 @@ class AppConfig:
     ui: UIConfig = field(default_factory=UIConfig)
     switchboard: SwitchboardLinkConfig = field(default_factory=SwitchboardLinkConfig)
     favourite_properties: List[Dict[str, str]] = field(default_factory=list)
+    # Saved settings presets (core/presets.py): {"name": ..., "items": [{"type": ..., "data": ...}]}
+    setting_presets: List[Dict[str, Any]] = field(default_factory=list)
 
     # ---- helpers -------------------------------------------------------
     def project(self, name: Optional[str] = None) -> ProjectConfig:

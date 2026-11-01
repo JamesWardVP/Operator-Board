@@ -4,6 +4,7 @@ from __future__ import annotations
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
+from operator_board.ui.led_status import status_groups
 from operator_board.ui.widgets import (BigButton, Card, HazardOverlay, RecordButton, StateDot, WallStatusBar,
                                        clear_layout, hbox, muted, scroll)
 
@@ -89,13 +90,17 @@ class OperatePage(BasePage):
         self.pattern_off_btn = QtWidgets.QPushButton("Pattern off")
         self.pattern_btn.clicked.connect(lambda: self.invoke("led.test_pattern", pattern=self.pattern_combo.currentData()))
         self.pattern_off_btn.clicked.connect(lambda: self.invoke("led.test_pattern_off"))
+        self.locate_btn = QtWidgets.QPushButton("Locate")
+        self.locate_btn.setToolTip("The LED processors' locate function, to see which panels each one drives "
+                                   "(press again to stop)")
+        self.locate_btn.clicked.connect(lambda: self.invoke("led.locate"))
         wall.add_layout(hbox(QtWidgets.QLabel("Test pattern"), self.pattern_combo, self.pattern_btn,
-                             self.pattern_off_btn, None))
+                             self.pattern_off_btn, self.locate_btn, None))
         self.proc_row = QtWidgets.QHBoxLayout()
         wall.add_layout(self.proc_row)
         grid.addWidget(wall, 1, 0, 1, 3)
         self.wall_controls = [self.freeze_btn, self.blackout_btn, self.normal_btn, self.pattern_combo,
-                              self.pattern_btn, self.pattern_off_btn]
+                              self.pattern_btn, self.pattern_off_btn, self.locate_btn]
         self.wall_overlay = HazardOverlay(wall)
         self._wall_state = None      # None (usable), "none" (no processor) or "offline:<names>"
         self._wall_dismissed = None  # a state the operator chose to "use anyway"
@@ -351,7 +356,7 @@ class OperatePage(BasePage):
                 [("Retry connection", self._retry_led), setup, ("Use anyway", self._use_wall_anyway)])
 
     def _open_led_setup(self) -> None:
-        self.window_.show_page("LED Processors")
+        self.window_.show_page("LED Processor Setup")
 
     def _retry_led(self) -> None:
         self.background(self.ctx.led.check_all, lambda _r: self.refresh(), "LED connection check")
@@ -455,17 +460,13 @@ class OperatePage(BasePage):
         led = self.ctx.led
         self.freeze_btn.set_active(led.frozen)
         self.blackout_btn.set_active(led.blackout)
-        if led.blackout:
-            self.banner.show_wall("blackout")
-        elif led.frozen:
-            self.banner.show_wall("frozen")
-        elif led.test_pattern:
-            labels = dict(led.all_test_patterns())
-            self.banner.show_wall("pattern", led.test_pattern, labels.get(led.test_pattern, led.test_pattern))
-        elif self._wall_unavailable():
+        modes = led.modes()
+        self.normal_btn.set_active(bool(modes) and all(m == "normal" for m in modes.values()))
+        _restyle(self.locate_btn, "QPushButton { background: #7048e8; border-color: #ffffff; }" if led.locate else "")
+        if self._wall_unavailable():
             self.banner.show_wall("unavailable")
-        else:
-            self.banner.show_wall("normal")
+        else:  # one bar when every processor is in the same state, else one part per state
+            self.banner.show_processors(status_groups(led))
         patterns = led.all_test_patterns()
         if self._changed("patterns", patterns):
             current = self.pattern_combo.currentData()
@@ -482,7 +483,7 @@ class OperatePage(BasePage):
                 chip = self._chips[p.name] = QtWidgets.QLabel(f"  {p.name} · {p.profile.get('manufacturer', '')}  ")
                 self.proc_row.addWidget(chip)
             if not led.processors:
-                self.proc_row.addWidget(muted("No LED processors configured - add them on the LED Processors page."))
+                self.proc_row.addWidget(muted("No LED processors configured - add them on the LED Processor Setup page."))
             self.proc_row.addStretch(1)
         for p in led.processors:
             chip, st = self._chips.get(p.name), p.state

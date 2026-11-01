@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from operator_board.analytics.metrics import MetricStore
 from operator_board.core.actions import ActionParam, ActionRegistry, ActionResult
+from operator_board.core.changelog import COLUMNS, ChangeLog, ChangeRecord, export_workbook, show
 from operator_board.core.config import AppConfig
 from operator_board.core.events import EventBus
 from operator_board.core.stage import ConfigStore, copy_into
@@ -68,6 +69,10 @@ class AppContext:
         self._scan_lock = threading.Lock()
         self._midi_inputs: List[str] = []
         self._stop = threading.Event()
+        self.changes = ChangeLog(self._change_context)
+        self._session_start = len(self.changes.records)  # changes before this index are from earlier runs
+        self.changes.listeners.append(lambda rec: self.bus.publish("changes.recorded", category=rec.category))
+        self.bus.subscribe("action.invoked", lambda _t, p: self._log_action(p))
         self.bus.subscribe("multiuser.session_renamed", lambda _t, _p: self._save_quietly())
         self.bus.subscribe("device.metrics", lambda _t, p: self.metrics.add_raw(p["name"], p.get("metrics") or {}))
         self._register_actions()
@@ -252,6 +257,96 @@ class AppContext:
                 elif rt and not (rt.last_error or "").startswith("Cannot reach listener"):
                     pending.remove(name)  # it answered (e.g. it wants the password): the prompt takes over
         return connected
+
+    # ---- change log, undo and production data ---------------------------------------------
+    def _change_context(self) -> Dict[str, Any]:
+        t = self.config.takes
+        return {"slate": t.slate, "take": t.take, "timecode": self.timing.timecode() or "",
+                "project": self.config.active_project, "level": getattr(self.editor, "level", "") or ""}
+
+    NOT_LOGGED = ("surface.",)
+
+    def _log_action(self, payload: Dict[str, Any]) -> None:
+        """Every action run from a button, key, surface or the API goes into the change log."""
+        action_id = payload.get("action_id", "")
+        if any(action_id.startswith(p) for p in self.NOT_LOGGED):
+            return
+        params = payload.get("params") or {}
+        if action_id == MACRO_ACTION:  # its steps are logged one by one
+            params = {"steps": len(params.get("steps") or [])}
+        item = ", ".join(show(v) for k, v in params.items() if k not in ("steps",)) or payload.get("category", "")
+        self.changes.record(payload.get("category", ""), item, payload.get("label", action_id),
+                            params or "", None, result="ok" if payload.get("ok") else f"failed: {payload.get('message', '')}")
+
+    def apply_setting(self, kind: str, ref: Dict[str, Any], value: Any) -> None:
+        """Apply a Remote Objects value again (Undo, presets). Raises when Unreal did not take it."""
+        if kind == "quick":
+            self.objects.set_quick_control(ref["path"], ref["control"], value)
+        elif kind == "property":
+            errors = self.objects.set_property(ref["path"], ref["prop"], value, ref.get("target", "primary"))
+            if errors:
+                raise RuntimeError("; ".join(errors))
+        elif kind == "preset":
+            errors = self.objects.set_preset_value(ref["preset"], ref["label"], value, ref.get("target", "primary"))
+            if errors:
+                raise RuntimeError("; ".join(errors))
+        else:
+            raise ValueError(f"Cannot apply a '{kind}' setting")
+
+    def session_changes(self) -> List[ChangeRecord]:
+        return self.changes.records[self._session_start:]
+
+    def changed_settings(self) -> List[Dict[str, Any]]:
+        """The latest value of every Remote Objects setting changed since Operator Board started
+        (what "Export changes" and a preset's Remote Objects item hold)."""
+        latest: Dict[tuple, ChangeRecord] = {}
+        for rec in self.session_changes():
+            if rec.kind and rec.result == "ok":
+                latest[rec.key] = rec
+        return [{"kind": r.kind, "ref": r.ref, "item": r.item, "setting": r.setting, "value": r.value}
+                for r in latest.values()]
+
+    def production_export(self, path: str) -> None:
+        """A spreadsheet for production: the change log, takes, camera positions, LED processors,
+        devices and the stage summary, one sheet each."""
+        import datetime
+        from operator_board import __version__
+        changes = [[show(getattr(r, key)) if key in ("value", "previous") else getattr(r, key) for key, _ in COLUMNS]
+                   for r in self.changes.records]
+        takes = []
+        for t in self.takes.log.takes:
+            start = datetime.datetime.fromtimestamp(t.started) if t.started else None
+            takes.append([t.slate, t.take, t.description, t.level, start.strftime("%Y-%m-%d") if start else "",
+                          start.strftime("%H:%M:%S") if start else "",
+                          datetime.datetime.fromtimestamp(t.stopped).strftime("%H:%M:%S") if t.stopped else "",
+                          round(t.duration_s, 1), t.rating, t.notes, t.sequence, t.saved])
+        cameras = [[c.name, c.target] + [round(float(v), 4) for v in list(c.location) + list(c.rotation)]
+                   for c in self.config.cameras]
+        leds = []
+        for cfg in self.config.led_processors:
+            p = self.led.get(cfg.name)
+            prof = self.led.registry.get(cfg.profile_id) or {}
+            leds.append([cfg.name, prof.get("name", cfg.profile_id), cfg.host, "yes" if cfg.enabled else "no",
+                         p.mode if p else "", (p.state.test_pattern or "") if p else "",
+                         ", ".join(g.name for g in self.config.led_groups if cfg.name in g.processors)])
+        devices = [[d.name, d.role, d.address, d.rc_port, "yes" if d.enabled else "no"] for d in self.config.devices]
+        mu = self.config.multiuser
+        now = datetime.datetime.now()
+        summary = [["Exported", now.strftime("%Y-%m-%d %H:%M:%S")], ["Timecode", self.timing.timecode() or ""],
+                   ["Project", self.config.active_project], ["Level", getattr(self.editor, "level", "") or ""],
+                   ["Switchboard config", self.config.switchboard.active_config],
+                   ["Scene (slate)", self.config.takes.slate], ["Next take", self.config.takes.take],
+                   ["Multi-user server", mu.server_name], ["Multi-user session", mu.session_name],
+                   ["Operator Board", __version__]]
+        export_workbook(path, [
+            ("Summary", ["Field", "Value"], summary),
+            ("Change log", [title for _k, title in COLUMNS], changes),
+            ("Takes", ["Slate", "Take", "Description", "Level", "Date", "Start", "End", "Duration (s)", "Rating",
+                       "Notes", "Level sequence", "Saved"], takes),
+            ("Camera positions", ["Name", "Target", "X", "Y", "Z", "Pitch", "Yaw", "Roll"], cameras),
+            ("LED processors", ["Name", "Type", "Address", "Enabled", "Mode", "Test pattern", "Groups"], leds),
+            ("Unreal instances", ["Name", "Role", "Address", "Remote Control port", "Enabled"], devices),
+        ])
 
     def run_steps(self, steps: List[Dict[str, Any]]) -> ActionResult:
         """Run a button's steps in order: {"action": id, "params": {...}} or {"delay": milliseconds}.
@@ -476,7 +571,23 @@ class AppContext:
               state=lambda: led.blackout, confirm=lambda: self.config.ui.confirm_blackout and not led.blackout)
         a.add("led.blackout_off", "Restore from blackout", "LED Wall",
               lambda: _errors_result("Restore", led.set_blackout(False)))
-        a.add("led.restore", "Wall to normal", "LED Wall", lambda: _errors_result("Wall normal", led.restore_all()))
+        a.add("led.restore", "Wall to normal", "LED Wall", lambda: _errors_result("Wall normal", led.restore_all()),
+              state=lambda: bool(led.active()) and all(m == "normal" for m in led.modes().values()))
+        a.add("led.locate", "Locate (toggle)", "LED Wall", lambda: _errors_result("Locate", led.set_locate(None)),
+              state=lambda: led.locate)
+        a.add("led.locate_on", "Locate on", "LED Wall", lambda: _errors_result("Locate", led.set_locate(True)),
+              state=lambda: led.locate)
+        a.add("led.locate_off", "Locate off", "LED Wall", lambda: _errors_result("Locate off", led.set_locate(False)))
+        led_targets = lambda: (["all"] + [g.name for g in self.config.led_groups]
+                               + [p.name for p in self.config.led_processors])
+        a.add("led.set_mode", "Set LED processor / group mode", "LED Wall",
+              lambda target="all", mode="normal", pattern="": _errors_result(
+                  f"{target}: {mode}", led.set_mode(target, mode, pattern or None)),
+              description="Put one processor, a group of processors or the whole wall into one mode",
+              params=[ActionParam("target", "Processor or group", "choice", "all", choices_provider=led_targets),
+                      ActionParam("mode", "Mode", "choice", "normal",
+                                  choices_provider=lambda: ["frozen", "blackout", "pattern", "locate", "normal"]),
+                      ActionParam("pattern", "Test pattern (for pattern)", "choice", choices_provider=patterns)])
         a.add("led.test_pattern", "Show test pattern", "LED Wall",
               lambda pattern="": _errors_result(f"Test pattern {pattern}", led.set_test_pattern(pattern or None)),
               params=[ActionParam("pattern", "Pattern", "choice", choices_provider=patterns)],

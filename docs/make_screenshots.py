@@ -182,7 +182,7 @@ def main() -> int:
     shot("Takes", "takes.png")
     shot("Stage", "stage.png", lambda p: (p.refresh(), select_first(p), hide_local_paths(p, folder)))
     shot("Devices", "devices.png", select_first)
-    shot("LED Processors", "led_processors.png", select_first)
+    shot("LED Processor Setup", "led_processors.png", select_first)
     shot("File Sync", "file_sync.png")
     shot("Analytics", "analytics.png", analytics)
     shot("Control Surfaces", "control_surfaces.png")

@@ -274,13 +274,22 @@ class LevelsPage(BasePage):
     def _sublevel_toggled(self, item) -> None:
         pkg, visible = item.data(Qt.UserRole), item.checkState() == Qt.Checked
         nodes = self.apply_nodes.isChecked()
-        self.background(lambda: self.ctx.levels.set_sublevel_visible(pkg, visible, nodes),
-                        self.report(f"{'Showing' if visible else 'Hiding'} {item.text()}"), "Sub-level")
+        name = item.text()
+
+        def done(errors) -> None:
+            self.report(f"{'Showing' if visible else 'Hiding'} {name}")(errors)
+            self.ctx.changes.record("Levels", name, "Sub-level visible", visible, not visible,
+                                    result="ok" if not errors else "failed: " + "; ".join(errors))
+        self.background(lambda: self.ctx.levels.set_sublevel_visible(pkg, visible, nodes), done, "Sub-level")
 
     def _layer_toggled(self, item) -> None:
         path, visible = item.data(Qt.UserRole), item.checkState() == Qt.Checked
-        self.background(lambda: self.ctx.levels.set_data_layer_visible(path, visible),
-                        lambda _: self.notify(f"{'Showing' if visible else 'Hiding'} {item.text()}"), "Data layer")
+        name = item.text()
+
+        def done(_r) -> None:
+            self.notify(f"{'Showing' if visible else 'Hiding'} {name}")
+            self.ctx.changes.record("Levels", name, "Data layer visible", visible, not visible)
+        self.background(lambda: self.ctx.levels.set_data_layer_visible(path, visible), done, "Data layer")
 
     # ---- cameras -----------------------------------------------------------------------
     def _cameras_tab(self):

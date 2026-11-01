@@ -21,6 +21,8 @@ folder), so they can be replaced with other compatible builds.
 | python-elgato-streamdeck | Stream Deck hardware | MIT | https://github.com/abcminiuser/python-elgato-streamdeck |
 | HIDAPI (`hidapi.dll`) | Stream Deck USB access | BSD-3-Clause (one of its three license options) | https://github.com/libusb/hidapi |
 | mido | MIDI controller support | MIT | https://github.com/mido/mido |
+| openpyxl | Spreadsheet (.xlsx) exports | MIT | https://foss.heptapod.net/openpyxl/openpyxl |
+| et_xmlfile (used by openpyxl) | Spreadsheet (.xlsx) exports | MIT | https://foss.heptapod.net/openpyxl/et_xmlfile |
 | python-rtmidi (with RtMidi) | MIDI input/output for mido | MIT (RtMidi: MIT-style) | https://github.com/SpotlightKid/python-rtmidi |
 | Inno Setup | The setup program (`OperatorBoard-Setup-<version>.exe`) and its uninstaller | Inno Setup License (permissive; copyright Jordan Russell and Martijn Laan) | https://jrsoftware.org/isinfo.php |
 | PyInstaller bootloader | `OperatorBoard.exe` launcher | GPL-2.0-or-later with the PyInstaller exception, which allows distributing programs built with it | https://pyinstaller.org |

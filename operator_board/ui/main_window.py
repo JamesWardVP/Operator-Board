@@ -14,6 +14,8 @@ from operator_board.ui.pages.analytics import AnalyticsPage
 from operator_board.ui.pages.devices import DevicesPage
 from operator_board.ui.pages.dlss import DLSSPage
 from operator_board.ui.pages.led_setup import LEDSetupPage
+from operator_board.ui.pages.led_walls import LEDProcessorsPage
+from operator_board.ui.pages.saved_settings import SavedSettingsPage
 from operator_board.ui.pages.levels import LevelsPage
 from operator_board.ui.pages.objects import ObjectsPage
 from operator_board.ui.pages.operate import OperatePage
@@ -25,12 +27,13 @@ from operator_board.ui.pages.takes import TakesPage
 from operator_board.ui.theme import COLORS, STYLESHEET
 from operator_board.ui.widgets import scroll
 
-PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, DLSSPage, AnalyticsPage, SurfacesPage, SyncPage,
-         LEDSetupPage, StagePage, DevicesPage, SettingsPage]
+PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, LEDProcessorsPage, DLSSPage, AnalyticsPage, SurfacesPage,
+         SyncPage, SavedSettingsPage, LEDSetupPage, StagePage, DevicesPage, SettingsPage]
 # The sidebar: ungrouped pages at the top and bottom, collapsible groups in between (open by default).
 NAV = ["Operate", "Takes", "Cameras & Levels",
-       ("Advanced", ["Remote Objects", "DLSS", "Analytics", "Control Surfaces", "File Sync"]),
-       ("Setup", ["LED Processors", "Stage", "Devices"]),
+       ("Advanced", ["Remote Objects", "LED Processors", "DLSS", "Analytics", "Control Surfaces", "File Sync",
+                     "Saved Settings"]),
+       ("Setup", ["LED Processor Setup", "Stage", "Devices"]),
        "Settings"]
 
 # Stage hotkeys work from any page.

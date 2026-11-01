@@ -1,28 +1,38 @@
-"""LED processor configuration: choose the processor type, set its address, test and fine-tune commands."""
+"""LED processor setup: choose the processor type, set its address, test and fine-tune commands. Each
+processor can be frozen, blacked out, located and resumed from its row; the Advanced section adds
+groups of processors and individual control of each one."""
 from __future__ import annotations
 
 from operator_board.core.config import LEDProcessorConfig
 from operator_board.led.profiles import CONFIDENCE_LABELS
 from operator_board.qt import QtGui, QtWidgets, Qt
 from operator_board.ui.forms import edit_dataclass, unique_name_validator
+from operator_board.ui.group_dialog import edit_led_group
+from operator_board.ui.led_controls import ModeButtons
 from operator_board.ui.led_commands import edit_led_commands
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.widgets import Card, hbox, make_table, muted, set_row
 
 CONFIDENCE_COLORS = {"source": "#2f9e44", "partial": "#f08c00", "assumed": "#e03131", "user": "#3d8bfd"}
-COMMANDS = ["freeze_on", "freeze_off", "blackout_on", "blackout_off", "test_pattern_off", "brightness"]
+COMMANDS = ["freeze_on", "freeze_off", "blackout_on", "blackout_off", "test_pattern_off", "locate_on", "locate_off",
+            "brightness"]
+ROW_MODES = (("Freeze", "frozen"), ("Blackout", "blackout"), ("Locate", "locate"), ("Resume", "normal"))
+HEADERS = ["Name", "Processor type", "Address", "Enabled", "Status"] + [m[0] for m in ROW_MODES] + \
+          ["Last command / error"]
+LAST = len(HEADERS) - 1
 
 
 class LEDSetupPage(BasePage):
-    title = "LED Processors"
+    title = "LED Processor Setup"
     refresh_topics = ("led.",)
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(16, 16, 16, 16)
+        top = QtWidgets.QHBoxLayout()
         card = Card("LED processors on this stage")
-        self.table = make_table(["Name", "Processor type", "Address", "Enabled", "Status", "Last command / error"])
+        self.table = make_table(HEADERS)
         self.table.itemSelectionChanged.connect(self._show_details)
         self.table.doubleClicked.connect(lambda _: self._edit())
         card.add(self.table)
@@ -33,21 +43,19 @@ class LEDSetupPage(BasePage):
             b.clicked.connect(fn)
             btns.append(b)
         card.add_layout(hbox(*btns, None))
-        lay.addWidget(card, 2)
+        top.addWidget(card, 3)
+        top.addWidget(self._advanced_card(), 2)
+        lay.addLayout(top, 2)
 
         bottom = QtWidgets.QHBoxLayout()
         manual = Card("Selected processor")
         self.notes = muted("")
         manual.add(self.notes)
-        row = []
-        for label, fn in [("Freeze", lambda p: p.set_freeze(True)), ("Unfreeze", lambda p: p.set_freeze(False)),
-                          ("Blackout", lambda p: p.set_blackout(True)), ("Restore", lambda p: p.set_blackout(False))]:
-            b = QtWidgets.QPushButton(label)
-            b.clicked.connect(lambda _=False, fn=fn, label=label: self._on_selected(fn, label))
-            row.append(b)
-        manual.add_layout(hbox(*row, None))
+        self.selected_modes_holder = QtWidgets.QHBoxLayout()
+        self.selected_modes = None
+        manual.add_layout(self.selected_modes_holder)
         self.pattern = QtWidgets.QComboBox()
-        show = QtWidgets.QPushButton("Show pattern")
+        self.show_pattern = show = QtWidgets.QPushButton("Show pattern")
         show.clicked.connect(lambda: self._on_selected(lambda p: p.set_test_pattern(self.pattern.currentData()), "Pattern"))
         off = QtWidgets.QPushButton("Pattern off")
         off.clicked.connect(lambda: self._on_selected(lambda p: p.set_test_pattern(None), "Pattern off"))
@@ -83,6 +91,93 @@ class LEDSetupPage(BasePage):
         cmds.add_layout(hbox(self.edit_cmds, self.delete_custom, None))
         bottom.addWidget(cmds, 1)
         lay.addLayout(bottom, 3)
+
+    # ---- advanced: groups and individual control ---------------------------------------
+    def _advanced_card(self) -> QtWidgets.QWidget:
+        card = Card()
+        self.adv_toggle = QtWidgets.QToolButton()
+        self.adv_toggle.setText("ADVANCED: GROUPS AND INDIVIDUAL CONTROL")
+        self.adv_toggle.setObjectName("CardTitle")
+        self.adv_toggle.setCheckable(True)
+        self.adv_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.adv_toggle.setArrowType(Qt.RightArrow)
+        self.adv_toggle.setStyleSheet("QToolButton { border: none; background: transparent; font-weight: 700; }")
+        self.adv_toggle.toggled.connect(self._toggle_advanced)
+        card.add(self.adv_toggle)
+        self.adv_body = QtWidgets.QWidget()
+        self.adv_body.setObjectName("PlainRow")
+        body = QtWidgets.QVBoxLayout(self.adv_body)
+        body.setContentsMargins(0, 0, 0, 0)
+        new_group = QtWidgets.QPushButton("+ New group")
+        new_group.setToolTip("A group of LED processors that you can freeze, black out... together")
+        new_group.clicked.connect(lambda: self._edit_group(None))
+        body.addLayout(hbox(new_group, None))
+        self.adv_rows = QtWidgets.QVBoxLayout()
+        self.adv_rows.setSpacing(6)
+        body.addLayout(self.adv_rows)
+        body.addWidget(muted("Each button puts that group or processor into the mode (pressing a lit one returns "
+                             "it to normal). The LED Processors page shows the same as columns."))
+        body.addStretch(1)
+        card.add(self.adv_body)
+        self.adv_body.hide()
+        self._adv_key = None
+        self._adv_strips = []
+        return card
+
+    def _toggle_advanced(self, on: bool) -> None:
+        self.adv_toggle.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
+        self.adv_body.setVisible(on)
+        self._adv_key = None
+        self.refresh()
+
+    def _edit_group(self, group) -> None:
+        if edit_led_group(self, self.ctx.config, group):
+            self.save_config()
+            self.ctx.bus.publish("led.groups_changed")
+            self._adv_key = None
+            self.refresh()
+
+    def _fill_advanced(self) -> None:
+        if not self.adv_body.isVisible():
+            return
+        cfg = self.ctx.config
+        key = ([(g.name, g.color, tuple(g.processors)) for g in cfg.led_groups], [p.name for p in cfg.led_processors])
+        if key != self._adv_key:
+            self._adv_key = key
+            while self.adv_rows.count():
+                item = self.adv_rows.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.hide()
+                    w.deleteLater()
+            self._adv_strips = []
+            for g in cfg.led_groups:
+                name = QtWidgets.QLabel(f"  {g.name}  ")
+                name.setStyleSheet(f"background: {g.color}; color: white; border-radius: 9px; font-weight: 700;")
+                name.setToolTip(", ".join(g.processors) or "No processors")
+                edit = QtWidgets.QPushButton("Edit")
+                edit.clicked.connect(lambda _=False, g=g: self._edit_group(g))
+                self._add_adv_row(name, g.name, edit)
+            for p in cfg.led_processors:
+                self._add_adv_row(QtWidgets.QLabel(p.name), p.name, None)
+            if not cfg.led_processors:
+                self.adv_rows.addWidget(muted("Add LED processors first."))
+        for strip in self._adv_strips:
+            strip.refresh()
+
+    def _add_adv_row(self, label: QtWidgets.QWidget, target: str, extra) -> None:
+        row = QtWidgets.QWidget()
+        row.setObjectName("PlainRow")
+        lay = QtWidgets.QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        label.setMinimumWidth(110)
+        lay.addWidget(label)
+        strip = ModeButtons(self, target, compact=True)
+        self._adv_strips.append(strip)
+        lay.addWidget(strip, 1)
+        if extra is not None:
+            lay.addWidget(extra)
+        self.adv_rows.addWidget(row)
 
     # ---- editing --------------------------------------------------------------------
     def _profile_choices(self):
@@ -203,7 +298,20 @@ class LEDSetupPage(BasePage):
         if p is None:
             self.notes.setText("Select a processor to control it individually.")
             self.history.clear()
+            if self.selected_modes is not None:
+                self.selected_modes.hide()
             return
+        if self.selected_modes is None or self.selected_modes.target != p.name:
+            if self.selected_modes is not None:
+                self.selected_modes.hide()
+                self.selected_modes.deleteLater()
+            self.selected_modes = ModeButtons(self, p.name, modes=("frozen", "blackout", "locate", "normal"))
+            self.selected_modes_holder.addWidget(self.selected_modes)
+        self.selected_modes.show()
+        self.selected_modes.refresh()
+        lit = p.mode == "pattern"
+        self.show_pattern.setStyleSheet("QPushButton { background: #fab005; color: #111; border-color: #ffffff; "
+                                        "font-weight: 800; }" if lit else "")
         prof = p.profile
         self.notes.setText(f"<b>{prof.get('name')}</b> · {prof.get('transport', '').upper()} port {p.port}<br>"
                            f"{prof.get('notes', '')}")
@@ -234,8 +342,13 @@ class LEDSetupPage(BasePage):
             status = "unknown" if not p or p.state.online is None else ("online" if p.state.online else "OFFLINE")
             port = cfg.port or prof.get("default_port", "")
             set_row(self.table, i, [cfg.name, prof.get("name", cfg.profile_id), f"{cfg.host}:{port}",
-                                    "yes" if cfg.enabled else "no", status,
-                                    (p.state.last_error or p.state.last_command) if p else ""])
+                                    "yes" if cfg.enabled else "no", status] + [""] * len(ROW_MODES) +
+                    [(p.state.last_error or p.state.last_command) if p else ""])
+            for col, (_label, mode) in enumerate(ROW_MODES, start=5):
+                strip = ModeButtons(self, cfg.name, compact=True, modes=(mode,))
+                strip.refresh()
+                self.table.setCellWidget(i, col, strip)
         if sel in self.ctx.config.led_processors:
             self.table.selectRow(self.ctx.config.led_processors.index(sel))
         self._show_details()
+        self._fill_advanced()

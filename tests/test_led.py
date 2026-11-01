@@ -125,7 +125,8 @@ def test_manager_fan_out_and_restore():
     assert not mgr.get("Off").state.frozen
     assert mgr.restore_all() == []
     assert not (mgr.frozen or mgr.blackout or mgr.test_pattern)
-    assert events[-1] == {"frozen": False, "blackout": False, "test_pattern": None}
+    assert events[-1] == {"frozen": False, "blackout": False, "test_pattern": None, "locate": False,
+                          "modes": {"A": "normal", "B": "normal"}}
 
 
 def test_manager_with_no_processors_reports_error():
