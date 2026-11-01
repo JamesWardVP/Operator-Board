@@ -1,10 +1,10 @@
 """Resolves which Unreal instances a remote operation should go to."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
 
 from operator_board.core.config import ROLE_EDITOR, ROLE_NDISPLAY, AppConfig
-from operator_board.remote.rc_client import RemoteControlClient
+from operator_board.remote.rc_client import RemoteControlClient, RemoteControlError
 
 TARGET_PRIMARY = "primary"      # the main editor
 TARGET_EDITORS = "editors"
@@ -17,6 +17,32 @@ class TargetResolver:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self._clients = {}
+
+    def editor_or_nodes(self, fn: Callable[[RemoteControlClient], Any], all_nodes: bool = False) -> List[Any]:
+        """``fn`` on the primary editor; when no editor is set up or running (only the nDisplay nodes
+        are), on the first nDisplay node that answers (``all_nodes``: on every running node).
+        Errors from an editor that answered are raised as they are."""
+        try:
+            return [fn(self.primary())]
+        except LookupError as exc:
+            reason = str(exc)
+        except RemoteControlError as exc:
+            if "unreachable" not in str(exc):
+                raise
+            reason = "no editor is running"
+        results, errors = [], []
+        for client in self.resolve(TARGET_NDISPLAY):
+            try:
+                results.append(fn(client))
+            except RemoteControlError as exc:
+                errors.append(f"{client.host}:{client.port}: {exc}")
+                continue
+            if not all_nodes:
+                break
+        if not results:
+            raise RemoteControlError(f"{reason[:1].upper() + reason[1:]}, and no nDisplay node answered"
+                                     + (f" ({'; '.join(errors)})" if errors else " (none are set up)"))
+        return results
 
     def client_for(self, device_name: str) -> Optional[RemoteControlClient]:
         dev = self.config.device(device_name)

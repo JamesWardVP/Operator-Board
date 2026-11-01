@@ -180,3 +180,34 @@ def test_listener_prompt_starts_it_once(ctx, monkeypatch, tmp_path):
     window.skip_save_on_close = True
     window.close()
     app.processEvents()
+
+
+def test_actor_browser_uses_the_nodes_without_an_editor():
+    from operator_board.remote.objects import ObjectService
+    from operator_board.remote.rc_client import RemoteControlError
+
+    def respond(method, path, body):
+        return {"ReturnValue": True, "LogOutput": [{"Output": RESULT_MARKER + json.dumps(
+            {"actors": [{"label": "RectLight", "path": "/Game/M.M:PersistentLevel.RectLight", "class": "RectLight"}],
+             "ok": True, "world": "game"})}]}
+    nodes = [RecordingHTTPServer(respond), RecordingHTTPServer(respond)]
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    free_port = closed.getsockname()[1]
+    closed.close()
+    try:
+        cfg = AppConfig(devices=[DeviceConfig(name="Ed", address="127.0.0.1", rc_port=free_port)] +
+                        [DeviceConfig(name=f"N{i}", role="ndisplay", address="127.0.0.1", rc_port=n.port)
+                         for i, n in enumerate(nodes)],
+                        remote_control=RemoteControlConfig(primary_target="Ed", timeout_s=1.0))
+        objs = ObjectService(cfg, TargetResolver(cfg))
+        assert objs.actors("Light")[0]["label"] == "RectLight"
+        assert len(nodes[0].requests) == 1 and not nodes[1].requests  # a read: the first node only
+        objs.set_quick_control("/Game/M.M:PersistentLevel.RectLight", "visible", False)
+        assert len(nodes[0].requests) == 2 and len(nodes[1].requests) == 1  # a change: every node
+        cfg.devices = cfg.devices[:1]  # no nodes either
+        with pytest.raises(RemoteControlError, match="No editor is running, and no nDisplay node"):
+            objs.actors()
+    finally:
+        for n in nodes:
+            n.close()
