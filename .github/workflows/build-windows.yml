@@ -67,3 +67,113 @@ jobs:
             **Portable:** or download the `OperatorBoard-…-win64.zip`, right-click it → Properties → tick **Unblock** → OK, then unzip it and run `OperatorBoard.exe`. Python is not needed for either.
 
             [Code signing policy](https://github.com/JamesWardVP/Operator-Board#code-signing-policy) · [Privacy policy](https://github.com/JamesWardVP/Operator-Board#privacy-policy) · [License](https://github.com/JamesWardVP/Operator-Board/blob/main/LICENSE)
+
+  # Publish each release to the download page on virtualfilmtools.com, which serves its own copy of
+  # the files (so it keeps working without GitHub). Needs the repository secrets VFT_FTP_HOST,
+  # VFT_FTP_USER and VFT_FTP_PASSWORD (an FTP account limited to the site's downloads/operator-board
+  # folder; VFT_FTP_DIR is optional, for an account that starts elsewhere). Without them it skips.
+  publish-website:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VFT_FTP_HOST: ${{ secrets.VFT_FTP_HOST }}
+      VFT_FTP_USER: ${{ secrets.VFT_FTP_USER }}
+      LFTP_PASSWORD: ${{ secrets.VFT_FTP_PASSWORD }}
+      VFT_FTP_DIR: ${{ secrets.VFT_FTP_DIR }}
+      SITE_URL: https://virtualfilmtools.com/downloads/operator-board
+    steps:
+      - name: Check the website upload is set up
+        id: check
+        run: |
+          if [ -z "$VFT_FTP_HOST" ] || [ -z "$VFT_FTP_USER" ] || [ -z "$LFTP_PASSWORD" ]; then
+            echo "::notice::Not publishing to virtualfilmtools.com: add the repository secrets VFT_FTP_HOST, VFT_FTP_USER and VFT_FTP_PASSWORD to turn it on."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get the release files and write latest.json
+        if: steps.check.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          setup="OperatorBoard-Setup-${version}.exe"
+          zip="OperatorBoard-${version}-win64.zip"
+          mkdir -p out
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" -D out -p "$setup" -p "$zip"
+          VERSION="$version" SETUP="$setup" ZIP="$zip" python3 - <<'PY'
+          import datetime, hashlib, json, os
+          def info(name):
+              data = open(os.path.join("out", name), "rb").read()
+              return {"file": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+          latest = {"version": os.environ["VERSION"], "date": datetime.date.today().isoformat(),
+                    "setup": info(os.environ["SETUP"]), "zip": info(os.environ["ZIP"])}
+          open("out/latest.json", "w").write(json.dumps(latest, indent=2) + "\n")
+          print(json.dumps(latest, indent=2))
+          PY
+          echo "SETUP=$setup" >> "$GITHUB_ENV"
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+
+      - name: Upload to virtualfilmtools.com (FTP over TLS)
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp > /dev/null
+          ftp() {  # run lftp commands in the downloads folder; TLS required, certificate checked
+            lftp --env-password -u "$VFT_FTP_USER" -e "set ftp:ssl-force true; set ftp:ssl-protect-data true; \
+              set ssl:verify-certificate yes; set net:max-retries 2; set net:timeout 30; \
+              cd '${VFT_FTP_DIR:-.}'; $1; bye" "$VFT_FTP_HOST"
+          }
+          listing() {  # the server's own listing (ls -l style: size in column 5, name last)
+            ftp "ls"
+          }
+          remote_size() {  # size in bytes of a file in the folder
+            listing | awk -v f="$1" '$NF == f {print $5}'
+          }
+          check() {
+            local want got
+            want=$(stat -c %s "out/$1")
+            got=$(remote_size "$1" || true)
+            if [ "$got" != "$want" ]; then
+              echo "::error::$1 on the server is ${got:-missing} bytes, expected $want"
+              exit 1
+            fi
+            echo "$1: $got bytes on the server"
+          }
+          # The installer and zip first, then latest.json, so the page never points at a missing file.
+          ftp "put 'out/$SETUP' -o '$SETUP'; put 'out/$ZIP' -o '$ZIP'"
+          check "$SETUP"
+          check "$ZIP"
+          ftp "put out/latest.json -o latest.json"
+          check latest.json
+          # Only the current version stays: remove older installers and zips, nothing else.
+          for name in $(listing | awk '{print $NF}'); do
+            case "$name" in
+              "$SETUP"|"$ZIP") ;;
+              OperatorBoard-Setup-*.exe|OperatorBoard-*-win64.zip)
+                echo "Removing old $name"
+                ftp "rm '$name'" ;;
+            esac
+          done
+
+      - name: Check the download page's files
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          set -uo pipefail
+          for name in "$SETUP" "$ZIP"; do
+            want=$(stat -c %s "out/$name")
+            got=$(curl -sIL "$SITE_URL/$name?check=$GITHUB_RUN_ID" | tr -d '\r' | awk 'tolower($1)=="content-length:" {v=$2} END {print v}')
+            status=$(curl -s -o /dev/null -w '%{http_code}' -I "$SITE_URL/$name?check=$GITHUB_RUN_ID")
+            if [ "$status" != "200" ] || [ "$got" != "$want" ]; then
+              echo "::warning::$SITE_URL/$name answered HTTP $status with ${got:-no} Content-Length (expected $want); the upload itself was verified, so this may be the site's cache"
+            else
+              echo "$SITE_URL/$name: HTTP 200, $got bytes"
+            fi
+          done
+          echo "latest.json on the site:"
+          curl -s "$SITE_URL/latest.json?check=$GITHUB_RUN_ID" || echo "::warning::could not read $SITE_URL/latest.json"
