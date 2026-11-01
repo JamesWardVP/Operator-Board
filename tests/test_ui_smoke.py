@@ -28,7 +28,7 @@ def test_main_window_pages(tmp_path):
     assert window.pages[0].banner.text() == "WALL FROZEN"
     assert window.pages[0].tiles["Ed"].link.text() == "Connect"
     # switch to a new Switchboard config and back while the window is open
-    stage_page = next(p for p in window.pages if p.title == "Stage")
+    stage_page = next(p for p in window.pages if p.title == "Switchboard Configs")
     sb_path = str(tmp_path / "configs" / "Stage_A.json")
     ctx.new_switchboard_config(sb_path, "Stage_A", "D:/P/P.uproject", "C:/UE_5.6")
     ctx.config.switchboard.config_dir = str(tmp_path / "configs")

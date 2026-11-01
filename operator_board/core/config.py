@@ -187,6 +187,7 @@ class UIConfig:
     confirm_blackout: bool = True  # ask before blacking out the wall, so it cannot happen by accident
     confirm_stop_all: bool = True
     metrics_poll_s: float = 2.0
+    last_project: str = ""  # the Operator Board project opened last (its folder name)
 
 
 @dataclass

@@ -30,9 +30,9 @@ It uses the same building blocks as Switchboard: **SwitchboardListener** on each
 ## Getting started
 
 1. **Download** `OperatorBoard-Setup-<version>.exe` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page and run it. Python does not need to be installed.
-2. **Start Operator Board** from the Start menu.
+2. **Start Operator Board** from the Start menu and choose a **project** on the start screen, or start a new one (one project per shoot or show).
 3. **Make sure SwitchboardListener is running** on every machine that runs Unreal (`Engine\Binaries\Win64\SwitchboardListener.exe`), as you would for Switchboard. For UE 5.4 and later, Operator Board asks for each listener's password the first time it connects, just like Switchboard.
-4. **Open your stage** on the **Stage** page: pick an existing Switchboard config, or create a new one.
+4. **Open your stage** on the **Switchboard Configs** page: pick an existing Switchboard config, or create a new one.
 5. **Add your LED processors** on the **LED Processors** page: choose the type and enter its IP address, as you would in Companion.
 6. Go to **Operate**, connect, and you're running.
 
@@ -47,14 +47,24 @@ If no LED processor is set up, or none can be reached, the LED Wall section is g
 
 ![Operate page with the WALL FROZEN banner and the Freeze button lit](docs/images/operate_frozen.png)
 
-### Stage: share configs with Switchboard
+### Projects: one per shoot
+Operator Board opens on a start screen listing your projects. Each project keeps everything specific to a shoot or an Unreal project: its takes, camera positions, saved settings presets, change log, Unreal instances and nDisplay setup, LED processors and groups, Remote Control settings and the Switchboard config it uses. A new project starts clean, so there is nothing to wipe between shoots. Control surfaces and interface settings belong to the computer and are the same in every project.
+
+- **New project…** asks for the name and details (production, client, director, director of photography, VP supervisor, location, shoot dates, notes) and can start with another project's stage setup (devices, LED processors, Switchboard config) without its camera positions, takes, presets or change log.
+- **Duplicate…** copies a project as it stands, as a checkpoint; **Rename…** and **Details…** change it.
+- **Export…** saves a project to a `.opproject` file, with its takes and change log (to share it or keep it) or without them (as a template). **Import project…** adds one as a new project, and **New from template…** starts a new project from a template, so studio and personal templates can be used again and again.
+- The project's name and details are in the production data export.
+- The project button at the top of the sidebar saves the project and goes back to the start screen.
+- Settings from before projects were added become a project called "My stage" the first time; the old files are left as they were.
+
+### Switchboard Configs: share configs with Switchboard
 Open, create and save **Switchboard config files**, the same files Switchboard lists. By default Operator Board looks in the folder Switchboard itself uses for the chosen engine (`Engine\Plugins\VirtualProduction\Switchboard\Source\Switchboard\configs`, or `SWITCHBOARD_CONFIG_DIR`), and you can pick any other folder.
 
-![Stage page listing Switchboard configs, with one open](docs/images/stage.png)
+![Switchboard Configs page listing Switchboard configs, with one open](docs/images/stage.png)
 
 - A config made or changed here opens in Switchboard, and the other way round.
 - Operator Board writes only the project, engine, editor and nDisplay devices, nDisplay config and multi-user settings. Every other Switchboard setting is kept exactly as it was.
-- Operator Board's own settings for that stage (LED processors, groups, cameras, takes, sync jobs, Remote Control) go in a matching `<config>.opboard` file next to it, which Switchboard ignores.
+- Operator Board's own settings for that stage (LED processors, groups, cameras, takes, sync jobs, Remote Control) are kept in the project (`<project>/stages/<config>.opboard`), so two projects can use the same Switchboard config and keep their own camera positions and takes. Switchboard never sees them.
 - Switchboard rewrites a config whenever you change a setting in it, so avoid editing the same config in both programs at the same time.
 
 ### LED Processor Setup: Companion-style setup
@@ -177,7 +187,7 @@ Download `OperatorBoard-<version>-win64.zip` instead if you'd rather not install
 ### Both
 
 - `OperatorBoardConsole.exe` is the same program with a console window, for `--headless` on a rack PC or for troubleshooting.
-- Settings live in `%USERPROFILE%\.operator_board\`, with a log in its `logs` folder.
+- Settings live in `%USERPROFILE%\.operator_board\`: each project in its own folder under `projects`, the computer's own settings in `config.json`, and a log in the `logs` folder.
 
 ### From source
 
@@ -198,6 +208,7 @@ For direct Stream Deck support, also run `pip install streamdeck pillow`; for MI
 
 | Option | What it does |
 |---|---|
+| `--project NAME` | Open this project straight away instead of showing the start screen (with `--headless`, the project opened last is used if this is not given). |
 | `--switchboard-config PATH` | Open this Switchboard config (`.json`) as the stage. |
 | `--headless` | No window: only the HTTP API and control surfaces, for a stage rack PC. |
 | `--no-hardware` | Do not open Stream Decks or MIDI controllers. |

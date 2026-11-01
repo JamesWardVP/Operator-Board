@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -37,9 +38,20 @@ def _errors_result(label: str, errors: List[str]) -> ActionResult:
 
 
 class AppContext:
-    def __init__(self, config: Optional[AppConfig] = None, config_path: Optional[str] = None) -> None:
+    def __init__(self, config: Optional[AppConfig] = None, config_path: Optional[str] = None,
+                 project_dir: Optional[str] = None) -> None:
+        """``project_dir``: the Operator Board project to open (core/projects.py); its settings, takes and
+        change log are kept in that folder. None keeps everything in ~/.operator_board as before."""
         self.config_path = config_path
-        self.store = ConfigStore(config_path)
+        self.project_dir = project_dir
+        self.project = None
+        if project_dir:
+            from operator_board.core import projects
+            try:
+                self.project = projects.read_info(os.path.basename(os.path.normpath(project_dir)))
+            except (OSError, ValueError, TypeError):
+                self.project = None
+        self.store = ConfigStore(config_path, project_dir)
         self.config = config or self.store.load()
         self.bus = EventBus()
         self.actions = ActionRegistry(self.bus)
@@ -53,7 +65,7 @@ class AppContext:
         self.cameras = CameraService(self.config, self.targets)
         self.objects = ObjectService(self.config, self.targets)
         self.dlss = DLSSService(self.targets)
-        self.takes = TakeManager(self.config, self.bus, self.targets)
+        self.takes = TakeManager(self.config, self.bus, self.targets, log_dir=project_dir)
         self.timing = TimingMonitor(self.targets, self.devices)
         self.editor = EditorWatcher(self.targets, self.bus)
         self.sync = SyncManager(self.config, self.bus)
@@ -69,7 +81,8 @@ class AppContext:
         self._scan_lock = threading.Lock()
         self._midi_inputs: List[str] = []
         self._stop = threading.Event()
-        self.changes = ChangeLog(self._change_context)
+        self.changes = ChangeLog(self._change_context,
+                                 os.path.join(project_dir, "change_log.jsonl") if project_dir else None)
         self._session_start = len(self.changes.records)  # changes before this index are from earlier runs
         self.changes.listeners.append(lambda rec: self.bus.publish("changes.recorded", category=rec.category))
         self.bus.subscribe("action.invoked", lambda _t, p: self._log_action(p))
@@ -220,7 +233,7 @@ class AppContext:
         from operator_board.devices.launcher import engine_binary
         engine_dir = engine_dir or self.config.project().engine_dir
         if not engine_dir:
-            raise RuntimeError("The project has no engine folder set (Stage page), so SwitchboardListener "
+            raise RuntimeError("The project has no engine folder set (Switchboard Configs page), so SwitchboardListener "
                                "cannot be found")
         exe = engine_binary(engine_dir, "SwitchboardListener", "Win64")
         if not os.path.isfile(exe):
@@ -262,7 +275,8 @@ class AppContext:
     def _change_context(self) -> Dict[str, Any]:
         t = self.config.takes
         return {"slate": t.slate, "take": t.take, "timecode": self.timing.timecode() or "",
-                "project": self.config.active_project, "level": getattr(self.editor, "level", "") or ""}
+                "project": self.project.name if self.project else self.config.active_project,
+                "level": getattr(self.editor, "level", "") or ""}
 
     # Not settings, so not in the change log: control surface page turns, LED wall / group states
     # (freeze, blackout, test pattern, locate, normal) and connecting, starting or stopping instances.
@@ -335,8 +349,14 @@ class AppContext:
         devices = [[d.name, d.role, d.address, d.rc_port, "yes" if d.enabled else "no"] for d in self.config.devices]
         mu = self.config.multiuser
         now = datetime.datetime.now()
-        summary = [["Exported", now.strftime("%Y-%m-%d %H:%M:%S")], ["Timecode", self.timing.timecode() or ""],
-                   ["Project", self.config.active_project], ["Level", getattr(self.editor, "level", "") or ""],
+        summary = [["Exported", now.strftime("%Y-%m-%d %H:%M:%S")], ["Timecode", self.timing.timecode() or ""]]
+        if self.project is not None:
+            from operator_board.core.projects import ProjectInfo
+            summary.append(["Project", self.project.name])
+            summary += [[label, getattr(self.project, key)] for key, label in ProjectInfo.DETAILS
+                        if getattr(self.project, key)]
+            summary += [["Project created", self.project.created]]
+        summary += [["Unreal project", self.config.active_project], ["Level", getattr(self.editor, "level", "") or ""],
                    ["Switchboard config", self.config.switchboard.active_config],
                    ["Scene (slate)", self.config.takes.slate], ["Next take", self.config.takes.take],
                    ["Multi-user server", mu.server_name], ["Multi-user session", mu.session_name],

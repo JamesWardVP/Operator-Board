@@ -33,7 +33,7 @@ PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, LEDProcessorsPage, DLS
 NAV = ["Operate", "Takes", "Cameras & Levels",
        ("Advanced", ["Remote Objects", "LED Processors", "DLSS", "Analytics", "Control Surfaces", "File Sync",
                      "Saved Settings"]),
-       ("Setup", ["LED Processor Setup", "Stage", "Devices"]),
+       ("Setup", ["LED Processor Setup", "Switchboard Configs", "Devices"]),
        "Settings"]
 
 # Stage hotkeys work from any page.
@@ -46,6 +46,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.ctx = ctx
         self.skip_save_on_close = False
+        self.switch_project_requested = False
         self._update_title()
         self.resize(1500, 950)
         self.setStyleSheet(STYLESHEET)
@@ -119,7 +120,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.notify(message, False)
 
     def _update_title(self) -> None:
-        title = f"Operator Board {__version__} — {self.ctx.config.active_project}"
+        project = self.ctx.project.name if self.ctx.project else self.ctx.config.active_project
+        title = f"Operator Board {__version__} — {project}"
         if self.ctx.switchboard_config:
             title += f"  [Switchboard: {os.path.splitext(os.path.basename(self.ctx.switchboard_config))[0]}]"
         self.setWindowTitle(title)
@@ -141,9 +143,20 @@ class MainWindow(QtWidgets.QMainWindow):
         brand.setObjectName("Brand")
         brand.setAttribute(Qt.WA_StyledBackground, True)
         brand.setStyleSheet(f"QWidget#Brand {{ background: {COLORS['panel']}; }}")
-        row = QtWidgets.QHBoxLayout(brand)
-        row.setContentsMargins(14, 14, 12, 12)
+        outer = QtWidgets.QVBoxLayout(brand)
+        outer.setContentsMargins(14, 14, 12, 8)
+        outer.setSpacing(8)
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(10)
+        outer.addLayout(row)
+        project = self.ctx.project.name if self.ctx.project else "No project"
+        self.project_btn = QtWidgets.QPushButton(f"{project}  ⇄")
+        self.project_btn.setToolTip("Projects: save this one and go back to the start screen to open, make, duplicate, "
+                                    "rename, import or export projects")
+        self.project_btn.setStyleSheet("QPushButton { text-align: left; padding: 6px 10px; font-weight: 700; }")
+        self.project_btn.clicked.connect(self.switch_project)
+        outer.addWidget(self.project_btn)
         logo = QtWidgets.QLabel()
         pix = QtGui.QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
         if not pix.isNull():
@@ -245,6 +258,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _devices_changed(self) -> None:
         run_async(lambda: self.ctx.refresh_surface_devices(only_if_changed=True))
 
+    def switch_project(self) -> None:
+        """Save, close this project and go back to the start screen."""
+        if self.ctx.takes.recording:
+            self.notify("Stop recording before switching project", False)
+            return
+        self.switch_project_requested = True
+        self.close()
+
     def closeEvent(self, event) -> None:
         if not self.skip_save_on_close:
             try:
@@ -253,3 +274,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
         self.ctx.shutdown()
         super().closeEvent(event)
+        app = QtWidgets.QApplication.instance()
+        if app is not None and not app.quitOnLastWindowClosed():
+            app.quit()  # ends this window's event loop (app.py then shows the start screen or exits)

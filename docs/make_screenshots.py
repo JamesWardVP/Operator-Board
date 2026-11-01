@@ -180,7 +180,7 @@ def main() -> int:
     ctx.led._publish()
     shot("Cameras & Levels", "levels.png")
     shot("Takes", "takes.png")
-    shot("Stage", "stage.png", lambda p: (p.refresh(), select_first(p), hide_local_paths(p, folder)))
+    shot("Switchboard Configs", "stage.png", lambda p: (p.refresh(), select_first(p), hide_local_paths(p, folder)))
     shot("Devices", "devices.png", select_first)
     shot("LED Processor Setup", "led_processors.png", select_first)
     shot("File Sync", "file_sync.png")

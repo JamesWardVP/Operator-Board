@@ -1,4 +1,4 @@
-"""Stage page: open, create and save Switchboard configs, the same files Switchboard uses."""
+"""Switchboard Configs page: open, create and save Switchboard configs, the same files Switchboard uses."""
 from __future__ import annotations
 
 import os
@@ -6,7 +6,6 @@ import time
 
 from operator_board.core.switchboard_config import (candidate_config_dirs, config_path_for_name, config_summary,
                                                     default_config_dir, find_engine_installs, list_configs)
-from operator_board.core.stage import sidecar_path
 from operator_board.qt import QtCore, QtGui, QtWidgets, exec_
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
@@ -89,7 +88,7 @@ class NewConfigDialog(QtWidgets.QDialog):
 
 
 class StagePage(BasePage):
-    title = "Stage"
+    title = "Switchboard Configs"
     refresh_topics = ("stage.", "config.")
 
     def __init__(self, ctx, window) -> None:
@@ -246,11 +245,11 @@ class StagePage(BasePage):
         active = self.ctx.switchboard_config
         if active:
             self.current.setText(f"Switchboard config: {os.path.splitext(os.path.basename(active))[0]}")
-            self.current_detail.setText(f"{active}\nOperator Board settings: {sidecar_path(active)}\n"
+            self.current_detail.setText(f"{active}\nOperator Board settings: {self.ctx.store.sidecar_for(active)}\n"
                                         f"Project: {cfg.project().name} · {len(cfg.devices)} device(s)")
         else:
             self.current.setText("Standalone stage (no Switchboard config open)")
-            self.current_detail.setText(f"Settings are kept in {self.ctx.store.global_path}. Open or create a "
+            self.current_detail.setText(f"Settings are kept in {self.ctx.store.stage_path}. Open or create a "
                                         "Switchboard config below to share the stage with Switchboard.")
         self.close_btn.setEnabled(bool(active))
         self.current.setStyleSheet(f"color: {COLORS['accent'] if active else COLORS['text']};")
@@ -269,7 +268,7 @@ class StagePage(BasePage):
                 name,
                 info.get("project", "") if info.get("valid") else "unreadable",
                 counts.get("Unreal", ""), counts.get("nDisplay", ""),
-                "yes" if os.path.exists(sidecar_path(path)) else "",
+                "yes" if os.path.exists(self.ctx.store.sidecar_for(path)) else "",
                 time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(path))),
             ])
 
