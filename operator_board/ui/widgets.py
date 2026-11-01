@@ -787,3 +787,77 @@ class LiveSetter:
             self.page.notify(f"{self.label}: {exc}", False)
 
         self.page.background(lambda: self.send(value), finished, self.label, quiet=True, failed=failed)
+
+
+class Spinner(QtWidgets.QWidget):
+    """A small spinning loading circle."""
+
+    def __init__(self, size: int = 18, parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self._angle = 0
+        self._timer = QtCore.QTimer(self)
+        self._timer.setInterval(30)
+        self._timer.timeout.connect(self._turn)
+
+    def _turn(self) -> None:
+        self._angle = (self._angle + 12) % 360
+        self.update()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._timer.start()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        super().hideEvent(event)
+        self._timer.stop()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        width = max(2.0, self.width() / 8.0)
+        rect = QtCore.QRectF(width / 2, width / 2, self.width() - width, self.height() - width)
+        track = QtGui.QPen(QtGui.QColor(COLORS.get("border", "#30353d")), width)
+        p.setPen(track)
+        p.drawEllipse(rect)
+        arc = QtGui.QPen(QtGui.QColor(COLORS.get("accent", "#3d8bfd")), width)
+        arc.setCapStyle(Qt.RoundCap)
+        p.setPen(arc)
+        p.drawArc(rect, int(-self._angle * 16), int(100 * 16))  # Qt angles are in 1/16 degree
+        p.end()
+
+
+class BusyIndicator(QtWidgets.QWidget):
+    """A spinner with a word next to it, shown while ``busy`` work is running (it counts overlapping
+    requests, so it stays until the last one has finished)."""
+
+    def __init__(self, text: str = "...Actioning", parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("PlainRow")
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 8, 0)
+        lay.setSpacing(6)
+        self.spinner = Spinner(16)
+        self.label = QtWidgets.QLabel(text)
+        self.label.setObjectName("Muted")
+        lay.addWidget(self.spinner)
+        lay.addWidget(self.label)
+        for w in (self.spinner, self.label):
+            policy = w.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            w.setSizePolicy(policy)
+        self._count = 0
+        self._show(False)
+
+    def _show(self, on: bool) -> None:
+        # Keep the space reserved so the tabs do not move when it appears.
+        self.spinner.setVisible(on)
+        self.label.setVisible(on)
+
+    def busy(self, delta: int) -> None:
+        self._count = max(0, self._count + delta)
+        self._show(self._count > 0)
+
+    @property
+    def active(self) -> bool:
+        return self._count > 0
