@@ -30,6 +30,7 @@ _PROJECT_REFUSAL = re.compile(r"Refusing user (?P<user>\S+) to join session .*In
 # session it kept from last time (a forced stop keeps them) is recovered under its old name, so
 # clients asking for that name would join the *old* session.
 _RECOVERED = re.compile(r"Live session '(?P<name>.+?)' \([0-9A-Fa-f-]+\) was recovered")
+_ARCHIVED = re.compile(r"Live session '(?P<name>.+?)' \([0-9A-Fa-f-]+\) was archived on reboot")
 _READY = "Multi-User Editing Server Initialized"
 # A session the server now hosts: recovered, created by a client, or created at start-up.
 _INITIALIZED = re.compile(r"Initialized Concert session '(?P<name>.+?)' \(Id")
@@ -106,6 +107,7 @@ class MultiUserServer:
         self.last_error = ""
         self.tracker = self._new_tracker()
         self.existing_sessions: Set[str] = set()  # sessions the server recovered when it started
+        self.archived_sessions: Set[str] = set()  # sessions archived at the last start ("Archive last session")
         self.session_warning = ""  # set when this start moved to a new session because the name was taken
         self.clash: Optional[str] = None  # the session name found on the server, waiting for the operator
         self.session_live = False  # the configured session exists and is ours to use
@@ -145,6 +147,9 @@ class MultiUserServer:
             recovered = _RECOVERED.search(line)
             if recovered:
                 self.existing_sessions.add(recovered.group("name"))
+            archived = _ARCHIVED.search(line)
+            if archived:
+                self.archived_sessions.add(archived.group("name"))
             if _READY in line:
                 self._ready.set()
             name = self.config.multiuser.session_name
@@ -185,6 +190,7 @@ class MultiUserServer:
         self.last_error = ""
         self.session_warning = ""
         self.existing_sessions = set()
+        self.archived_sessions = set()
         self.clash = None
         self.session_live = False
         self._launch("")
@@ -199,6 +205,7 @@ class MultiUserServer:
             self._publish()
             return
         self._check_session_name()
+        self._archive_previous()
         if mu.auto_start_session:
             self.start_session()
 
@@ -217,6 +224,8 @@ class MultiUserServer:
         else:
             self.session_warning = f"Using the existing session '{old}' that the server kept from last time."
         self._publish()
+        if increment:
+            self._archive_previous()
 
     def start_session(self) -> None:
         """Make the configured session live now: restart the server (seconds, before anyone joins)
@@ -235,13 +244,34 @@ class MultiUserServer:
         self.session_live = True
         self._publish()
 
-    def _launch(self, session: str, clean: Optional[bool] = None) -> None:
+    def _archive_previous(self) -> None:
+        """"Archive last session": a new session was chosen while the server still has sessions from
+        before, so restart it (seconds, before anyone joins) archiving them as it starts."""
+        mu = self.config.multiuser
+        old = sorted(self.existing_sessions - {mu.session_name})
+        if not (mu.archive_last_session and old and self.running) or mu.session_name in self.existing_sessions:
+            return
+        self._terminate()  # a forced stop leaves them in the working folder, where the restart archives them
+        self.existing_sessions = set()
+        self.archived_sessions = set()
+        self._launch("", archive=True)
+        if not self._ready.wait(READY_TIMEOUT_S):
+            log.warning("The multi-user server did not report ready within %.0f s", READY_TIMEOUT_S)
+        if self.archived_sessions:
+            note = f"Archived the previous session{'s' if len(self.archived_sessions) > 1 else ''}: " \
+                   + ", ".join(f"'{n}'" for n in sorted(self.archived_sessions))
+            self.session_warning = (self.session_warning + " " + note).strip()
+            self.bus.publish("multiuser.sessions_archived", names=sorted(self.archived_sessions))
+        self._publish()
+
+    def _launch(self, session: str, clean: Optional[bool] = None, archive: bool = False) -> None:
         mu = self.config.multiuser
         host = mu.host or "local"
         device = self.config.device(host) if host != "local" else None
         try:
             spec = multiuser_server_spec(self.config.project(), mu, device.platform if device else "Win64",
-                                         device.engine_dir_override if device else "", session=session, clean=clean)
+                                         device.engine_dir_override if device else "", session=session, clean=clean,
+                                         archive=archive)
         except ValueError as exc:
             self.last_error = str(exc)
             self._publish()

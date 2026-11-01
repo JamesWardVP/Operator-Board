@@ -102,6 +102,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._timer.start(1000)
         # Windows sends WM_DEVICECHANGE to every window when a USB device comes or goes; look for
         # control surfaces again once the burst of messages has settled.
+        self._listener_asking = False
+        self._listener_answered = 0.0
+        self._listener_unreachable = set()
         self._device_timer = QtCore.QTimer(self)
         self._device_timer.setSingleShot(True)
         self._device_timer.setInterval(1500)
@@ -168,6 +171,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.login.handle(payload)
         if topic == "device.rc_port_changed":
             self.notify(payload.get("message", ""), False)
+        if topic == "device.listener_unreachable" and payload.get("local"):
+            self._offer_listener(payload)
+        if topic == "multiuser.sessions_archived":
+            self.notify("Archived the previous multi-user session(s): " + ", ".join(payload.get("names", [])))
         if topic.startswith("editor."):  # let every page fill its lists, not only the one on screen
             for p in self.pages:
                 if p is not self.current_page() and hasattr(p, "EDITOR_EVENTS"):
@@ -183,6 +190,41 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self.current_page()
         if isinstance(page, OperatePage):
             page.refresh()
+
+    LISTENER_ASK_AGAIN_S = 120.0
+
+    def _offer_listener(self, payload: dict) -> None:
+        """No SwitchboardListener answered for a device on this PC: offer to start one."""
+        self._listener_unreachable.add(payload.get("name", ""))
+        if self._listener_asking or time.time() - self._listener_answered < self.LISTENER_ASK_AGAIN_S:
+            return
+        self._listener_asking = True
+        try:
+            answer = QtWidgets.QMessageBox.question(
+                self, "SwitchboardListener",
+                f"No SwitchboardListener answered for {payload.get('name')} "
+                f"({payload.get('address')}:{payload.get('port')}), which is on this PC.\n\n"
+                "Start SwitchboardListener on this PC now? Operator Board then connects again.")
+        finally:
+            self._listener_asking = False
+            self._listener_answered = time.time()
+        names = sorted(n for n in self._listener_unreachable if n)
+        self._listener_unreachable = set()
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+        device = self.ctx.config.device(names[0]) if names else None
+        engine = device.engine_dir_override if device and getattr(device, "engine_dir_override", "") else ""
+
+        def work():
+            message = self.ctx.start_local_listener(engine)
+            return message, self.ctx.reconnect_local_devices(names)
+
+        def done(result) -> None:
+            message, connected = result
+            missing = [n for n in names if n not in connected]
+            self.notify(message + (f"; connected {', '.join(connected)}" if connected else "")
+                        + (f"; still not connected: {', '.join(missing)}" if missing else ""), not missing)
+        run_async(work, done, lambda exc: self.notify(f"Could not start SwitchboardListener: {exc}", False))
 
     WM_DEVICECHANGE = 0x0219
 

@@ -207,6 +207,52 @@ class AppContext:
         for p in self.led.processors:
             p.close()
 
+    def start_local_listener(self, engine_dir: str = "") -> str:
+        """Start SwitchboardListener on this PC from the project's engine (unless one is already
+        running); returns what happened. It keeps running when Operator Board closes."""
+        import os
+        import subprocess
+        from operator_board.devices.launcher import engine_binary
+        engine_dir = engine_dir or self.config.project().engine_dir
+        if not engine_dir:
+            raise RuntimeError("The project has no engine folder set (Stage page), so SwitchboardListener "
+                               "cannot be found")
+        exe = engine_binary(engine_dir, "SwitchboardListener", "Win64")
+        if not os.path.isfile(exe):
+            raise RuntimeError(f"SwitchboardListener was not found at {exe}")
+        if os.name == "nt":
+            running = subprocess.run(["tasklist", "/FI", "IMAGENAME eq SwitchboardListener.exe", "/NH"],
+                                     capture_output=True, text=True, creationflags=0x08000000).stdout
+            if "SwitchboardListener.exe" in running:
+                return "SwitchboardListener is already running on this PC"
+            flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen([exe], cwd=os.path.dirname(exe), creationflags=flags, close_fds=True)
+        else:
+            subprocess.Popen([exe], cwd=os.path.dirname(exe), start_new_session=True)
+        log.info("Started %s", exe)
+        return f"Started SwitchboardListener ({exe})"
+
+    def reconnect_local_devices(self, names: List[str], wait_s: float = 20.0) -> List[str]:
+        """Try ``names`` again until each connects or ``wait_s`` passes (a listener needs a few seconds
+        to start). Returns the names that connected."""
+        connected: List[str] = []
+        deadline = time.time() + wait_s
+        pending = list(names)
+        while pending and time.time() < deadline and not self._stop.is_set():
+            self._stop.wait(2.0)
+            for name in list(pending):
+                try:
+                    self.devices.connect(name)
+                except Exception:  # noqa: BLE001 - reported on the device itself
+                    continue
+                rt = self.devices.get(name)
+                if rt and rt.client and rt.client.connected:
+                    connected.append(name)
+                    pending.remove(name)
+                elif rt and not (rt.last_error or "").startswith("Cannot reach listener"):
+                    pending.remove(name)  # it answered (e.g. it wants the password): the prompt takes over
+        return connected
+
     def run_steps(self, steps: List[Dict[str, Any]]) -> ActionResult:
         """Run a button's steps in order: {"action": id, "params": {...}} or {"delay": milliseconds}.
         A failed step is reported and the rest still run, as in Companion."""
