@@ -211,3 +211,39 @@ def test_actor_browser_uses_the_nodes_without_an_editor():
     finally:
         for n in nodes:
             n.close()
+
+
+def _engine(tmp_path, name, major, minor):
+    root = tmp_path / name
+    (root / "Engine" / "Build").mkdir(parents=True)
+    (root / "Engine" / "Build" / "Build.version").write_text(json.dumps({"MajorVersion": major,
+                                                                          "MinorVersion": minor}))
+    (root / "Engine" / "Binaries" / "Win64").mkdir(parents=True)
+    return root
+
+
+def test_listener_from_another_engine_is_spotted(ctx, tmp_path, monkeypatch):
+    from operator_board.listener import local
+    old = _engine(tmp_path, "UE_5.6", 5, 6)
+    new = _engine(tmp_path, "UE_5.8", 5, 8)
+    running = local.RunningListener(4242, str(old / "Engine" / "Binaries" / "Win64" / "SwitchboardListener.exe"))
+    assert running.engine_dir == str(old) and running.version == "5.6"
+    monkeypatch.setattr(local, "running_listeners", lambda: [running])
+    ctx.config.projects[0].engine_dir = str(new / "Engine")
+    assert ctx.check_local_listener()["status"] == "no_devices"  # nothing on this PC uses a listener
+    ctx.config.devices = [DeviceConfig(name="Ed", address="127.0.0.1")]
+    result = ctx.check_local_listener()
+    assert result["status"] == "mismatch" and result["wanted_version"] == "5.8"
+    assert result["running"][0]["version"] == "5.6"
+    running.path = str(new / "Engine" / "Binaries" / "Win64" / "SwitchboardListener.exe")
+    assert ctx.check_local_listener()["status"] == "ok"
+    monkeypatch.setattr(local, "running_listeners", lambda: [])
+    assert ctx.check_local_listener()["status"] == "none"
+
+
+def test_process_path_lookup_on_windows():
+    from operator_board.listener import local
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    assert local._image_path(os.getpid()).lower().endswith("python.exe")
+    assert local.running_listeners() == [] or all(l.pid for l in local.running_listeners())

@@ -239,9 +239,8 @@ class AppContext:
         if not os.path.isfile(exe):
             raise RuntimeError(f"SwitchboardListener was not found at {exe}")
         if os.name == "nt":
-            running = subprocess.run(["tasklist", "/FI", "IMAGENAME eq SwitchboardListener.exe", "/NH"],
-                                     capture_output=True, text=True, creationflags=0x08000000).stdout
-            if "SwitchboardListener.exe" in running:
+            from operator_board.listener.local import running_listeners
+            if running_listeners():
                 return "SwitchboardListener is already running on this PC"
             flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
             subprocess.Popen([exe], cwd=os.path.dirname(exe), creationflags=flags, close_fds=True)
@@ -249,6 +248,63 @@ class AppContext:
             subprocess.Popen([exe], cwd=os.path.dirname(exe), start_new_session=True)
         log.info("Started %s", exe)
         return f"Started SwitchboardListener ({exe})"
+
+    def local_devices(self) -> List[str]:
+        from operator_board.devices.manager import _host_key
+        return [d.name for d in self.config.devices if d.enabled and _host_key(d.address) == "local"]
+
+    def check_local_listener(self) -> Dict[str, Any]:
+        """Is the SwitchboardListener running on this PC from the open config's engine?
+
+        status: "ok", "none" (not running), "mismatch" (another engine's listener), "no_engine" (the
+        config has no engine folder) or "no_devices" (no Unreal instance on this PC uses a listener)."""
+        from operator_board.core.ue_versions import detect_engine_version
+        from operator_board.listener.local import running_listeners
+        engine = self.config.project().engine_dir
+        wanted = detect_engine_version(engine) if engine else None
+        result: Dict[str, Any] = {"wanted_version": wanted, "engine_dir": engine, "running": []}
+        if not self.local_devices():
+            return dict(result, status="no_devices")
+        if not engine:
+            return dict(result, status="no_engine")
+        running = running_listeners()
+        result["running"] = [{"pid": l.pid, "path": l.path, "version": l.version} for l in running]
+        if not running:
+            return dict(result, status="none")
+        same = [l for l in running if l.engine_dir and os.path.normcase(os.path.normpath(l.engine_dir)) ==
+                os.path.normcase(os.path.normpath(self._engine_root(engine)))]
+        if same:
+            return dict(result, status="ok")
+        known = [l for l in running if l.version]
+        if known and wanted and all(l.version == wanted for l in known):
+            return dict(result, status="ok")  # another install of the same version: it works the same
+        if not known:
+            return dict(result, status="ok")  # Windows would not say where it came from: leave it alone
+        return dict(result, status="mismatch")
+
+    @staticmethod
+    def _engine_root(engine_dir: str) -> str:
+        root = os.path.normpath(engine_dir.rstrip("/\\"))
+        return os.path.dirname(root) if os.path.basename(root).lower() == "engine" else root
+
+    def replace_local_listener(self) -> str:
+        """Stop the other engine's listener(s) on this PC, start the open config's, and connect this
+        PC's devices again. Returns what happened."""
+        from operator_board.listener.local import running_listeners, stop_listener
+        names = self.local_devices()
+        for name in names:  # let go of the old listener first
+            try:
+                self.devices.disconnect(name)
+            except Exception:  # noqa: BLE001
+                pass
+        for listener in running_listeners():
+            if not stop_listener(listener.pid):
+                raise RuntimeError(f"Could not stop the SwitchboardListener that is running ({listener.path or listener.pid})")
+        message = self.start_local_listener()
+        connected = self.reconnect_local_devices(names)
+        missing = [n for n in names if n not in connected]
+        return message + (f"; connected {', '.join(connected)}" if connected else "") + \
+            (f"; not connected yet: {', '.join(missing)}" if missing else "")
 
     def reconnect_local_devices(self, names: List[str], wait_s: float = 20.0) -> List[str]:
         """Try ``names`` again until each connects or ``wait_s`` passes (a listener needs a few seconds

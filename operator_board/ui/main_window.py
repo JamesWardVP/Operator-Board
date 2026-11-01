@@ -108,6 +108,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # control surfaces again once the burst of messages has settled.
         self._listener_asking = False
         self._listener_answered = 0.0
+        self._listener_mismatch_answered = None
+        self._closing = False
+        self._listener_check_timer = QtCore.QTimer(self)
+        self._listener_check_timer.setSingleShot(True)
+        self._listener_check_timer.setInterval(1500)
+        self._listener_check_timer.timeout.connect(self._check_listener)
+        self._listener_check_timer.start()  # once the window is up, for the project just opened
         self._listener_unreachable = set()
         self._device_timer = QtCore.QTimer(self)
         self._device_timer.setSingleShot(True)
@@ -183,6 +190,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_event(self, topic: str, payload: dict) -> None:
         if topic in ("project.changed", "stage.changed"):
             self._update_title()
+            self._check_listener_soon()
         if topic == "device.auth":
             self.login.handle(payload)
         if topic == "device.rc_port_changed":
@@ -206,6 +214,42 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self.current_page()
         if isinstance(page, OperatePage):
             page.refresh()
+
+    def _check_listener_soon(self) -> None:
+        """After a project or Switchboard config opens: is this PC's listener from the right engine?"""
+        self._listener_check_timer.start()
+
+    def _check_listener(self) -> None:
+        if self._closing:
+            return
+
+        def done(result) -> None:
+            if self._closing or result.get("status") != "mismatch" or self._listener_asking:
+                return
+            running = ", ".join(f"UE {r['version']}" if r.get("version") else (r.get("path") or "unknown")
+                                for r in result.get("running", []))
+            wanted = result.get("wanted_version") or "the config's engine"
+            key = (running, wanted, result.get("engine_dir"))
+            if key == self._listener_mismatch_answered:
+                return  # already asked about exactly this
+            self._listener_asking = True
+            running_devices = [n for n in self.ctx.local_devices()
+                               if (self.ctx.devices.get(n) and self.ctx.devices.get(n).state == "running")]
+            warning = (f"\n\nUnreal is running on this PC ({', '.join(running_devices)}): stopping the listener "
+                       "may close it." if running_devices else "")
+            try:
+                answer = QtWidgets.QMessageBox.question(
+                    self, "SwitchboardListener version",
+                    f"The SwitchboardListener running on this PC is from {running}, but this Switchboard config uses "
+                    f"UE {wanted}.\n\nStop it and start the UE {wanted} listener, then connect again?{warning}")
+            finally:
+                self._listener_asking = False
+                self._listener_mismatch_answered = key
+            if answer == QtWidgets.QMessageBox.Yes:
+                self.notify(f"Starting the UE {wanted} SwitchboardListener…")
+                run_async(self.ctx.replace_local_listener, lambda message: self.notify(message),
+                          lambda exc: self.notify(f"Could not swap SwitchboardListener: {exc}", False))
+        run_async(self.ctx.check_local_listener, done, lambda exc: None)
 
     LISTENER_ASK_AGAIN_S = 120.0
 
@@ -267,6 +311,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.close()
 
     def closeEvent(self, event) -> None:
+        self._closing = True  # late background results must not touch the closed window
+        self._listener_check_timer.stop()
         if not self.skip_save_on_close:
             try:
                 self.ctx.save()

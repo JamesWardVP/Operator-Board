@@ -161,4 +161,7 @@ def test_start_screen_opens_a_project():
     assert screen.list.topLevelItemCount() == 2 and "Show" in screen.details.text()
     screen._open()
     assert screen.chosen == second.id
+    screen.close()
+    screen.deleteLater()  # tear it down while Qt is still running, not at interpreter exit
     app.processEvents()
+    del screen
