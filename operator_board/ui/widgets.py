@@ -646,3 +646,144 @@ class ColorField(QtWidgets.QWidget):
                                                  self, self.title)
         if chosen.isValid():
             self.edit.setText(chosen.name())
+
+
+class DragNumber(QtWidgets.QLineEdit):
+    """A number field that works like the ones in Unreal's Details panel: drag left or right on it to
+    change the value (Shift = finer, Ctrl = coarser), or click it and type, then press Enter. With
+    a range it shows how far along the range the value is."""
+    dragging = QtCore.Signal(float)  # while dragging
+    committed = QtCore.Signal(float)  # on release after a drag, or Enter
+
+    def __init__(self, value: float, minimum: Optional[float] = None, maximum: Optional[float] = None,
+                 parent=None) -> None:
+        super().__init__(parent)
+        self.minimum, self.maximum = minimum, maximum
+        validator = QtGui.QDoubleValidator(self)
+        if minimum is not None:
+            validator.setBottom(float(minimum))
+        self.setValidator(validator)
+        self.setCursor(Qt.SizeHorCursor)
+        self.setToolTip("Drag left or right to change it (Shift: finer, Ctrl: coarser), or click to type and "
+                        "press Enter")
+        self._press = None
+        self._start = 0.0
+        self._moved = False
+        self._value = float(value)
+        self.returnPressed.connect(self._typed)
+        self.setValue(value)
+
+    def value(self) -> float:
+        return self._value
+
+    def setValue(self, value: float) -> None:  # noqa: N802 - Qt style
+        value = float(value)
+        if self.minimum is not None:
+            value = max(float(self.minimum), value)
+        self._value = value
+        self.setText(f"{value:.4g}" if abs(value) < 1e5 else f"{value:.0f}")
+        self._paint_fill()
+
+    def _paint_fill(self) -> None:
+        if self.minimum is None or self.maximum is None or self.maximum <= self.minimum:
+            self.setStyleSheet("")
+            return
+        f = max(0.0, min(1.0, (self._value - self.minimum) / (self.maximum - self.minimum)))
+        accent, rest = QtGui.QColor(COLORS.get("accent", "#3d8bfd")), COLORS.get("panel2", "#23272e")
+        fill = f"rgba({accent.red()}, {accent.green()}, {accent.blue()}, 90)"
+        if f <= 0.0:
+            self.setStyleSheet("")
+            return
+        self.setStyleSheet(
+            "QLineEdit { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 {fill}, stop:{f:.4f} {fill}, stop:{min(1.0, f + 0.0001):.4f} {rest}, stop:1 {rest}); }}")
+
+    def _step(self, modifiers) -> float:
+        if self.minimum is not None and self.maximum is not None and self.maximum > self.minimum:
+            step = (self.maximum - self.minimum) / 400.0
+        else:
+            step = max(abs(self._start), 1.0) * 0.005
+        if modifiers & Qt.ShiftModifier:
+            step /= 10.0
+        if modifiers & Qt.ControlModifier:
+            step *= 10.0
+        return step
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if self.hasFocus() or event.button() != Qt.LeftButton:
+            return super().mousePressEvent(event)
+        self._press = _event_x(event)
+        self._start = self._value
+        self._moved = False
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._press is None:
+            return super().mouseMoveEvent(event)
+        dx = _event_x(event) - self._press
+        if abs(dx) > 3 or self._moved:
+            self._moved = True
+            value = self._start + dx * self._step(event.modifiers())
+            if self.maximum is not None and self._start <= self.maximum:
+                value = min(float(self.maximum), value)  # dragging stops at the end of the range
+            self.setValue(value)
+            self.dragging.emit(self._value)
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._press is None:
+            return super().mouseReleaseEvent(event)
+        self._press = None
+        if self._moved:
+            self.committed.emit(self._value)
+        else:  # a click: type a value instead
+            self.setFocus()
+            self.selectAll()
+        event.accept()
+
+    def _typed(self) -> None:
+        if self.hasAcceptableInput():
+            self.setValue(float(self.text()))
+            self.committed.emit(self._value)
+            self.clearFocus()
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        super().focusOutEvent(event)
+        self.setValue(self._value)  # show the applied value again if typing was abandoned
+
+
+def _event_x(event) -> float:
+    pos = event.position() if hasattr(event, "position") else event.pos()
+    return float(pos.x())
+
+
+class LiveSetter:
+    """Sends a value that changes quickly (a dragged number) without queueing up requests: one
+    request at a time, and the latest value once the previous one has finished."""
+
+    def __init__(self, page, send, label: str) -> None:
+        self.page, self.send, self.label = page, send, label
+        self.busy = False
+        self.pending = None
+
+    def __call__(self, value, done=None) -> None:
+        if self.busy:
+            self.pending = (value, done)
+            return
+        self.busy = True
+
+        def finished(result=None) -> None:
+            self.busy = False
+            if done:
+                done(result)
+            if self.pending is not None:
+                value_, done_ = self.pending
+                self.pending = None
+                self(value_, done_)
+
+        def failed(exc) -> None:
+            self.busy = False
+            self.pending = None
+            self.page.notify(f"{self.label}: {exc}", False)
+
+        self.page.background(lambda: self.send(value), finished, self.label, quiet=True, failed=failed)

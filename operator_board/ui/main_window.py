@@ -109,6 +109,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tick()
         if ctx.store.load_error:
             self.notify(ctx.store.load_error, False)
+        for message in getattr(ctx.devices, "port_changes", []):
+            self.notify(message, False)
 
     def _update_title(self) -> None:
         title = f"Operator Board {__version__} — {self.ctx.config.active_project}"
@@ -164,6 +166,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_title()
         if topic == "device.auth":
             self.login.handle(payload)
+        if topic == "device.rc_port_changed":
+            self.notify(payload.get("message", ""), False)
+        if topic.startswith("editor."):  # let every page fill its lists, not only the one on screen
+            for p in self.pages:
+                if p is not self.current_page() and hasattr(p, "EDITOR_EVENTS"):
+                    p.on_event(topic, payload)
         if topic == "action.invoked" and not payload.get("ok"):
             self.notify(payload.get("message", ""), False)
         page = self.current_page()

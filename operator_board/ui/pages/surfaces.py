@@ -14,6 +14,7 @@ from operator_board.qt import QtGui, QtWidgets, Qt
 from operator_board.surfaces.layout import (FONT_WEIGHTS, KINDS, MODELS, ButtonBinding, SurfacePage, fit_to_model,
                                             new_surface)
 from operator_board.surfaces.render import fit_label
+from operator_board.ui.action_editors import MACRO_ACTION, OSC_ACTION, OscEditor, StepsEditor
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.widgets import Card, ColorField, hbox, local_addresses, make_searchable, muted
 
@@ -144,6 +145,7 @@ class SurfacesPage(BasePage):
         self.device.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.device.activated.connect(self._device_changed)
         self.device_row = QtWidgets.QWidget()
+        self.device_row.setObjectName("PlainRow")
         device_lay = hbox(QtWidgets.QLabel("Device"), self.device)
         device_lay.setStretch(1, 1)
         device_lay.setContentsMargins(0, 0, 0, 0)
@@ -157,6 +159,7 @@ class SurfacesPage(BasePage):
             edit.setFixedWidth(56)
             edit.editingFinished.connect(self._custom_changed)
         self.custom_row = QtWidgets.QWidget()
+        self.custom_row.setObjectName("PlainRow")
         custom_lay = hbox(QtWidgets.QLabel("Columns"), self.custom_cols, QtWidgets.QLabel("Rows"), self.custom_rows,
                           QtWidgets.QLabel("MIDI base note"), self.base_note, None)
         custom_lay.setContentsMargins(0, 0, 0, 0)
@@ -184,7 +187,8 @@ class SurfacesPage(BasePage):
         reset = QtWidgets.QPushButton("Reset to default buttons")
         reset.clicked.connect(self._reset)
         self.deck_card.add_layout(hbox(reset, None))
-        left.addWidget(self.deck_card, 1)
+        left.addWidget(self.deck_card, 0)
+        left.addStretch(1)
 
         # ---- web panel ---------------------------------------------------------------------
         web = Card("Phone & tablet web panel")
@@ -198,7 +202,6 @@ class SurfacesPage(BasePage):
         self.copy_btn = QtWidgets.QPushButton("Copy address")
         self.copy_btn.clicked.connect(self._copy_url)
         web.add_layout(hbox(self.network_btn, self.copy_btn, None))
-        left.addWidget(web, 0)
 
         # ---- OSC and status -------------------------------------------------------------
         hw = Card("Hardware & integrations")
@@ -213,7 +216,6 @@ class SurfacesPage(BasePage):
         self.hw_label.setTextFormat(Qt.RichText)
         self.hw_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         hw.add(self.hw_label)
-        left.addWidget(hw, 0)
         lay.addLayout(left, 3)
 
         # ---- key editor -------------------------------------------------------------------
@@ -234,6 +236,14 @@ class SurfacesPage(BasePage):
         self.params = QtWidgets.QLineEdit()
         self.params.setPlaceholderText('{"preset": "Camera 1"}')
         self.param_hint = muted("")
+        self.params_box = QtWidgets.QWidget()
+        self.params_box.setObjectName("PlainRow")
+        params_form = QtWidgets.QFormLayout(self.params_box)
+        params_form.setContentsMargins(0, 0, 0, 0)
+        params_form.addRow("Parameters (JSON)", self.params)
+        params_form.addRow("", self.param_hint)
+        self.osc_editor = OscEditor()
+        self.steps_editor = StepsEditor(ctx.actions)
         self.color = ColorField("Key colour")
         self.active_color = ColorField("Active key colour")
         self.text_color = ColorField("Text colour")
@@ -250,8 +260,9 @@ class SurfacesPage(BasePage):
         self.word_wrap.setChecked(True)
         form.addRow("Action", self.action)
         form.addRow("Label", self.label)
-        form.addRow("Parameters (JSON)", self.params)
-        form.addRow("", self.param_hint)
+        form.addRow(self.params_box)
+        form.addRow(self.osc_editor)
+        form.addRow(self.steps_editor)
         form.addRow("Colour", self.color)
         form.addRow("Active colour", self.active_color)
         form.addRow("Text colour", self.text_color)
@@ -265,8 +276,12 @@ class SurfacesPage(BasePage):
         clear.clicked.connect(self._clear)
         edit.add_layout(hbox(apply, clear))
         edit.add(muted("Click a key on the deck to edit it."))
-        edit.layout_.addStretch(1)
-        lay.addWidget(edit, 2)
+        right = QtWidgets.QVBoxLayout()
+        right.addWidget(edit, 0)
+        right.addWidget(web, 0)
+        right.addWidget(hw, 0)
+        right.addStretch(1)
+        lay.addLayout(right, 2)
         self._fill_key_form(ButtonBinding())
 
     # ---- the surface being edited -------------------------------------------------------
@@ -520,6 +535,9 @@ class SurfacesPage(BasePage):
         self.action.setCurrentIndex(max(0, self.action.findData(b.action)))
         self.label.setPlainText(b.label)
         self.params.setText(json.dumps(b.params) if b.params else "")
+        self.osc_editor.set_params(b.params if b.action == OSC_ACTION else {})
+        self.steps_editor.set_steps((b.params or {}).get("steps", []) if b.action == MACRO_ACTION else [])
+        self._action_changed()
         self.color.setText(b.color)
         self.active_color.setText(b.active_color)
         self.text_color.setText(b.text_color)
@@ -528,7 +546,11 @@ class SurfacesPage(BasePage):
         self.word_wrap.setChecked(b.word_wrap)
 
     def _action_changed(self) -> None:
-        action = self.ctx.actions.get(self.action.currentData() or "")
+        action_id = self.action.currentData() or ""
+        self.osc_editor.setVisible(action_id == OSC_ACTION)
+        self.steps_editor.setVisible(action_id == MACRO_ACTION)
+        self.params_box.setVisible(action_id not in (OSC_ACTION, MACRO_ACTION))
+        action = self.ctx.actions.get(action_id)
         if action and action.params:
             hints = []
             for p in action.params:
@@ -542,10 +564,18 @@ class SurfacesPage(BasePage):
         if self.selected is None or not self.current:
             self.notify("Click a key on the deck first", False)
             return
+        action_id = self.action.currentData() or ""
         try:
-            params = json.loads(self.params.text()) if self.params.text().strip() else {}
+            if action_id == OSC_ACTION:
+                params = self.osc_editor.params()
+            elif action_id == MACRO_ACTION:
+                params = {"steps": self.steps_editor.steps()}
+                if not params["steps"]:
+                    raise ValueError("add at least one step")
+            else:
+                params = json.loads(self.params.text()) if self.params.text().strip() else {}
         except ValueError as exc:
-            self.notify(f"Parameters must be JSON: {exc}", False)
+            self.notify(f"Parameters: {exc}", False)
             return
         size_text = self.font_size.currentText().strip()
         if size_text and not size_text.isdigit() and size_text != FONT_SIZES[0]:
@@ -556,7 +586,6 @@ class SurfacesPage(BasePage):
             if value.text() and not QtGui.QColor(value.text()).isValid():
                 self.notify(f"{field} is not a colour: use #rrggbb or the colour picker", False)
                 return
-        action_id = self.action.currentData() or ""
         action = self.ctx.actions.get(action_id)
         self._page().buttons[str(self.selected)] = ButtonBinding(
             action=action_id, label=self.label.toPlainText() or (action.label if action else ""), params=params,

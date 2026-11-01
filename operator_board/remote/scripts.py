@@ -9,6 +9,15 @@ import json
 
 
 def _lit(value) -> str:
+    """``value`` as Python source (True / None, not JSON's true / null)."""
+    if isinstance(value, (bool, type(None), int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value)  # a valid Python string literal too
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_lit(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{_lit(str(k))}: {_lit(v)}" for k, v in value.items()) + "}"
     return json.dumps(value)
 
 
@@ -137,11 +146,37 @@ result = {{'ok': True}}
 """
 
 
-FIND_ACTOR = """
+# Actors of the editor's level, or, in a running instance without an editor (an nDisplay node
+# started with -game), of its game world. WORLD_KIND says which.
+LEVEL_ACTORS = """
+def _level_actors():
+    sub = unreal.get_editor_subsystem(unreal.EditorActorSubsystem) if hasattr(unreal, 'get_editor_subsystem') else None
+    if sub is not None:
+        return list(sub.get_all_level_actors()), 'editor'
+    best = []
+    for w in unreal.ObjectIterator(unreal.World):
+        try:
+            found = list(unreal.GameplayStatics.get_all_actors_of_class(w, unreal.Actor))
+        except Exception:
+            continue
+        if len(found) > len(best):
+            best = found
+    return best, 'game'
+
+def _label(a):
+    try:
+        return a.get_actor_label() or a.get_name()
+    except Exception:
+        return a.get_name()
+"""
+
+FIND_ACTOR = LEVEL_ACTORS + """
 def _find_actor(ref):
-    actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+    actors, _kind = _level_actors()
+    name = ref.split(':')[-1].split('.')[-1]
     found = next((a for a in actors if a.get_path_name() == ref), None)
-    found = found or next((a for a in actors if a.get_actor_label() == ref), None)
+    found = found or next((a for a in actors if _label(a) == ref), None)
+    found = found or next((a for a in actors if a.get_name() == name), None)  # same actor, other world path
     if found is None:
         raise RuntimeError('Actor not found in the open level: ' + ref)
     return found
@@ -173,51 +208,137 @@ def _quick_target(actor):
 """
 
 
+# Float controls: id -> (label, unit, min, soft max, setter, property). The soft max sets the
+# range of the drag bar; typed values may go past it.
+QUICK_FLOATS = """
+FLOATS = {
+    'intensity': ('Intensity', '', 0, None, 'set_intensity', 'intensity'),
+    'temperature': ('Temperature', 'K', 1700, 12000, 'set_temperature', 'temperature'),
+    'attenuation_radius': ('Attenuation radius', 'cm', 0, 16384, 'set_attenuation_radius', 'attenuation_radius'),
+    'inner_cone_angle': ('Inner cone angle', 'deg', 0, 80, 'set_inner_cone_angle', 'inner_cone_angle'),
+    'outer_cone_angle': ('Outer cone angle', 'deg', 1, 80, 'set_outer_cone_angle', 'outer_cone_angle'),
+    'source_radius': ('Source radius', 'cm', 0, 300, 'set_source_radius', 'source_radius'),
+    'soft_source_radius': ('Soft source radius', 'cm', 0, 300, 'set_soft_source_radius', 'soft_source_radius'),
+    'source_length': ('Source length', 'cm', 0, 1000, 'set_source_length', 'source_length'),
+    'source_width': ('Source width', 'cm', 0, 1000, 'set_source_width', 'source_width'),
+    'source_height': ('Source height', 'cm', 0, 1000, 'set_source_height', 'source_height'),
+    'barn_door_angle': ('Barn door angle', 'deg', 0, 90, 'set_barn_door_angle', 'barn_door_angle'),
+    'barn_door_length': ('Barn door length', 'cm', 0, 100, 'set_barn_door_length', 'barn_door_length'),
+    'light_source_angle': ('Source angle', 'deg', 0, 10, 'set_light_source_angle', 'light_source_angle'),
+    'light_source_soft_angle': ('Source soft angle', 'deg', 0, 10, 'set_light_source_soft_angle',
+                                'light_source_soft_angle'),
+}
+
+def _unit_names():
+    return [n for n in ('UNITLESS', 'CANDELAS', 'LUMENS', 'EV', 'NITS') if hasattr(unreal.LightUnits, n)]
+
+def _unit_of(comp):
+    return str(comp.get_editor_property('intensity_units')).split('.')[-1].split(':')[0].strip('<> ').upper()
+
+UNIT_LABELS = {'UNITLESS': 'Unitless', 'CANDELAS': 'Candelas', 'LUMENS': 'Lumens', 'EV': 'EV', 'NITS': 'Nits'}
+
+# Changing units keeps the light's brightness, as the Details panel does: the same formulas as the
+# engine's ComputeLightBrightness / SetLightBrightness for point, spot and rect lights (UE 5.8),
+# which are not callable from Python.
+import math
+
+def _unit_factor(comp, units):
+    rect = isinstance(comp, unreal.RectLightComponent)
+    if units == 'CANDELAS':
+        return 100.0 * 100.0
+    if units == 'NITS':
+        if rect:
+            return comp.get_editor_property('source_width') * comp.get_editor_property('source_height')
+        r, l = comp.get_editor_property('source_radius'), comp.get_editor_property('source_length')
+        return 4 * math.pi * r * (r + 0.5 * l)
+    if units == 'LUMENS':
+        if rect:
+            return 100.0 * 100.0 / math.pi
+        if isinstance(comp, unreal.SpotLightComponent):
+            cos_half = math.cos(math.radians(comp.get_editor_property('outer_cone_angle')))
+            return 100.0 * 100.0 / 2.0 / math.pi / max(1e-6, 1.0 - cos_half)
+        return 100.0 * 100.0 / 4.0 / math.pi
+    return 16.0  # unitless: the legacy scale of 16
+
+def _brightness(comp, units, intensity):
+    if units == 'EV':
+        return 0.125 * 2.0 ** intensity * 100.0 * 100.0
+    return intensity * _unit_factor(comp, units)
+
+def _intensity_for(comp, units, brightness):
+    if units == 'EV':
+        return math.log2(max(brightness / (100.0 * 100.0), 1e-12) / 0.125)
+    factor = _unit_factor(comp, units)
+    return brightness / factor if factor else brightness
+
+def _converts(comp):
+    if isinstance(comp, unreal.RectLightComponent):
+        return True
+    return bool(comp.get_editor_property('use_inverse_squared_falloff'))
+"""
+
+
 def actor_quick_controls(actor_ref: str) -> str:
     """The everyday controls of a light or cine camera with their current values.
 
     A control driven by Live Link, a Lens Component or DMX carries ``locked`` with the reason."""
-    return QUICK_COMMON + f"""
+    return QUICK_COMMON + QUICK_FLOATS + f"""
 actor = _find_actor({_lit(actor_ref)})
 kind, comp = _quick_target(actor)
 drivers = _drivers(actor)
 locked = ('Driven by ' + ' and '.join(drivers)) if drivers else ''
 controls = []
-def add(cid, label, ctype, value, lo=None, hi=None, unit='', lock=''):
+def add(cid, label, ctype, value, lo=None, hi=None, unit='', lock='', options=None):
     controls.append({{'id': cid, 'label': label, 'type': ctype, 'value': value, 'min': lo, 'max': hi,
-                      'unit': unit, 'locked': lock}})
+                      'unit': unit, 'locked': lock, 'options': options or []}})
+def add_float(cid, unit=None):
+    label, default_unit, lo, hi, _setter, prop = FLOATS[cid]
+    add(cid, label, 'float', comp.get_editor_property(prop), lo, hi, default_unit if unit is None else unit, locked)
 if kind == 'light':
     units = ''
     if hasattr(comp, 'intensity_units'):
-        units = str(comp.get_editor_property('intensity_units')).split('.')[-1].split(':')[0].strip('<> ').title()
+        units = _unit_of(comp)
+        add('intensity_units', 'Intensity units', 'choice', units,
+            options=[[n, UNIT_LABELS.get(n, n.title())] for n in _unit_names()], lock=locked)
+        units = UNIT_LABELS.get(units, units.title())
     elif isinstance(comp, unreal.DirectionalLightComponent):
-        units = 'Lux'
-    add('intensity', 'Intensity', 'float', comp.get_editor_property('intensity'), 0, None, units, locked)
+        units = 'lux'
+    add_float('intensity', units)
     c = comp.get_editor_property('light_color')
     add('light_color', 'Colour', 'color', [c.r, c.g, c.b], lock=locked)
     add('use_temperature', 'Use temperature', 'bool', bool(comp.get_editor_property('use_temperature')), lock=locked)
-    add('temperature', 'Temperature', 'float', comp.get_editor_property('temperature'), 1700, 12000, 'K', locked)
+    add_float('temperature')
     if hasattr(comp, 'set_attenuation_radius'):
-        add('attenuation_radius', 'Attenuation radius', 'float', comp.get_editor_property('attenuation_radius'),
-            0, None, 'cm', locked)
+        add_float('attenuation_radius')
     if isinstance(comp, unreal.SpotLightComponent):
-        add('inner_cone_angle', 'Inner cone angle', 'float', comp.get_editor_property('inner_cone_angle'), 0, 80, 'deg', locked)
-        add('outer_cone_angle', 'Outer cone angle', 'float', comp.get_editor_property('outer_cone_angle'), 1, 80, 'deg', locked)
+        add_float('inner_cone_angle')
+        add_float('outer_cone_angle')
+    if isinstance(comp, unreal.RectLightComponent):
+        for cid in ('source_width', 'source_height', 'barn_door_angle', 'barn_door_length'):
+            add_float(cid)
+    elif isinstance(comp, unreal.PointLightComponent):  # spot lights too
+        for cid in ('source_radius', 'soft_source_radius', 'source_length'):
+            add_float(cid)
+    elif isinstance(comp, unreal.DirectionalLightComponent):
+        for cid in ('light_source_angle', 'light_source_soft_angle'):
+            add_float(cid)
     add('visible', 'Light on (visible)', 'bool', bool(comp.is_visible()), lock=locked)
     add('cast_shadows', 'Cast shadows', 'bool', bool(comp.get_editor_property('cast_shadows')))
 elif kind == 'camera':
     fs = comp.get_editor_property('focus_settings')
-    add('focal_length', 'Focal length', 'float', comp.get_editor_property('current_focal_length'), 1, 1000, 'mm', locked)
+    add('focal_length', 'Focal length', 'float', comp.get_editor_property('current_focal_length'), 1, 300, 'mm', locked)
     add('aperture', 'Aperture', 'float', comp.get_editor_property('current_aperture'), 0.5, 32, 'f-stop', locked)
-    add('focus_distance', 'Focus distance', 'float', fs.get_editor_property('manual_focus_distance'), 0, None, 'cm', locked)
+    add('focus_distance', 'Focus distance', 'float', fs.get_editor_property('manual_focus_distance'), 0, 10000, 'cm',
+        locked)
 result = {{'kind': kind, 'component': comp.get_class().get_name() if comp else '', 'controls': controls,
           'drivers': drivers}}
 """
 
 
 def set_actor_quick_control(actor_ref: str, control: str, value) -> str:
-    """Change one quick control (as an undoable editor transaction, so a multi-user session shares it)."""
-    return QUICK_COMMON + f"""
+    """Change one quick control (as an undoable editor transaction, so a multi-user session shares it).
+    Returns the light's intensity after a change of units (Unreal converts it to keep the brightness)."""
+    return QUICK_COMMON + QUICK_FLOATS + f"""
 actor = _find_actor({_lit(actor_ref)})
 kind, comp = _quick_target(actor)
 control, value = {_lit(control)}, {_lit(value)}
@@ -226,11 +347,23 @@ if comp is None:
 if _drivers(actor) and control not in ('cast_shadows',):
     raise RuntimeError(actor.get_actor_label() + ' is driven by ' + ' and '.join(_drivers(actor)) +
                        ', which would overwrite the change')
+extra = {{}}
 with unreal.ScopedEditorTransaction('Operator Board: ' + control):
     comp.modify()
     if kind == 'light':
-        if control == 'intensity':
-            comp.set_intensity(float(value))
+        if control in FLOATS:
+            setter = getattr(comp, FLOATS[control][4], None)
+            if setter is not None:
+                setter(float(value))
+            else:
+                comp.set_editor_property(FLOATS[control][5], float(value))
+        elif control == 'intensity_units':
+            old, new = _unit_of(comp), str(value).upper()
+            brightness = _brightness(comp, old, comp.get_editor_property('intensity'))
+            comp.set_intensity_units(getattr(unreal.LightUnits, new))
+            if _converts(comp) and old != new:
+                comp.set_intensity(_intensity_for(comp, new, brightness))
+            extra = {{'intensity': comp.get_editor_property('intensity'), 'units': _unit_of(comp)}}
         elif control == 'light_color':
             # The picker gives sRGB 0-255; Unreal wants linear, which it stores back as that sRGB colour.
             lin = [((c / 255.0 + 0.055) / 1.055) ** 2.4 if c / 255.0 > 0.04045 else c / 255.0 / 12.92
@@ -238,16 +371,8 @@ with unreal.ScopedEditorTransaction('Operator Board: ' + control):
             comp.set_light_color(unreal.LinearColor(lin[0], lin[1], lin[2], 1.0), True)
         elif control == 'use_temperature':
             comp.set_use_temperature(bool(value))
-        elif control == 'temperature':
-            comp.set_temperature(float(value))
-        elif control == 'attenuation_radius':
-            comp.set_attenuation_radius(float(value))
-        elif control == 'inner_cone_angle':
-            comp.set_inner_cone_angle(float(value))
-        elif control == 'outer_cone_angle':
-            comp.set_outer_cone_angle(float(value))
         elif control == 'visible':
-            comp.set_visibility(bool(value))
+            comp.set_visibility(bool(value), False)
         elif control == 'cast_shadows':
             comp.set_cast_shadows(bool(value))
         else:
@@ -263,22 +388,22 @@ with unreal.ScopedEditorTransaction('Operator Board: ' + control):
             comp.set_editor_property('focus_settings', fs)
         else:
             raise RuntimeError('Unknown camera control: ' + control)
-result = {{'ok': True}}
+result = dict({{'ok': True}}, **extra)
 """
-
 
 def list_camera_targets() -> str:
     """Camera actors and nDisplay root actors, matched by class (an nDisplay setup is a Blueprint
     subclass such as nDisplayConfig_C, so its class name does not say DisplayClusterRootActor)."""
-    return """
+    return LEVEL_ACTORS + """
 kinds = [unreal.CameraActor]
 root = getattr(unreal, 'DisplayClusterRootActor', None)
 if root is not None:
     kinds.append(root)
 out = []
-for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+actors, world_kind = _level_actors()
+for a in actors:
     if any(isinstance(a, k) for k in kinds):
-        out.append({'label': a.get_actor_label(), 'path': a.get_path_name(), 'class': a.get_class().get_name()})
+        out.append({'label': _label(a), 'path': a.get_path_name(), 'class': a.get_class().get_name()})
 out.sort(key=lambda a: a['label'].lower())
 result = {'actors': out}
 """
@@ -288,7 +413,7 @@ def get_actor_transform(actor_ref: str) -> str:
     return FIND_ACTOR + f"""
 a = _find_actor({_lit(actor_ref)})
 loc, rot = a.get_actor_location(), a.get_actor_rotation()
-result = {{'location': [loc.x, loc.y, loc.z], 'rotation': [rot.pitch, rot.yaw, rot.roll]}}
+result = {{'location': [loc.x, loc.y, loc.z], 'rotation': [rot.pitch, rot.yaw, rot.roll], 'world': _level_actors()[1]}}
 """
 
 
@@ -297,25 +422,35 @@ def set_actor_transform(actor_ref: str, location, rotation) -> str:
     p, yaw, r = (float(v) for v in rotation)
     return FIND_ACTOR + f"""
 a = _find_actor({_lit(actor_ref)})
-with unreal.ScopedEditorTransaction('Operator Board camera position'):
-    a.modify()
-    a.set_actor_location_and_rotation(unreal.Vector({x}, {y}, {z}), unreal.Rotator(roll={r}, pitch={p}, yaw={yaw}),
-                                      False, True)
-result = {{'ok': True}}
+world_kind = _level_actors()[1]
+loc, rot = unreal.Vector({x}, {y}, {z}), unreal.Rotator(roll={r}, pitch={p}, yaw={yaw})
+if world_kind == 'editor':  # an undoable change, which multi-user sends to the nodes
+    with unreal.ScopedEditorTransaction('Operator Board camera position'):
+        a.modify()
+        a.set_actor_location_and_rotation(loc, rot, False, True)
+else:  # a running node without an editor: move it there directly
+    a.set_actor_location_and_rotation(loc, rot, False, True)
+result = {{'ok': True, 'world': world_kind}}
 """
 
 
 def list_actors(class_filter: str = "") -> str:
-    return f"""
+    """Actors whose class name contains ``class_filter``. "nDisplay" lists nDisplay root actors by
+    class, since a setup's Blueprint class (nDisplayConfig_C...) can be named anything."""
+    return LEVEL_ACTORS + f"""
 cls_filter = {_lit(class_filter)}.lower()
-sub = getattr(unreal, 'EditorActorSubsystem', None)
-actors = unreal.get_editor_subsystem(sub).get_all_level_actors() if sub else unreal.EditorLevelLibrary.get_all_level_actors()
+root = getattr(unreal, 'DisplayClusterRootActor', None)
+actors, world_kind = _level_actors()
 out = []
 for a in actors:
     cls = a.get_class().get_name()
-    if cls_filter and cls_filter not in cls.lower():
+    if cls_filter == 'ndisplay':
+        if root is None or not isinstance(a, root):
+            continue
+    elif cls_filter and cls_filter not in cls.lower():
         continue
-    out.append({{'label': a.get_actor_label(), 'path': a.get_path_name(), 'class': cls}})
+    out.append({{'label': _label(a), 'path': a.get_path_name(), 'class': cls}})
+out.sort(key=lambda a: a['label'].lower())
 result = {{'actors': out}}
 """
 

@@ -61,6 +61,47 @@ def _find_metrics(msg: Dict[str, Any]) -> Dict[str, Any]:
     return msg
 
 
+
+def _host_key(address: str) -> str:
+    """Addresses of this PC (127.0.0.1, localhost, its name and IPs) count as one host."""
+    address = (address or "").strip().lower()
+    if address in ("", "127.0.0.1", "localhost", "::1"):
+        return "local"
+    try:
+        import socket
+        name = socket.gethostname().lower()
+        if address in (name, socket.getfqdn().lower()):
+            return "local"
+        if address in {i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None)}:
+            return "local"
+    except OSError:
+        pass
+    return address
+
+
+def unique_rc_ports(devices) -> List[str]:
+    """Give every Unreal instance on one PC its own Remote Control port. Two instances on one port
+    (an editor and an nDisplay node both on 30010) cannot both listen: requests meant for the editor
+    reach whichever started first. Later devices in the list move to the next free port; returns
+    a message for each change."""
+    used: Dict[str, set] = {}
+    messages = []
+    for d in devices:
+        if not getattr(d, "rc_enabled", True):
+            continue
+        key = _host_key(d.address)
+        taken = used.setdefault(key, set())
+        if d.rc_port in taken:
+            old = d.rc_port
+            port = max(30010, old)
+            while port in taken or any(port == o.rc_port for o in devices if o is not d and _host_key(o.address) == key):
+                port += 1
+            d.rc_port = port
+            messages.append(f"{d.name}: Remote Control port changed from {old} to {port}, because another "
+                            f"instance on the same PC uses {old}. Restart {d.name} if it is running.")
+        taken.add(d.rc_port)
+    return messages
+
 class DeviceManager:
     def __init__(self, config: AppConfig, bus: EventBus) -> None:
         self.config = config
@@ -73,6 +114,10 @@ class DeviceManager:
 
     # ---- registry ---------------------------------------------------------
     def reload(self) -> None:
+        self.port_changes = unique_rc_ports(self.config.devices)
+        for message in self.port_changes:
+            log.warning(message)
+            self.bus.publish("device.rc_port_changed", message=message)
         with self._lock:
             wanted = {d.name: d for d in self.config.devices}
             for name in list(self._devices):
