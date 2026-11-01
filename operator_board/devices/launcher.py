@@ -163,12 +163,20 @@ def unreal_launch_spec(device: DeviceConfig, project: ProjectConfig, multiuser: 
     return LaunchSpec(exe=exe, args=" ".join(args))
 
 
+# Concert server setting: at start-up, archive the live sessions left from the last run (the server
+# was stopped by force) instead of recovering them as live sessions. The server logs
+# "Live session 'X' (id) was archived on reboot." for each one.
+ARCHIVE_ON_START = "-ini:Engine:[/Script/ConcertServer.ConcertServerConfig]:bAutoArchiveOnReboot=True"
+
+
 def multiuser_server_spec(project: ProjectConfig, mu: MultiUserConfig, platform: str = "Win64",
-                          engine_dir_override: str = "", session: str = "", clean: Optional[bool] = None) -> LaunchSpec:
+                          engine_dir_override: str = "", session: str = "", clean: Optional[bool] = None,
+                          archive: bool = False) -> LaunchSpec:
     """The multi-user server's command line.
 
     ``session`` makes the server create (or reuse) that session for the project at start-up
-    ("Auto-start session"); ``clean`` overrides ``mu.clean_history``.
+    ("Auto-start session"); ``clean`` overrides ``mu.clean_history``; ``archive`` archives the
+    sessions kept from the last run as the server starts.
     """
     info = get_version_info(project.ue_version)
     engine_dir = engine_dir_override or project.engine_dir
@@ -189,6 +197,8 @@ def multiuser_server_spec(project: ProjectConfig, mu: MultiUserConfig, platform:
         args += [f"-CONCERTSESSION={_quote(session)}", f"-CONCERTPROJECT={_quote(name)}"]
     if mu.clean_history if clean is None else clean:
         args.append("-CONCERTCLEAN")
+    elif archive:
+        args.append(ARCHIVE_ON_START)
     if mu.udp_unicast_endpoint:
         args.append(f"-UDPMESSAGING_TRANSPORT_UNICAST={mu.udp_unicast_endpoint}")
     if mu.udp_static_endpoints:

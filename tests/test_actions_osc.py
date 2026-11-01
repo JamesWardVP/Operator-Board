@@ -146,3 +146,37 @@ def test_osc_and_steps_editors():
     assert steps.add_combo.findData("macro.run") < 0  # no steps inside steps
     ctx.shutdown()
     app.processEvents()
+
+
+def test_unreachable_listener_on_this_pc_is_reported(ctx):
+    from operator_board.core.config import ProjectConfig
+    events = []
+    ctx.bus.subscribe("device.listener_unreachable", lambda t, p: events.append(p))
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    port = closed.getsockname()[1]
+    closed.close()
+    ctx.config.projects = [ProjectConfig(ue_version="5.3")]  # TCP: refused at once
+    ctx.config.devices = [DeviceConfig(name="Local", address="127.0.0.1", listener_port=port)]
+    ctx.devices.reload()
+    ctx.devices.connect("Local")
+    assert events and events[0]["name"] == "Local" and events[0]["local"] is True
+
+
+def test_listener_prompt_starts_it_once(ctx, monkeypatch, tmp_path):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("operator_board.qt", exc_type=ImportError)
+    from operator_board.ui import main_window
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    window = main_window.MainWindow(ctx)
+    asked = []
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: (asked.append(a[2]), qt.QtWidgets.QMessageBox.No)[1])
+    payload = {"name": "Node_0", "address": "127.0.0.1", "port": 2980, "local": True}
+    window._on_event("device.listener_unreachable", payload)
+    window._on_event("device.listener_unreachable", dict(payload, name="Editor_1"))  # declined: not again soon
+    window._on_event("device.listener_unreachable", dict(payload, name="Far", local=False))
+    assert len(asked) == 1 and "Node_0" in asked[0]
+    window.skip_save_on_close = True
+    window.close()
+    app.processEvents()

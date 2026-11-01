@@ -87,6 +87,9 @@ class MultiUserConfig:
     # Make the session live as soon as the server starts (after any name clash is settled),
     # instead of when the first editor or node joins.
     auto_start_session: bool = False
+    # When a new session is made, archive the sessions the server kept from before (they then appear
+    # under Archived Sessions in the multi-user browser instead of as live sessions).
+    archive_last_session: bool = False
     extra_args: str = ""
     udp_unicast_endpoint: str = ""
     udp_static_endpoints: str = ""

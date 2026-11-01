@@ -153,10 +153,15 @@ class OperatePage(BasePage):
                                         "session of that name is still on the server). Off: the session starts "
                                         "when the first editor or nDisplay node joins.")
         self.mu_auto_session.toggled.connect(self._auto_session_changed)
+        self.mu_archive = QtWidgets.QCheckBox("Archive last session")
+        self.mu_archive.setToolTip("When a new session is made, archive the sessions the server kept from before: "
+                                   "they move to Archived Sessions in the multi-user browser instead of staying "
+                                   "live. Keeping the existing session archives nothing.")
+        self.mu_archive.toggled.connect(self._archive_changed)
         self.mu_stop = QtWidgets.QPushButton("■ Stop server")
         self.mu_stop.setToolTip("Stop the multi-user server")
         self.mu_stop.clicked.connect(lambda: self.invoke("multiuser.stop"))
-        mu.add_layout(hbox(self.mu_auto, self.mu_auto_session, None, self.mu_stop))
+        mu.add_layout(hbox(self.mu_auto, self.mu_auto_session, self.mu_archive, None, self.mu_stop))
         self.mu_count = QtWidgets.QLabel("0")
         self.mu_count.setObjectName("Big")
         mu.add_layout(hbox(self.mu_count, muted("connected clients"), None))
@@ -388,6 +393,11 @@ class OperatePage(BasePage):
             self.ctx.config.multiuser.auto_start = on
             self.save_config()
 
+    def _archive_changed(self, on: bool) -> None:
+        if self.ctx.config.multiuser.archive_last_session != on:
+            self.ctx.config.multiuser.archive_last_session = on
+            self.save_config()
+
     def _auto_session_changed(self, on: bool) -> None:
         if self.ctx.config.multiuser.auto_start_session != on:
             self.ctx.config.multiuser.auto_start_session = on
@@ -527,7 +537,8 @@ class OperatePage(BasePage):
         if not self.mu_session.hasFocus():
             self.mu_session.setText(self.ctx.config.multiuser.session_name)
         for box, value in ((self.mu_auto, self.ctx.config.multiuser.auto_start),
-                           (self.mu_auto_session, self.ctx.config.multiuser.auto_start_session)):
+                           (self.mu_auto_session, self.ctx.config.multiuser.auto_start_session),
+                           (self.mu_archive, self.ctx.config.multiuser.archive_last_session)):
             if box.isChecked() != value:
                 box.blockSignals(True)
                 box.setChecked(value)

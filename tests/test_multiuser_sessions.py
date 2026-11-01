@@ -157,3 +157,53 @@ def test_session_args_need_a_uproject():
     assert "-CONCERTCLEAN" not in spec.args
     with pytest.raises(ValueError):
         multiuser_server_spec(ProjectConfig(engine_dir="C:/UE/Engine"), MultiUserConfig(), session="Day1")
+
+
+# What a real 5.8 server prints when started with bAutoArchiveOnReboot after a forced stop.
+ARCHIVE_LOG = """LogConcert: Display: Live session 'VP_Session' (5FE174D54AF2E960E43509968BC50D21) was archived on reboot.
+LogSyncServer: Display: Multi-User Editing Server Initialized (Name: OPB_Probe, Version: 5.8, Role: MultiUser)
+"""
+
+
+def test_archive_last_session_when_a_new_session_is_made(monkeypatch):
+    cfg, srv, events = _server(monkeypatch, RESTART_LOG)
+    cfg.multiuser.archive_last_session = True
+    launches = []
+
+    def start_local(exe, args):
+        launches.append(args)
+        srv.feed_output(ARCHIVE_LOG if "bAutoArchiveOnReboot=True" in args else RESTART_LOG)
+    monkeypatch.setattr(srv, "_start_local", start_local)
+    archived = []
+    srv.bus.subscribe("multiuser.sessions_archived", lambda t, p: archived.append(p["names"]))
+    srv.start(session_name="VP_Session", interactive=True)  # the old session is still there: ask
+    assert srv.clash == "VP_Session" and len(launches) == 1
+    srv.resolve_clash(True)  # a new session: archive the old one
+    assert "bAutoArchiveOnReboot=True" in launches[-1] and archived == [["VP_Session"]]
+    assert srv.archived_sessions == {"VP_Session"} and "Archived the previous session" in srv.session_warning
+    assert cfg.multiuser.session_name == "VP_Session_2"
+    srv.stop()
+
+
+def test_keeping_the_session_archives_nothing(monkeypatch):
+    cfg, srv, events = _server(monkeypatch, RESTART_LOG)
+    cfg.multiuser.archive_last_session = True
+    launches = []
+    monkeypatch.setattr(srv, "_start_local", lambda exe, args: (launches.append(args), srv.feed_output(RESTART_LOG)))
+    srv.start(session_name="VP_Session", interactive=True)
+    srv.resolve_clash(False)
+    assert not any("bAutoArchiveOnReboot" in a for a in launches)
+    cfg.multiuser.archive_last_session = False  # option off: a new session archives nothing either
+    srv.stop()
+    srv.start(session_name="Other", interactive=True)
+    assert not any("bAutoArchiveOnReboot" in a for a in launches)
+    srv.stop()
+
+
+def test_archive_flag_only_without_clean():
+    from operator_board.devices.launcher import ARCHIVE_ON_START, multiuser_server_spec
+    cfg = AppConfig()
+    project = ProjectConfig(engine_dir="C:/UE/Engine", uproject_path="C:/P/P.uproject")
+    assert ARCHIVE_ON_START in multiuser_server_spec(project, cfg.multiuser, archive=True).args
+    assert ARCHIVE_ON_START not in multiuser_server_spec(project, cfg.multiuser).args
+    assert ARCHIVE_ON_START not in multiuser_server_spec(project, cfg.multiuser, clean=True, archive=True).args

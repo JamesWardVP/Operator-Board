@@ -189,6 +189,9 @@ class DeviceManager:
         except OSError as exc:
             self._set_state(rt, ERROR, f"Cannot reach listener at {rt.config.address}:{rt.config.listener_port} "
                                        f"({exc}). {unreachable_hint(rt.config.address, rt.config.listener_port)}")
+            # Nothing answered: on this PC the UI offers to start SwitchboardListener.
+            self.bus.publish("device.listener_unreachable", name=rt.name, address=rt.config.address,
+                             port=rt.config.listener_port, local=_host_key(rt.config.address) == "local")
             return
         rt.client = client
         rt.transport = client.transport
