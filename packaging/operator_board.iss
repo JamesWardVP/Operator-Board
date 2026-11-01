@@ -59,8 +59,8 @@ Type: filesandordirs; Name: "{app}\_internal"
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Operator Board"; Filename: "{app}\OperatorBoard.exe"
-Name: "{autodesktop}\Operator Board"; Filename: "{app}\OperatorBoard.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Operator Board"; Filename: "{app}\OperatorBoard.exe"; AppUserModelID: "JamesWardVP.OperatorBoard"
+Name: "{autodesktop}\Operator Board"; Filename: "{app}\OperatorBoard.exe"; AppUserModelID: "JamesWardVP.OperatorBoard"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\OperatorBoard.exe"; Description: "{cm:LaunchProgram,Operator Board}"; Flags: nowait postinstall skipifsilent

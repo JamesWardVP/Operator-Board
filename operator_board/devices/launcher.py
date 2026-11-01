@@ -72,6 +72,25 @@ REMOTE_CONTROL_UNLOCK = ("-ini:RemoteControl:"
                          f"{_RC_SECTION}:bAllowAnyRemoteFunctionCall=True")
 
 
+def remote_control_port_args(port: int, all_networks: bool) -> List[str]:
+    """Remote Control's HTTP port (and its WebSocket port, 10 above it as with 30010/30020).
+
+    UE ignores -RCWebControlPort (checked on 5.8: it still listened on 30010), so two instances on
+    one PC both wanted 30010 and requests for the editor reached whichever started first. The ports
+    are Remote Control settings. Its HTTP server also listens on 127.0.0.1 only unless told
+    otherwise, so instances on other PCs listen on every network to be reachable."""
+    args = ["-ini:RemoteControl:"
+            f"{_RC_SECTION}:RemoteControlHttpServerPort={int(port)},"
+            f"{_RC_SECTION}:RemoteControlWebSocketServerPort={int(port) + 10}"]
+    if all_networks:
+        args.append("-ini:Engine:[HTTPServer.Listeners]:DefaultBindAddress=0.0.0.0")
+    return args
+
+
+def _is_this_pc(address: str) -> bool:
+    return (address or "").strip().lower() in ("", "127.0.0.1", "localhost", "::1")
+
+
 def unreal_launch_spec(device: DeviceConfig, project: ProjectConfig, multiuser: Optional[MultiUserConfig] = None,
                        map_override: str = "", ndisplay_cfg: str = "", window=None,
                        multiprocess: bool = False, allow_remote_features: bool = True) -> LaunchSpec:
@@ -131,7 +150,8 @@ def unreal_launch_spec(device: DeviceConfig, project: ProjectConfig, multiuser: 
         args.append("-messaging")
     args.append(f"-SessionName={_quote('OperatorBoard_' + device.name)}")
     if device.rc_enabled:
-        args += ["-RCWebControlEnable", "-RCWebInterfaceEnable", f"-RCWebControlPort={device.rc_port}"]
+        args += ["-RCWebControlEnable", "-RCWebInterfaceEnable"]
+        args += remote_control_port_args(device.rc_port, not _is_this_pc(device.address))
         if allow_remote_features:
             args.append(REMOTE_CONTROL_UNLOCK)
     if multiuser and device.join_multiuser:

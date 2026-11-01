@@ -59,6 +59,14 @@ def main(argv=None) -> int:
 
     from operator_board.qt import QtGui, QtWidgets, exec_
     from operator_board.ui.main_window import MainWindow
+    if sys.platform == "win32":
+        # Our own taskbar identity, so Windows shows the window's icon (the logo) instead of an icon it
+        # cached for the program or the Python interpreter.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("JamesWardVP.OperatorBoard")
+        except (AttributeError, OSError):
+            pass
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Operator Board")
     icon = QtGui.QIcon()

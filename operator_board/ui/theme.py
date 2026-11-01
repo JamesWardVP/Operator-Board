@@ -23,6 +23,8 @@ QLabel#CardTitle { font-size: 13px; font-weight: 700; color: %(muted)s; letter-s
 QLabel#Big { font-size: 26px; font-weight: 700; background: transparent; }
 QLabel#Muted { color: %(muted)s; background: transparent; }
 QLabel { background: transparent; }
+QWidget#PlainRow { background: transparent; }
+QFrame#StepRow { background: %(panel2)s; border-radius: 6px; }
 QListWidget#Nav { background: %(panel)s; border: none; font-size: 15px; padding-top: 8px; outline: 0; }
 QListWidget#Nav::item { padding: 12px 14px; border-radius: 6px; margin: 2px 6px; }
 QListWidget#Nav::item:selected { background: %(accent)s; color: white; }

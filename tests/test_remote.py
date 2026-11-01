@@ -50,9 +50,10 @@ def test_camera_recall_on_actor():
         cfg.cameras = [CameraPreset(name="C1", target="/Game/Map.Map:PersistentLevel.Cam", location=[1, 2, 3],
                                     rotation=[10, 20, 30])]
         assert CameraService(cfg, TargetResolver(cfg)).recall("C1", "all") == []
-        body = server.requests[0][2]
-        assert body["functionName"] == "K2_SetActorLocationAndRotation"
-        assert body["parameters"]["NewRotation"] == {"Pitch": 10.0, "Yaw": 20.0, "Roll": 30.0}
+        body = server.requests[0][2]  # Python, which 5.8 allows where K2_SetActorLocationAndRotation is blocked
+        assert body["functionName"] == "ExecutePythonCommandEx"
+        script = body["parameters"]["PythonCommand"]
+        assert "unreal.Vector(1.0, 2.0, 3.0)" in script and "pitch=10.0, yaw=20.0" in script
     finally:
         server.close()
 

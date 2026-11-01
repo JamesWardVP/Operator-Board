@@ -28,6 +28,8 @@ from operator_board.sync.manager import SyncManager
 
 log = logging.getLogger(__name__)
 
+MACRO_ACTION = "macro.run"
+
 
 def _errors_result(label: str, errors: List[str]) -> ActionResult:
     return ActionResult(not errors, label if not errors else f"{label}: " + "; ".join(errors))
@@ -204,6 +206,26 @@ class AppContext:
         self.devices.disconnect_all()
         for p in self.led.processors:
             p.close()
+
+    def run_steps(self, steps: List[Dict[str, Any]]) -> ActionResult:
+        """Run a button's steps in order: {"action": id, "params": {...}} or {"delay": milliseconds}.
+        A failed step is reported and the rest still run, as in Companion."""
+        done, errors = 0, []
+        for n, step in enumerate(steps, start=1):
+            if "delay" in step:
+                self._stop.wait(max(0.0, float(step.get("delay") or 0)) / 1000.0)
+                continue
+            action_id = step.get("action", "")
+            if action_id == MACRO_ACTION:
+                errors.append(f"step {n}: a multiple-actions step cannot contain another")
+                continue
+            result = self.actions.invoke(action_id, **(step.get("params") or {}))
+            if result.ok:
+                done += 1
+            else:
+                errors.append(f"step {n}: {result.message}")
+        message = f"{done} of {sum(1 for s in steps if 'delay' not in s)} steps done"
+        return ActionResult(not errors, message + ("; " + "; ".join(errors) if errors else ""))
 
     def _auto_start_multiuser(self, device) -> None:
         """Start the multi-user server before an editor or node that joins it (setting on by default)."""
@@ -588,6 +610,21 @@ class AppContext:
         a.add("object.call_preset_function", "Call exposed function", "Remote Objects",
               lambda preset, label: _errors_result(label, self.objects.call_preset_function(preset, label)),
               params=[ActionParam("preset", "Preset"), ActionParam("label", "Function")])
+
+        # OSC messages and several actions in a row (control surface buttons)
+        from operator_board.surfaces.osc_send import OSC_TYPES, send_osc
+        a.add("osc.send", "Send OSC message", "OSC",
+              lambda host="127.0.0.1", port=8000, address="", type="none", value="": ActionResult(
+                  True, send_osc(host, port, address, type, value)),
+              description="Send an OSC message over UDP to a lighting desk, media server, QLab...",
+              params=[ActionParam("host", "IP address"), ActionParam("port", "Port", "int", 8000),
+                      ActionParam("address", "OSC address"),
+                      ActionParam("type", "Argument type", "choice", "none", choices_provider=lambda: list(OSC_TYPES)),
+                      ActionParam("value", "Value")])
+        a.add(MACRO_ACTION, "Multiple actions (in order)", "Control Surface",
+              lambda steps=None: self.run_steps(steps or []),
+              description="Run several actions one after another, with optional delays between them",
+              params=[ActionParam("steps", "Steps", "steps")])
 
         # Surface navigation (handled by SurfaceController; registered so they appear in pickers)
         for nav_id, label in (("surface.next_page", "Next surface page"), ("surface.prev_page", "Previous surface page"),

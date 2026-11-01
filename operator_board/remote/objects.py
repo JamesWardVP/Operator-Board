@@ -77,9 +77,19 @@ class ObjectService:
         result = self.targets.primary().run_python(python_result_wrapper(scripts.actor_quick_controls(actor_path)))
         return result if isinstance(result, dict) else {"kind": "", "controls": []}
 
-    def set_quick_control(self, actor_path: str, control: str, value: Any) -> None:
-        self.targets.primary().run_python(python_result_wrapper(
+    def set_quick_control(self, actor_path: str, control: str, value: Any) -> Dict[str, Any]:
+        result = self.targets.primary().run_python(python_result_wrapper(
             scripts.set_actor_quick_control(actor_path, control, value)))
+        return result if isinstance(result, dict) else {}
+
+    def property_values(self, object_path: str) -> Dict[str, Any]:
+        """Every readable property's current value in one request (empty if Unreal refuses)."""
+        try:
+            result = self.targets.primary().request("PUT", "/remote/object/property", {
+                "objectPath": object_path, "access": "READ_ACCESS"})
+        except Exception:  # noqa: BLE001 - shown as blank values; Read still works per property
+            return {}
+        return result if isinstance(result, dict) else {}
 
     def describe(self, object_path: str) -> Dict[str, Any]:
         return self.targets.primary().describe(object_path) or {}

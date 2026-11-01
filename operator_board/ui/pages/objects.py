@@ -6,7 +6,7 @@ import json
 from operator_board.qt import QtGui, QtWidgets, Qt
 from operator_board.remote.targets import TARGET_CHOICES
 from operator_board.ui.pages.base import BasePage
-from operator_board.ui.widgets import Card, hbox, make_table, muted, set_row
+from operator_board.ui.widgets import Card, DragNumber, LiveSetter, hbox, make_table, muted, set_row
 
 
 def parse_value(text: str):
@@ -152,7 +152,7 @@ class ObjectsPage(BasePage):
         self.class_filter = QtWidgets.QLineEdit()
         self.class_filter.setPlaceholderText("Class filter (e.g. Light, CineCamera)")
         quick = []
-        for label, text in (("All", ""), ("Lights", "Light"), ("Cameras", "Camera")):
+        for label, text in (("All", ""), ("Lights", "Light"), ("Cameras", "Camera"), ("nDisplay", "nDisplay")):
             q = QtWidgets.QPushButton(label)
             q.clicked.connect(lambda _=False, t=text: (self.class_filter.setText(t), self._list_actors()))
             quick.append(q)
@@ -174,7 +174,13 @@ class ObjectsPage(BasePage):
         right.add(self.quick_title)
         right.add(self.quick_card)
         self.quick_card.hide()
-        self.props = make_table(["Property", "Type", "Description"])
+        self.props = make_table(["Property", "Type", "Value", "Description"])
+        header = self.props.horizontalHeader()
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Interactive)
+        self.props.setColumnWidth(1, 90)
+        self.props.setColumnWidth(2, 220)
+        self.props.setWordWrap(False)
         right.add(self.props)
         self.prop_value = QtWidgets.QLineEdit()
         self.prop_value.setPlaceholderText(VALUE_HINT)
@@ -206,11 +212,23 @@ class ObjectsPage(BasePage):
         self.background(lambda: self.ctx.objects.quick_controls(path), lambda q: self._show_quick(path, q),
                         "Reading light / camera", quiet=True)
 
-        def fill(desc):
+        def fill(result):
+            desc, values = result
             self.props.setRowCount(0)
             for i, p in enumerate(desc.get("Properties", []) or []):
-                set_row(self.props, i, [p.get("Name", ""), p.get("Type", ""), p.get("Description", "")])
-        self.background(lambda: self.ctx.objects.describe(path), fill, "Describing actor")
+                name = p.get("Name", "")
+                set_row(self.props, i, [name, p.get("Type", ""), self._short(values.get(name)) if name in values
+                                        else "", p.get("Description", "")])
+                self.props.item(i, 1).setToolTip(p.get("Type", ""))
+
+        def read():  # the description and every current value
+            return self.ctx.objects.describe(path), self.ctx.objects.property_values(path)
+        self.background(read, fill, "Describing actor")
+
+    @staticmethod
+    def _short(value) -> str:
+        text = json.dumps(value) if not isinstance(value, str) else value
+        return text if len(text) <= 120 else text[:117] + "…"
 
     # ---- light and camera quick controls ----------------------------------------------------
     def _show_quick(self, path: str, quick) -> None:
@@ -235,7 +253,20 @@ class ObjectsPage(BasePage):
         apply = lambda value, cid=c["id"]: self.background(  # noqa: E731
             lambda: self.ctx.objects.set_quick_control(path, cid, value),
             lambda _r: self.notify(f"{c['label']} set"), f"Setting {c['label']}")
-        if c["type"] == "bool":
+        if c["type"] == "choice":
+            w = QtWidgets.QComboBox()
+            for value, label in c.get("options") or []:
+                w.addItem(label, value)
+            w.setCurrentIndex(max(0, w.findData(c["value"])))
+
+            def changed(_i, combo=w, cid=c["id"]):
+                value = combo.currentData()
+                # Changing units converts the intensity (as the Details panel does): show the new value.
+                self.background(lambda: self.ctx.objects.set_quick_control(path, cid, value),
+                                lambda _r: (self.notify(f"{c['label']}: {combo.currentText()}"),
+                                            self._reload_quick(path)), f"Setting {c['label']}")
+            w.currentIndexChanged.connect(changed)
+        elif c["type"] == "bool":
             w = QtWidgets.QCheckBox()
             w.setChecked(bool(c["value"]))
             w.toggled.connect(lambda on: apply(on))
@@ -253,20 +284,20 @@ class ObjectsPage(BasePage):
                     apply(rgb)
             w.clicked.connect(pick)
             self._paint_swatch(w, c["value"])
-        else:  # a number: type it and press Enter (styled spin boxes clip their text)
-            w = QtWidgets.QLineEdit(f"{float(c['value']):g}")
-            validator = QtGui.QDoubleValidator(w)
-            if c.get("min") is not None:
-                validator.setBottom(float(c["min"]))
-            if c.get("max") is not None:
-                validator.setTop(float(c["max"]))
-            w.setValidator(validator)
-            w.setToolTip("Type a value and press Enter")
-            w.returnPressed.connect(lambda line=w: apply(float(line.text())) if line.hasAcceptableInput() else None)
+        else:  # a number: drag it like a Details panel field, or click and type
+            w = DragNumber(float(c["value"]), c.get("min"), c.get("max"))
+            live = LiveSetter(self, lambda value, cid=c["id"]: self.ctx.objects.set_quick_control(path, cid, value),
+                              f"Setting {c['label']}")
+            w.dragging.connect(lambda value: live(value))
+            w.committed.connect(lambda value: live(value, lambda _r: self.notify(f"{c['label']} set to {value:g}")))
         if locked:
             w.setEnabled(False)
             w.setToolTip(locked + ", which would overwrite a change made here")
         return w
+
+    def _reload_quick(self, path: str) -> None:
+        self.background(lambda: self.ctx.objects.quick_controls(path), lambda q: self._show_quick(path, q),
+                        "Reading light / camera", quiet=True)
 
     @staticmethod
     def _paint_swatch(button, rgb) -> None:
@@ -284,9 +315,14 @@ class ObjectsPage(BasePage):
 
     def _read_prop(self) -> None:
         path, prop = self._selected_prop()
+        row = sorted({i.row() for i in self.props.selectedIndexes()})
+
+        def show(value):
+            self.prop_value.setText(json.dumps(value))
+            if row:
+                self.props.setItem(row[0], 2, QtWidgets.QTableWidgetItem(self._short(value)))
         if path:
-            self.background(lambda: self.ctx.objects.get_property(path, prop),
-                            lambda v: self.prop_value.setText(json.dumps(v)), "Reading property")
+            self.background(lambda: self.ctx.objects.get_property(path, prop), show, "Reading property")
 
     def _write_prop(self) -> None:
         path, prop = self._selected_prop()
