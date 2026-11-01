@@ -7,7 +7,7 @@
 [![Windows build](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml/badge.svg)](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Version:** 0.6.2 · **Unreal Engine 5.2 – 5.8** · **Windows**
+**Version:** 0.7.0 · **Unreal Engine 5.2 – 5.8** · **Windows**
 
 ![Operator Board's Operate page: LED wall controls, Unreal instances, multi-user, project and level, take and camera positions](docs/images/operate.png)
 
