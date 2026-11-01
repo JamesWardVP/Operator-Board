@@ -5,10 +5,12 @@ another machine.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
+import secrets
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from operator_board.core.config import atomic_write
 from operator_board.core.serde import from_dict, to_dict
@@ -63,6 +65,10 @@ NAV_PREV = "surface.prev_page"
 NAV_GOTO = "surface.goto_page"
 
 
+# Font weights offered for key labels (CSS numbers).
+FONT_WEIGHTS: Dict[str, int] = {"light": 300, "normal": 400, "semibold": 600, "bold": 700, "black": 900}
+
+
 @dataclass
 class ButtonBinding:
     action: str = ""
@@ -70,6 +76,10 @@ class ButtonBinding:
     params: Dict[str, Any] = field(default_factory=dict)
     color: str = "#2b2f36"
     active_color: str = "#d9480f"
+    text_color: str = "#ffffff"
+    font_size: int = 0  # pixels on a 72-pixel key (scaled to the real key); 0 = as large as fits
+    font_weight: str = "bold"  # a FONT_WEIGHTS name
+    word_wrap: bool = True  # break long labels onto more lines instead of running off the key
 
 
 @dataclass
@@ -89,6 +99,11 @@ class SurfaceLayout:
     custom_columns: int = 4  # size of a "custom" surface
     custom_rows: int = 4
     midi_base_note: int = 36  # note of the bottom-left key on a custom MIDI surface
+    id: str = ""  # stable id of this surface (web panel and OSC addresses use it)
+    enabled: bool = True
+    # Which physical device drives it: a Stream Deck serial number or a MIDI input name (part of it
+    # is enough). Empty = the first matching device that no other surface has claimed.
+    device: str = ""
 
     @property
     def kind(self) -> str:
@@ -126,3 +141,80 @@ def save_layout(layout: SurfaceLayout, path: str) -> None:
 
 def default_layout() -> SurfaceLayout:
     return load_layout(DEFAULT_LAYOUT_PATH)
+
+
+def new_id() -> str:
+    return secrets.token_hex(4)
+
+
+def next_page_key() -> ButtonBinding:
+    return ButtonBinding(action=NAV_NEXT, label="NEXT\nPAGE", color="#343a40", active_color="#495057")
+
+
+def _is_nav(binding: Optional[ButtonBinding]) -> bool:
+    return bool(binding and binding.action in (NAV_NEXT, NAV_PREV, NAV_GOTO))
+
+
+def ensure_page_navigation(layout: SurfaceLayout) -> bool:
+    """With more than one page, give every page a way on: a Next page key on the last free key
+    (the last key itself when it is free). Pages that already have a page key are left alone."""
+    if len(layout.pages) < 2 or layout.key_count < 2:
+        return False
+    changed = False
+    keys = range(layout.key_count)
+    for page in layout.pages:
+        if any(_is_nav(page.button(i)) for i in keys):
+            continue
+        free = [i for i in keys if not (page.button(i) and page.button(i).action)]
+        if free:
+            page.buttons[str(free[-1])] = next_page_key()
+            changed = True
+    return changed
+
+
+def reflow(groups: Sequence[Tuple[str, List[ButtonBinding]]], key_count: int) -> List[SurfacePage]:
+    """Lay out each (page name, bindings) group on as many pages as a surface with ``key_count``
+    keys needs ("Cameras", "Cameras 2"...). With more than one page, the last key of every page
+    is Next page."""
+    key_count = max(1, key_count)
+    groups = [(name, list(b)) for name, b in groups] or [("Main", [])]
+    if len(groups) == 1 and len(groups[0][1]) <= key_count:
+        name, bindings = groups[0]
+        return [SurfacePage(name=name, buttons={str(i): b for i, b in enumerate(bindings)})]
+    per_page = max(1, key_count - 1) if key_count >= 2 else 1
+    pages = []
+    for name, bindings in groups:
+        chunks = [bindings[i:i + per_page] for i in range(0, len(bindings), per_page)] or [[]]
+        for n, chunk in enumerate(chunks):
+            buttons = {str(i): b for i, b in enumerate(chunk)}
+            if key_count >= 2:
+                buttons[str(key_count - 1)] = next_page_key()
+            pages.append(SurfacePage(name=name if n == 0 else f"{name} {n + 1}", buttons=buttons))
+    return pages
+
+
+def fit_to_model(source: SurfaceLayout, model: str) -> SurfaceLayout:
+    """``source``'s keys (in order, page by page, without its page keys) laid out for ``model``.
+    Layouts that already fit (same key count) are kept key for key."""
+    layout = copy.deepcopy(source)
+    layout.model = model
+    if layout.key_count == source.key_count:
+        ensure_page_navigation(layout)
+        return layout
+    groups = []
+    for page in layout.pages:  # the copies, so the source keeps its own keys
+        keys = sorted(int(k) for k in page.buttons if k.isdigit())
+        groups.append((page.name, [page.buttons[str(i)] for i in keys
+                                   if page.buttons[str(i)].action and not _is_nav(page.buttons[str(i)])]))
+    layout.pages = reflow(groups, layout.key_count)
+    return layout
+
+
+def new_surface(model: str, name: str = "") -> SurfaceLayout:
+    """A new surface of ``model`` with the default buttons, spread over pages to fit."""
+    layout = fit_to_model(default_layout(), model)
+    layout.id = new_id()
+    layout.name = name or MODELS.get(model, (model,))[0].split(" (")[0]
+    layout.device = ""
+    layout.enabled = True
+    return layout

@@ -187,3 +187,63 @@ def test_wall_status_bar_states():
     assert bar._timer.isActive()
     bar.show_wall("normal")
     assert not bar._timer.isActive() and bar.text() == "WALL NORMAL"
+
+
+def test_control_surfaces_page_with_several_surfaces(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPERATOR_BOARD_HOME", str(tmp_path))
+    from operator_board.context import AppContext
+    from operator_board.core.config import AppConfig
+    from operator_board.surfaces.layout import NAV_NEXT
+    from operator_board.ui.main_window import MainWindow
+
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    cfg = AppConfig()
+    cfg.surfaces.streamdeck_enabled = False
+    ctx = AppContext(cfg, config_path=str(tmp_path / "config.json"))
+    window = MainWindow(ctx)
+    window.show_page("Control Surfaces")
+    page = window.current_page()
+    page.add_combo.setCurrentIndex(page.add_combo.findData("streamdeck_mini"))
+    page.add_combo.setCurrentIndex(page.add_combo.findData("streamdeck_mini"))
+    app.processEvents()
+    assert page.list.topLevelItemCount() == 3 and page.add_combo.currentIndex() == 0
+    assert page.current.layout.name == "Stream Deck Mini 2"
+    assert page.current.layout.pages[0].buttons["5"].action == NAV_NEXT
+    page._key_clicked(0)
+    page.label.setPlainText("A VERY LONG LABEL")
+    page.text_color.setText("#ffd43b")
+    page.font_size.setCurrentText("14")
+    page.font_weight.setCurrentIndex(page.font_weight.findData("black"))
+    page.word_wrap.setChecked(False)
+    page._apply()
+    key = page.current.layout.pages[0].buttons["0"]
+    assert (key.text_color, key.font_size, key.font_weight, key.word_wrap) == ("#ffd43b", 14, "black", False)
+    assert "surface=" + page.current.layout.id in page._panel_urls()[0]
+    item = page.list.topLevelItem(1)
+    item.setText(0, "Camera deck")  # what a double-click rename does
+    assert ctx.surfaces.controllers[1].layout.name == "Camera deck"
+    saved = AppConfig.from_json(open(tmp_path / "config.json").read())
+    assert [d["name"] for d in saved.surfaces.devices][1:] == ["Camera deck", "Stream Deck Mini 2"]
+    window.skip_save_on_close = True
+    window.close()
+
+
+def test_led_command_editor_saves_a_custom_copy(tmp_path):
+    from operator_board.led.profiles import ProfileRegistry
+    from operator_board.ui.led_commands import LEDCommandsDialog
+
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    registry = ProfileRegistry(user_dir=str(tmp_path))
+    dialog = LEDCommandsDialog(None, registry, "novastar_mctrl")
+    dialog.entries.setCurrentRow(0)
+    dialog.editor.setPlainText("{not json")
+    dialog.entries.setCurrentRow(1)
+    assert dialog.entries.currentRow() == 0 and "Not valid" in dialog.error.text()  # stays on the bad entry
+    dialog.editor.setPlainText('{"hex": "55 AA 00 01", "checksum": "novastar"}')
+    dialog._add_pattern()
+    dialog._save()
+    assert dialog.saved["id"] == "novastar_mctrl_custom"
+    assert dialog.saved["commands"]["freeze_on"]["hex"] == "55 AA 00 01"
+    assert dialog.saved["test_patterns"][-1]["id"].startswith("pattern_")
+    assert registry.get("novastar_mctrl")["commands"]["freeze_on"].get("hex") != "55 AA 00 01"
+    app.processEvents()

@@ -4,6 +4,8 @@
   /operator/key/<n> [value]      the same; a value of 0 (a button being released) is ignored
   /operator/action/<id> [args]   run any action; string args "name=value" become its parameters
   /operator/page next|prev|<n>   change surface page
+  /operator/surface/<name>/...   the same for one surface (its name, id or number, 1 = first);
+                                 without it, messages go to the first OSC (else Custom) surface
 
 Pure Python (no extra package): only the OSC 1.0 parts these messages need are decoded.
 """
@@ -61,8 +63,9 @@ def parse_message(data: bytes) -> Optional[Tuple[str, List[Any]]]:
 
 
 class OscServer:
-    def __init__(self, controller: SurfaceController, port: int = 8000, bind: str = "0.0.0.0") -> None:
-        self.controller = controller
+    def __init__(self, surfaces, port: int = 8000, bind: str = "0.0.0.0") -> None:
+        # A SurfaceManager (several surfaces) or a single SurfaceController.
+        self.surfaces = surfaces
         self.port = port
         self.bind = bind
         self._sock: Optional[socket.socket] = None
@@ -96,33 +99,50 @@ class OscServer:
                 except Exception:  # noqa: BLE001 - one bad message must not stop the server
                     log.exception("OSC message %s failed", message[0])
 
+    def _target(self, ref: Optional[str] = None) -> Optional[SurfaceController]:
+        if isinstance(self.surfaces, SurfaceController):
+            return self.surfaces
+        if ref is not None:
+            return self.surfaces.find(ref)
+        return self.surfaces.first_of(("osc", "custom"))
+
     def handle(self, address: str, args: List[Any]):
         """Act on one message; returns the action result (or None if it was not for us)."""
         if not address.startswith(PREFIX + "/"):
             return None
         parts = address[len(PREFIX) + 1:].split("/")
+        if parts[0] == "surface" and len(parts) > 2:
+            controller = self._target(parts[1])
+            parts = parts[2:]
+        else:
+            controller = self._target()
+        if controller is None:
+            return None
+        return self._handle(controller, parts, args)
+
+    def _handle(self, controller: SurfaceController, parts: List[str], args: List[Any]):
         if parts[0] == "key":
             if len(parts) > 1:  # /operator/key/<n> [value]
                 if args and isinstance(args[0], (int, float)) and not args[0]:
                     return None  # button released
-                return self.controller.press(int(parts[1]))
+                return controller.press(int(parts[1]))
             if args:
-                return self.controller.press(int(args[0]))
+                return controller.press(int(args[0]))
         elif parts[0] == "action" and len(parts) > 1:
             params = {}
             for a in args:
                 if isinstance(a, str) and "=" in a:
                     k, v = a.split("=", 1)
                     params[k] = v
-            return self.controller.actions.invoke(parts[1], **params)
+            return controller.actions.invoke(parts[1], **params)
         elif parts[0] == "page" and args:
             target = str(args[0]).lower()
-            n = max(1, len(self.controller.layout.pages))
+            n = max(1, len(controller.layout.pages))
             if target in ("next", NAV_NEXT):
-                self.controller.page = (self.controller.page + 1) % n
+                controller.page = (controller.page + 1) % n
             elif target in ("prev", "previous", NAV_PREV):
-                self.controller.page = (self.controller.page - 1) % n
+                controller.page = (controller.page - 1) % n
             elif target.isdigit():
-                self.controller.page = int(target) % n
-            self.controller.bus.publish("surface.changed")
+                controller.page = int(target) % n
+            controller.bus.publish("surface.changed")
         return None

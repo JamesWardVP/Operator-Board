@@ -21,7 +21,8 @@ operator_board/
   remote/                Remote Control API client, targets, levels, cameras, objects, DLSS, takes
   sync/                  sync providers (FreeFileSync/P4/Git/Robocopy/custom) + manager
   analytics/             MetricStore (time series from listener sync status)
-  surfaces/              surface layouts (JSON), controller, Stream Deck backend, HTTP API for Companion
+  surfaces/              surface layouts (JSON), SurfaceManager (several surfaces at once), controller, label fitting,
+                         Stream Deck / MIDI / OSC backends, web panel, HTTP API for Companion
   ui/                    main window, theme, widgets, generic dataclass forms, one module per page
 ```
 

@@ -600,3 +600,49 @@ def set_row(table: QtWidgets.QTableWidget, row: int, values: Sequence) -> None:
         table.setRowCount(row + 1)
     for col, value in enumerate(values):
         table.setItem(row, col, QtWidgets.QTableWidgetItem("" if value is None else str(value)))
+
+
+class ColorField(QtWidgets.QWidget):
+    """A colour as a hex code you can type, plus a swatch that opens a colour picker."""
+    changed = QtCore.Signal(str)
+
+    def __init__(self, title: str = "Colour", parent=None) -> None:
+        super().__init__(parent)
+        self.title = title
+        self.edit = QtWidgets.QLineEdit()
+        self.edit.setPlaceholderText("#rrggbb")
+        self.edit.setMaxLength(9)
+        self.edit.setFixedWidth(96)
+        self.edit.textChanged.connect(self._typed)
+        self.swatch = QtWidgets.QPushButton()
+        self.swatch.setFixedSize(44, 28)
+        self.swatch.setToolTip("Pick a colour")
+        self.swatch.setCursor(Qt.PointingHandCursor)
+        self.swatch.clicked.connect(self.pick)
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        lay.addWidget(self.swatch)
+        lay.addWidget(self.edit)
+        lay.addStretch(1)
+
+    def text(self) -> str:
+        return self.edit.text().strip()
+
+    def setText(self, value: str) -> None:  # noqa: N802 - matches QLineEdit
+        self.edit.setText(value or "")
+
+    def _typed(self, value: str) -> None:
+        color = QtGui.QColor(value.strip())
+        shown = color.name() if color.isValid() else "transparent"
+        self.swatch.setStyleSheet(f"QPushButton {{ background: {shown}; border: 1px solid {COLORS['border']};"
+                                  " border-radius: 6px; }")
+        if color.isValid():
+            self.changed.emit(color.name())
+
+    def pick(self) -> None:
+        current = QtGui.QColor(self.text())
+        chosen = QtWidgets.QColorDialog.getColor(current if current.isValid() else QtGui.QColor("#2b2f36"),
+                                                 self, self.title)
+        if chosen.isValid():
+            self.edit.setText(chosen.name())
