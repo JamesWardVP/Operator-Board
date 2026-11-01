@@ -13,6 +13,12 @@ Switchboard stage
                                   interface, which Switchboard config is open) and the
                                   standalone stage, untouched, for when no config is open.
 
+Inside an Operator Board project (core/projects.py) the stage settings live in the project folder
+instead: ``<project>/config.json`` for the project's own settings (and which Switchboard config it
+uses) and ``<project>/stages/<Name>.opboard`` for its settings with each Switchboard config, so two
+projects using the same Switchboard config keep their own cameras, takes, LED processors...
+``~/.operator_board/config.json`` still holds the machine settings.
+
 On save the Switchboard file is re-read from disk and only Operator Board's keys are
 merged in, so changes made in Switchboard in between are kept.
 """
@@ -49,14 +55,35 @@ def copy_into(target: AppConfig, source: AppConfig) -> None:
 
 
 class ConfigStore:
-    def __init__(self, global_path: Optional[str] = None) -> None:
+    def __init__(self, global_path: Optional[str] = None, project_dir: Optional[str] = None) -> None:
         self.global_path = global_path or default_config_path()
+        self.project_dir = project_dir  # an Operator Board project folder, or None (settings as before)
         # Set when the linked Switchboard config could not be opened on load.
         self.load_error = ""
 
+    @property
+    def stage_path(self) -> str:
+        """Where the settings are kept when no Switchboard config is open."""
+        return os.path.join(self.project_dir, "config.json") if self.project_dir else self.global_path
+
+    def sidecar_for(self, sb_path: str) -> str:
+        """Operator Board's settings for a Switchboard config (in the project, or next to the config)."""
+        if self.project_dir:
+            name = os.path.splitext(os.path.basename(sb_path))[0] + SIDECAR_SUFFIX
+            return os.path.join(self.project_dir, "stages", name)
+        return sidecar_path(sb_path)
+
     # ---- loading -------------------------------------------------------------------------
     def load(self) -> AppConfig:
-        cfg = load_config(self.global_path)
+        machine = load_config(self.global_path)
+        if self.project_dir:
+            cfg = load_config(self.stage_path)
+            active = cfg.switchboard.active_config  # the project's own choice of Switchboard config
+            for name in MACHINE_FIELDS:
+                setattr(cfg, name, from_dict(type(getattr(machine, name)), to_dict(getattr(machine, name))))
+            cfg.switchboard.active_config = active
+        else:
+            cfg = machine
         sb_path = cfg.switchboard.active_config
         if not sb_path:
             return cfg
@@ -79,7 +106,7 @@ class ConfigStore:
         return stage
 
     def _read_sidecar(self, sb_path: str) -> AppConfig:
-        path = sidecar_path(sb_path)
+        path = self.sidecar_for(sb_path)
         if not os.path.exists(path):
             stage = AppConfig()
             stage.projects = []
@@ -94,7 +121,10 @@ class ConfigStore:
     def save(self, cfg: AppConfig) -> str:
         sb_path = cfg.switchboard.active_config
         if not sb_path:
-            return save_config(cfg, self.global_path)
+            path = save_config(cfg, self.stage_path)
+            if self.project_dir:
+                self._save_machine(cfg)
+            return path
         try:
             data = read_switchboard_config(sb_path)
         except FileNotFoundError:
@@ -102,6 +132,11 @@ class ConfigStore:
         write_switchboard_config(sb_path, merge_into_switchboard(data, cfg))
         self._write_sidecar(sb_path, cfg)
         self._save_machine(cfg)
+        if self.project_dir:  # remember in the project which Switchboard config it uses
+            project = load_config(self.stage_path)
+            if project.switchboard.active_config != sb_path:
+                project.switchboard.active_config = sb_path
+                save_config(project, self.stage_path)
         return sb_path
 
     def _write_sidecar(self, sb_path: str, cfg: AppConfig) -> None:
@@ -110,7 +145,7 @@ class ConfigStore:
         for name in MACHINE_FIELDS:
             stage.pop(name, None)
         data.update(stage)
-        atomic_write(sidecar_path(sb_path), json.dumps(data, indent=2))
+        atomic_write(self.sidecar_for(sb_path), json.dumps(data, indent=2))
 
     def _save_machine(self, cfg: AppConfig) -> None:
         """Update only the machine settings in the global file, keeping its standalone stage."""
@@ -164,9 +199,11 @@ class ConfigStore:
         """Save the open Switchboard stage and go back to the standalone stage."""
         if current.switchboard.active_config:
             self.save(current)
-        cfg = load_config(self.global_path)
+        cfg = load_config(self.stage_path)
         for name in MACHINE_FIELDS:
             setattr(cfg, name, getattr(current, name))
         cfg.switchboard.active_config = ""
-        save_config(cfg, self.global_path)
+        save_config(cfg, self.stage_path)
+        if self.project_dir:
+            self._save_machine(cfg)
         return cfg

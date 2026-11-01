@@ -1,9 +1,9 @@
-"""Create or edit a group of Unreal instances: name, colour and members."""
+"""Create or edit a group of Unreal instances or of LED processors: name, colour and members."""
 from __future__ import annotations
 
 from typing import List, Optional
 
-from operator_board.core.config import GroupConfig
+from operator_board.core.config import GroupConfig, LEDGroupConfig
 from operator_board.qt import QtGui, QtWidgets, Qt
 
 # Quick picks that read well on the dark theme; "Custom…" opens the full colour picker.
@@ -14,13 +14,20 @@ SWATCHES = ["#3d8bfd", "#7950f2", "#e64980", "#e03131", "#f08c00", "#fab005", "#
 class GroupDialog(QtWidgets.QDialog):
     """Returns the edited group with ``result_group`` after ``exec`` (``deleted`` if the group was deleted)."""
 
-    def __init__(self, parent, group: Optional[GroupConfig], device_names: List[str], taken_names: List[str]) -> None:
+    def __init__(self, parent, group: Optional[GroupConfig], device_names: List[str], taken_names: List[str],
+                 led: bool = False) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Edit group {group.name}" if group else "New group")
+        self.led = led
+        self.setWindowTitle(f"Edit group {group.name}" if group else ("New LED group" if led else "New group"))
         self.setMinimumWidth(420)
         self.deleted = False
         self._taken = {n.lower() for n in taken_names}
-        source = group or GroupConfig(name=self._free_name("Group"), color=SWATCHES[len(taken_names) % len(SWATCHES)])
+        if group is None:
+            cls = LEDGroupConfig if led else GroupConfig
+            group_source = cls(name=self._free_name("LED group" if led else "Group"),
+                               color=SWATCHES[len(taken_names) % len(SWATCHES)])
+        source = group or group_source
+        members_now = source.processors if led else source.devices
         self._color = source.color
 
         lay = QtWidgets.QVBoxLayout(self)
@@ -45,15 +52,16 @@ class GroupDialog(QtWidgets.QDialog):
         form.addRow("Colour", swatches)
         lay.addLayout(form)
 
-        lay.addWidget(QtWidgets.QLabel("Unreal instances in this group"))
+        lay.addWidget(QtWidgets.QLabel("LED processors in this group" if led else "Unreal instances in this group"))
         self.members = QtWidgets.QListWidget()
         for name in device_names:
             item = QtWidgets.QListWidgetItem(name)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if name in source.devices else Qt.Unchecked)
+            item.setCheckState(Qt.Checked if name in members_now else Qt.Unchecked)
             self.members.addItem(item)
         if not device_names:
-            self.members.addItem("No devices yet: add them on the Devices page.")
+            self.members.addItem("No LED processors yet: add them above." if led else
+                                 "No devices yet: add them on the Devices page.")
         lay.addWidget(self.members, 1)
 
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
@@ -85,8 +93,9 @@ class GroupDialog(QtWidgets.QDialog):
 
     def _delete(self) -> None:
         if QtWidgets.QMessageBox.question(self, "Delete group",
-                                          f"Delete the group '{self._original.name}'? "
-                                          "Its Unreal instances are not affected.") == QtWidgets.QMessageBox.Yes:
+                                          f"Delete the group '{self._original.name}'? Its "
+                                          + ("LED processors" if self.led else "Unreal instances")
+                                          + " are not affected.") == QtWidgets.QMessageBox.Yes:
             self.deleted = True
             self.accept()
 
@@ -105,7 +114,26 @@ class GroupDialog(QtWidgets.QDialog):
         members = [self.members.item(i).text() for i in range(self.members.count())
                    if self.members.item(i).flags() & Qt.ItemIsUserCheckable
                    and self.members.item(i).checkState() == Qt.Checked]
+        if self.led:
+            return LEDGroupConfig(name=self.name.text().strip(), processors=members, color=self._color)
         return GroupConfig(name=self.name.text().strip(), devices=members, color=self._color)
+
+
+def edit_led_group(parent, config, group: Optional[LEDGroupConfig] = None) -> bool:
+    """The same dialog for a group of LED processors (``config.led_groups``). True if anything changed."""
+    taken = [g.name for g in config.led_groups if g is not group] + [p.name for p in config.led_processors]
+    dialog = GroupDialog(parent, group, [p.name for p in config.led_processors], taken, led=True)
+    if not (dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec()):
+        return False
+    if dialog.deleted:
+        config.led_groups.remove(group)
+        return True
+    result = dialog.result_group
+    if group is None:
+        config.led_groups.append(result)
+    else:
+        group.name, group.processors, group.color = result.name, result.processors, result.color
+    return True
 
 
 def edit_group(parent, config, group: Optional[GroupConfig] = None) -> bool:

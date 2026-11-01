@@ -50,8 +50,10 @@ class TakeLog:
 
 class TakeManager:
     SAVE_TIMEOUT_S = 180.0
-    def __init__(self, config: AppConfig, bus: EventBus, targets: Optional[TargetResolver] = None) -> None:
+    def __init__(self, config: AppConfig, bus: EventBus, targets: Optional[TargetResolver] = None,
+                 log_dir: Optional[str] = None) -> None:
         self.config = config
+        self.log_dir = log_dir  # the Operator Board project folder; default: ~/.operator_board
         self.bus = bus
         self.targets = targets
         self.log = TakeLog()
@@ -74,7 +76,7 @@ class TakeManager:
 
     @property
     def log_path(self) -> str:
-        return self.settings.take_log_path or os.path.join(app_home(), "take_log.json")
+        return self.settings.take_log_path or os.path.join(self.log_dir or app_home(), "take_log.json")
 
     @property
     def recording(self) -> bool:

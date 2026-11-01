@@ -14,6 +14,8 @@ from operator_board.ui.pages.analytics import AnalyticsPage
 from operator_board.ui.pages.devices import DevicesPage
 from operator_board.ui.pages.dlss import DLSSPage
 from operator_board.ui.pages.led_setup import LEDSetupPage
+from operator_board.ui.pages.led_walls import LEDProcessorsPage
+from operator_board.ui.pages.saved_settings import SavedSettingsPage
 from operator_board.ui.pages.levels import LevelsPage
 from operator_board.ui.pages.objects import ObjectsPage
 from operator_board.ui.pages.operate import OperatePage
@@ -25,12 +27,13 @@ from operator_board.ui.pages.takes import TakesPage
 from operator_board.ui.theme import COLORS, STYLESHEET
 from operator_board.ui.widgets import scroll
 
-PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, DLSSPage, AnalyticsPage, SurfacesPage, SyncPage,
-         LEDSetupPage, StagePage, DevicesPage, SettingsPage]
+PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, LEDProcessorsPage, DLSSPage, AnalyticsPage, SurfacesPage,
+         SyncPage, SavedSettingsPage, LEDSetupPage, StagePage, DevicesPage, SettingsPage]
 # The sidebar: ungrouped pages at the top and bottom, collapsible groups in between (open by default).
 NAV = ["Operate", "Takes", "Cameras & Levels",
-       ("Advanced", ["Remote Objects", "DLSS", "Analytics", "Control Surfaces", "File Sync"]),
-       ("Setup", ["LED Processors", "Stage", "Devices"]),
+       ("Advanced", ["Remote Objects", "LED Processors", "DLSS", "Analytics", "Control Surfaces", "File Sync",
+                     "Saved Settings"]),
+       ("Setup", ["LED Processor Setup", "Switchboard Configs", "Devices"]),
        "Settings"]
 
 # Stage hotkeys work from any page.
@@ -43,6 +46,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.ctx = ctx
         self.skip_save_on_close = False
+        self.switch_project_requested = False
         self._update_title()
         self.resize(1500, 950)
         self.setStyleSheet(STYLESHEET)
@@ -104,6 +108,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # control surfaces again once the burst of messages has settled.
         self._listener_asking = False
         self._listener_answered = 0.0
+        self._listener_mismatch_answered = None
+        self._closing = False
+        self._listener_check_timer = QtCore.QTimer(self)
+        self._listener_check_timer.setSingleShot(True)
+        self._listener_check_timer.setInterval(1500)
+        self._listener_check_timer.timeout.connect(self._check_listener)
+        self._listener_check_timer.start()  # once the window is up, for the project just opened
         self._listener_unreachable = set()
         self._device_timer = QtCore.QTimer(self)
         self._device_timer.setSingleShot(True)
@@ -116,7 +127,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.notify(message, False)
 
     def _update_title(self) -> None:
-        title = f"Operator Board {__version__} — {self.ctx.config.active_project}"
+        project = self.ctx.project.name if self.ctx.project else self.ctx.config.active_project
+        title = f"Operator Board {__version__} — {project}"
         if self.ctx.switchboard_config:
             title += f"  [Switchboard: {os.path.splitext(os.path.basename(self.ctx.switchboard_config))[0]}]"
         self.setWindowTitle(title)
@@ -138,9 +150,20 @@ class MainWindow(QtWidgets.QMainWindow):
         brand.setObjectName("Brand")
         brand.setAttribute(Qt.WA_StyledBackground, True)
         brand.setStyleSheet(f"QWidget#Brand {{ background: {COLORS['panel']}; }}")
-        row = QtWidgets.QHBoxLayout(brand)
-        row.setContentsMargins(14, 14, 12, 12)
+        outer = QtWidgets.QVBoxLayout(brand)
+        outer.setContentsMargins(14, 14, 12, 8)
+        outer.setSpacing(8)
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(10)
+        outer.addLayout(row)
+        project = self.ctx.project.name if self.ctx.project else "No project"
+        self.project_btn = QtWidgets.QPushButton(f"{project}  ⇄")
+        self.project_btn.setToolTip("Projects: save this one and go back to the start screen to open, make, duplicate, "
+                                    "rename, import or export projects")
+        self.project_btn.setStyleSheet("QPushButton { text-align: left; padding: 6px 10px; font-weight: 700; }")
+        self.project_btn.clicked.connect(self.switch_project)
+        outer.addWidget(self.project_btn)
         logo = QtWidgets.QLabel()
         pix = QtGui.QPixmap(os.path.join(os.path.dirname(__file__), "logo.png"))
         if not pix.isNull():
@@ -167,6 +190,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_event(self, topic: str, payload: dict) -> None:
         if topic in ("project.changed", "stage.changed"):
             self._update_title()
+            self._check_listener_soon()
         if topic == "device.auth":
             self.login.handle(payload)
         if topic == "device.rc_port_changed":
@@ -190,6 +214,42 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self.current_page()
         if isinstance(page, OperatePage):
             page.refresh()
+
+    def _check_listener_soon(self) -> None:
+        """After a project or Switchboard config opens: is this PC's listener from the right engine?"""
+        self._listener_check_timer.start()
+
+    def _check_listener(self) -> None:
+        if self._closing:
+            return
+
+        def done(result) -> None:
+            if self._closing or result.get("status") != "mismatch" or self._listener_asking:
+                return
+            running = ", ".join(f"UE {r['version']}" if r.get("version") else (r.get("path") or "unknown")
+                                for r in result.get("running", []))
+            wanted = result.get("wanted_version") or "the config's engine"
+            key = (running, wanted, result.get("engine_dir"))
+            if key == self._listener_mismatch_answered:
+                return  # already asked about exactly this
+            self._listener_asking = True
+            running_devices = [n for n in self.ctx.local_devices()
+                               if (self.ctx.devices.get(n) and self.ctx.devices.get(n).state == "running")]
+            warning = (f"\n\nUnreal is running on this PC ({', '.join(running_devices)}): stopping the listener "
+                       "may close it." if running_devices else "")
+            try:
+                answer = QtWidgets.QMessageBox.question(
+                    self, "SwitchboardListener version",
+                    f"The SwitchboardListener running on this PC is from {running}, but this Switchboard config uses "
+                    f"UE {wanted}.\n\nStop it and start the UE {wanted} listener, then connect again?{warning}")
+            finally:
+                self._listener_asking = False
+                self._listener_mismatch_answered = key
+            if answer == QtWidgets.QMessageBox.Yes:
+                self.notify(f"Starting the UE {wanted} SwitchboardListener…")
+                run_async(self.ctx.replace_local_listener, lambda message: self.notify(message),
+                          lambda exc: self.notify(f"Could not swap SwitchboardListener: {exc}", False))
+        run_async(self.ctx.check_local_listener, done, lambda exc: None)
 
     LISTENER_ASK_AGAIN_S = 120.0
 
@@ -242,7 +302,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _devices_changed(self) -> None:
         run_async(lambda: self.ctx.refresh_surface_devices(only_if_changed=True))
 
+    def switch_project(self) -> None:
+        """Save, close this project and go back to the start screen."""
+        if self.ctx.takes.recording:
+            self.notify("Stop recording before switching project", False)
+            return
+        self.switch_project_requested = True
+        self.close()
+
     def closeEvent(self, event) -> None:
+        self._closing = True  # late background results must not touch the closed window
+        self._listener_check_timer.stop()
         if not self.skip_save_on_close:
             try:
                 self.ctx.save()
@@ -250,3 +320,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
         self.ctx.shutdown()
         super().closeEvent(event)
+        app = QtWidgets.QApplication.instance()
+        if app is not None and not app.quitOnLastWindowClosed():
+            app.quit()  # ends this window's event loop (app.py then shows the start screen or exits)

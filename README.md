@@ -7,7 +7,7 @@
 [![Windows build](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml/badge.svg)](https://github.com/JamesWardVP/Operator-Board/actions/workflows/build-windows.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Version:** 0.6.2 · **Unreal Engine 5.2 – 5.8** · **Windows**
+**Version:** 0.7.0 · **Unreal Engine 5.2 – 5.8** · **Windows**
 
 ![Operator Board's Operate page: LED wall controls, Unreal instances, multi-user, project and level, take and camera positions](docs/images/operate.png)
 
@@ -30,9 +30,9 @@ It uses the same building blocks as Switchboard: **SwitchboardListener** on each
 ## Getting started
 
 1. **Download** `OperatorBoard-Setup-<version>.exe` from the [Releases](https://github.com/JamesWardVP/Operator-Board/releases) page and run it. Python does not need to be installed.
-2. **Start Operator Board** from the Start menu.
+2. **Start Operator Board** from the Start menu and choose a **project** on the start screen, or start a new one (one project per shoot or show).
 3. **Make sure SwitchboardListener is running** on every machine that runs Unreal (`Engine\Binaries\Win64\SwitchboardListener.exe`), as you would for Switchboard. For UE 5.4 and later, Operator Board asks for each listener's password the first time it connects, just like Switchboard.
-4. **Open your stage** on the **Stage** page: pick an existing Switchboard config, or create a new one.
+4. **Open your stage** on the **Switchboard Configs** page: pick an existing Switchboard config, or create a new one.
 5. **Add your LED processors** on the **LED Processors** page: choose the type and enter its IP address, as you would in Companion.
 6. Go to **Operate**, connect, and you're running.
 
@@ -41,24 +41,37 @@ Want to try it without any hardware? Choose the **Simulator** LED processor type
 ## A tour of Operator Board
 
 ### Operate: the whole stage on one page
-Freeze, blackout and test patterns for the wall; connect to, start and stop every Unreal instance (each machine has its own Connect / Disconnect button, and there is a Disconnect all), or a whole group (make, rename, colour-code and edit groups right there with **+ New group** and **Edit**); the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The **↗** button in the corner of each card opens the page behind it. The bar at the top always shows the wall: green when normal, a blue shimmer when frozen, slowly moving hazard stripes when blacked out, and a picture of the test pattern (the colour, colour bars, grid, lines...) while one is showing. The take **description** can be edited on the Take card, and recorded takes' descriptions on the Takes page. The level list fills in by itself when a stage config is opened or the project changes. In the sidebar, the everyday pages sit at the top, with **Advanced** and **Setup** groups that fold away. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
+Freeze, blackout, test patterns and **Locate** for the wall (**Wall normal** lights green when every processor is showing normal output); connect to, start and stop every Unreal instance (each machine has its own Connect / Disconnect button, and there is a Disconnect all), or a whole group (make, rename, colour-code and edit groups right there with **+ New group** and **Edit**); the multi-user server and its connected clients; project and level; the current take; and one-touch camera positions. The **↗** button in the corner of each card opens the page behind it. The bar at the top always shows the wall: green when normal, a blue shimmer when frozen, slowly moving hazard stripes when blacked out, pulsing purple while locating, and a picture of the test pattern (the colour, colour bars, grid, lines...) while one is showing. When every processor is in the same state it is one bar ("ALL PROCESSORS FROZEN"); when they differ it splits into a part for each state, naming the processors in it. The take **description** can be edited on the Take card, and recorded takes' descriptions on the Takes page. The level list fills in by itself when a stage config is opened or the project changes. In the sidebar, the everyday pages sit at the top, with **Advanced** and **Setup** groups that fold away. The stage hotkeys work from any page: **F9** Freeze · **F10** Blackout · **F11** Wall normal · **F12** Record · **Ctrl+Shift+S** Start all.
 
 If no LED processor is set up, or none can be reached, the LED Wall section is greyed out behind hazard tape with what to do (set up, retry, or use anyway); Operator Board checks processors when it starts and while any is offline. Blackout asks for confirmation by default, so the wall cannot be blacked out by accident (Settings > Confirm before blackout). When the wall is frozen, blacked out or showing a test pattern, a banner across the top makes that impossible to miss:
 
 ![Operate page with the WALL FROZEN banner and the Freeze button lit](docs/images/operate_frozen.png)
 
-### Stage: share configs with Switchboard
+### Projects: one per shoot
+Operator Board opens on a start screen listing your projects. Each project keeps everything specific to a shoot or an Unreal project: its takes, camera positions, saved settings presets, change log, Unreal instances and nDisplay setup, LED processors and groups, Remote Control settings and the Switchboard config it uses. A new project starts clean, so there is nothing to wipe between shoots. Control surfaces and interface settings belong to the computer and are the same in every project.
+
+- **New project…** asks for the name and details (production, client, director, director of photography, VP supervisor, location, shoot dates, notes) and can start with another project's stage setup (devices, LED processors, Switchboard config) without its camera positions, takes, presets or change log.
+- **Duplicate…** copies a project as it stands, as a checkpoint; **Rename…** and **Details…** change it.
+- **Export…** saves a project to a `.opproject` file, with its takes and change log (to share it or keep it) or without them (as a template). **Import project…** adds one as a new project, and **New from template…** starts a new project from a template, so studio and personal templates can be used again and again.
+- The project's name and details are in the production data export.
+- The project button at the top of the sidebar saves the project and goes back to the start screen.
+- Settings from before projects were added become a project called "My stage" the first time; the old files are left as they were.
+
+### Switchboard Configs: share configs with Switchboard
 Open, create and save **Switchboard config files**, the same files Switchboard lists. By default Operator Board looks in the folder Switchboard itself uses for the chosen engine (`Engine\Plugins\VirtualProduction\Switchboard\Source\Switchboard\configs`, or `SWITCHBOARD_CONFIG_DIR`), and you can pick any other folder.
 
-![Stage page listing Switchboard configs, with one open](docs/images/stage.png)
+![Switchboard Configs page listing Switchboard configs, with one open](docs/images/stage.png)
 
 - A config made or changed here opens in Switchboard, and the other way round.
 - Operator Board writes only the project, engine, editor and nDisplay devices, nDisplay config and multi-user settings. Every other Switchboard setting is kept exactly as it was.
-- Operator Board's own settings for that stage (LED processors, groups, cameras, takes, sync jobs, Remote Control) go in a matching `<config>.opboard` file next to it, which Switchboard ignores.
+- Operator Board's own settings for that stage (LED processors, groups, cameras, takes, sync jobs, Remote Control) are kept in the project (`<project>/stages/<config>.opboard`), so two projects can use the same Switchboard config and keep their own camera positions and takes. Switchboard never sees them.
 - Switchboard rewrites a config whenever you change a setting in it, so avoid editing the same config in both programs at the same time.
 
-### LED Processors: Companion-style setup
-Choose the processor type, enter its IP address and port, and the wall buttons drive every processor at once.
+### LED Processor Setup: Companion-style setup
+Choose the processor type, enter its IP address and port, and the wall buttons drive every processor at once. Each processor's row also has **Freeze**, **Blackout**, **Locate** and **Resume** buttons, lit for the state it is in, and the selected processor's buttons light up the same way. **Advanced: groups and individual control** (next to Test all) drops down over the page to make, edit and delete **groups of LED processors** (name, colour, members) and to control every group and every processor on its own with five buttons (Freeze, Blackout, Test pattern, Locate, Normal), the current one lit.
+
+### LED Processors
+A control page for the wall: the same status bar as Operate, then a column for every LED group and every processor with its five mode buttons stacked (the current one lit) and its own test pattern choice. Pressing the lit button returns it to normal. The groups are the same as on LED Processor Setup. Control surfaces can do the same with the **Set LED processor / group mode** action. Locate needs the processor type's `locate_on` / `locate_off` commands: the Simulator has them, and for real processors add them with **Edit commands…** (the vendors' locate commands are not built in yet).
 
 ![LED Processors page with processors, test controls and command definitions](docs/images/led_processors.png)
 
@@ -76,7 +89,7 @@ Every command shows how it was verified. Some come straight from the published C
 **Edit commands…** changes a processor type's commands (freeze, blackout, test pattern off, brightness, the connection check) and its test patterns, and adds or removes test patterns. The built-in types are never changed: saving makes a custom copy, such as "Brompton Tessera (custom)", which the processor then uses and which appears in the Processor type list for other processors too. Commands you change are marked as your own. Editing a custom type again saves it in place, and **Delete custom version** removes it and puts its processors back on the type it was based on. Custom types are kept in `%USERPROFILE%\.operator_board\led_profiles\`. You can also override single commands per processor, and add whole new processor types as JSON profiles without changing any code.
 
 ### Devices: Unreal instances and groups
-Editors and nDisplay nodes are started through SwitchboardListener (port 2980) with the same command-line flags as Switchboard. Operator Board connects the way each engine's Switchboard does: an encrypted QUIC connection with the listener's password for UE 5.4 – 5.8, and plain TCP for 5.2 – 5.3, chosen automatically (or set per device). Each Unreal instance on one PC gets its own Remote Control port (an editor and a node on the same PC would otherwise both want 30010, and requests meant for the editor would reach the node); Operator Board moves a clashing device to the next free port and says so. Listener passwords are saved in Windows Credential Manager and shared with Switchboard, so a machine you have already connected to from Switchboard needs no password, and if a listener's security key changes you are warned before connecting. If connecting fails because no SwitchboardListener answers for a device on this PC, Operator Board offers to start SwitchboardListener from the project's engine and then connects again (a listener on another PC has to be started there). Put them in groups that start and stop together, and check each device's log for its launch command line and process events. You can also import devices from any Switchboard config.
+Editors and nDisplay nodes are started through SwitchboardListener (port 2980) with the same command-line flags as Switchboard. Operator Board connects the way each engine's Switchboard does: an encrypted QUIC connection with the listener's password for UE 5.4 – 5.8, and plain TCP for 5.2 – 5.3, chosen automatically (or set per device). Each Unreal instance on one PC gets its own Remote Control port (an editor and a node on the same PC would otherwise both want 30010, and requests meant for the editor would reach the node); Operator Board moves a clashing device to the next free port and says so. Listener passwords are saved in Windows Credential Manager and shared with Switchboard, so a machine you have already connected to from Switchboard needs no password, and if a listener's security key changes you are warned before connecting. If connecting fails because no SwitchboardListener answers for a device on this PC, Operator Board offers to start SwitchboardListener from the project's engine and then connects again (a listener on another PC has to be started there). When a project or Switchboard config opens, Operator Board also checks that the SwitchboardListener running on this PC comes from the same engine version as the config (each engine has its own listener, and only one can run at a time); if not, it offers to stop it, start the right one and connect again. Put them in groups that start and stop together, and check each device's log for its launch command line and process events. You can also import devices from any Switchboard config.
 
 ![Devices page with editor and nDisplay nodes running, groups and the device log](docs/images/devices.png)
 
@@ -121,7 +134,13 @@ On Windows, quit the Elgato Stream Deck app first, because only one program can 
 
 ### Remote Objects and DLSS
 - **Remote Objects:** browse **Remote Control Presets**, read and set exposed properties and call exposed functions on the editor, the nodes or everything. An actor browser lists actors and lets you inspect and change their properties. Selecting a **light** shows its intensity and **intensity units** (Unitless, Candelas, Lumens, EV, Nits; changing units keeps the brightness, as the Details panel does), colour, temperature, attenuation, cone angles, **source size** (width and height for rect lights, radius and length for point and spot lights, source angle for directional lights), light on and cast shadows; selecting a **cine camera** shows its focal length, aperture and focus distance, all editable. Number fields work like Unreal's Details panel: drag left or right on one to change it (Shift finer, Ctrl coarser), with a bar showing where it sits in its range, or click and type. Values driven by Live Link tracking, a Lens Component or DMX are shown but locked. The property list shows each property's **current value**, and **nDisplay** filters the actor list to nDisplay setups. With no editor open (only the nDisplay nodes running), the actor browser and presets read from a running node, and changes go to every running node (until it restarts, since only the editor saves). Presets, actors, sub-levels, data layers and cameras are read automatically once the editor has finished loading (and again when it opens another level); every list also has a Refresh button.
+- **Undo and saved changes:** **Undo** (top right of Remote Objects) puts back the last value changed there, to the value before it, whether that was set from Operator Board or read from the editor; press again to go further back. **Export changes…** saves every value changed since Operator Board started as a settings file, to add to a preset.
 - **DLSS:** DLSS Super Resolution mode, Frame Generation, Ray Reconstruction, Reflex and Screen Percentage, applied to the editor, the nodes or all instances, with plugin detection. The controls are defined in `dlss.json`, so a change in the plugin's API only needs a JSON edit.
+
+### Saved Settings: presets and the change log
+- **Presets** hold several kinds of settings and apply them in one go: the level, sub-levels, data layers, Remote Objects values, camera positions, LED processor modes, the scene and take, and control surfaces. Add the current setting of each with **+ Add current…**, or from a file (a preset, an exported setting, a Remote Objects export, a control surfaces export or a camera positions CSV). Presets are saved with the stage and import and export as files.
+- **Applying** runs the settings in a fixed, safe order (the level first and only once the editor has opened it, then its sub-levels and data layers, the actors, camera positions, LED processors, the take and control surfaces). Each step is checked before the next starts. If a step fails or its data is missing (a sub-level that is not in the level, a processor that has gone), Operator Board asks whether to **retry** it, **skip** it or **cancel** there, and shows each step's result.
+- **Change log:** every setting changed from Operator Board (buttons, keys, surfaces, the API, Remote Objects, sub-levels, presets) is recorded with the date and time, scene (slate), take and timecode it was changed at, the new and the previous value, and the project and level. LED wall and group states (freeze, blackout, test pattern, locate, normal) and connecting, starting or stopping Unreal instances are not settings, so they are not recorded. Export it as **CSV**, or as a **spreadsheet (.xlsx)** with sheets for the change log, takes, camera positions, LED processors, Unreal instances and a summary, ready for DITs, data wranglers and VFX houses.
 
 ### File Sync
 Run sync jobs with **FreeFileSync** batch jobs, **Perforce**, **Git**, **Robocopy** or a custom command, on this machine or on the render nodes through their listeners, with a history of results and output.
@@ -168,7 +187,7 @@ Download `OperatorBoard-<version>-win64.zip` instead if you'd rather not install
 ### Both
 
 - `OperatorBoardConsole.exe` is the same program with a console window, for `--headless` on a rack PC or for troubleshooting.
-- Settings live in `%USERPROFILE%\.operator_board\`, with a log in its `logs` folder.
+- Settings live in `%USERPROFILE%\.operator_board\`: each project in its own folder under `projects`, the computer's own settings in `config.json`, and a log in the `logs` folder.
 
 ### From source
 
@@ -189,6 +208,7 @@ For direct Stream Deck support, also run `pip install streamdeck pillow`; for MI
 
 | Option | What it does |
 |---|---|
+| `--project NAME` | Open this project straight away instead of showing the start screen (with `--headless`, the project opened last is used if this is not given). |
 | `--switchboard-config PATH` | Open this Switchboard config (`.json`) as the stage. |
 | `--headless` | No window: only the HTTP API and control surfaces, for a stage rack PC. |
 | `--no-hardware` | Do not open Stream Decks or MIDI controllers. |

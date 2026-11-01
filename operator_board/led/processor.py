@@ -18,6 +18,12 @@ CAP_FREEZE = "freeze"
 CAP_BLACKOUT = "blackout"
 CAP_TEST_PATTERN = "test_pattern"
 CAP_BRIGHTNESS = "brightness"
+CAP_LOCATE = "locate"
+
+# What a processor is showing, for buttons and the status bar. One at a time, in this order of
+# precedence when several apply (a frozen processor that is also blacked out shows black).
+MODE_NORMAL, MODE_FROZEN, MODE_BLACKOUT, MODE_PATTERN, MODE_LOCATE = "normal", "frozen", "blackout", "pattern", "locate"
+MODES = (MODE_FROZEN, MODE_BLACKOUT, MODE_PATTERN, MODE_LOCATE, MODE_NORMAL)
 
 
 def novastar_checksum(frame: bytes) -> bytes:
@@ -69,6 +75,7 @@ class ProcessorState:
     blackout: bool = False
     test_pattern: Optional[str] = None
     brightness: Optional[float] = None
+    locate: bool = False  # the processor's locate / identify function is on
     online: Optional[bool] = None
     last_error: str = ""
     last_command: str = ""
@@ -118,7 +125,21 @@ class LEDProcessor:
             caps.append(CAP_TEST_PATTERN)
         if self.has("brightness"):
             caps.append(CAP_BRIGHTNESS)
+        if self.has("locate_on") and self.has("locate_off"):
+            caps.append(CAP_LOCATE)
         return caps
+
+    @property
+    def mode(self) -> str:
+        if self.state.blackout:
+            return MODE_BLACKOUT
+        if self.state.test_pattern:
+            return MODE_PATTERN
+        if self.state.frozen:
+            return MODE_FROZEN
+        if self.state.locate:
+            return MODE_LOCATE
+        return MODE_NORMAL
 
     def has(self, name: str) -> bool:
         return self._resolve(name) is not None
@@ -181,6 +202,11 @@ class LEDProcessor:
         self.state.blackout = on
         if on and self._display_mode_exclusive():
             self.state.frozen = False
+
+    def set_locate(self, on: bool) -> None:
+        """The processor's locate (identify) function, which shows which panels it drives."""
+        self.send_named("locate_on" if on else "locate_off")
+        self.state.locate = on
 
     def _display_mode_exclusive(self) -> bool:
         # NovaStar-style processors implement freeze & black as a single display mode.

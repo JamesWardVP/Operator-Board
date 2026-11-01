@@ -17,6 +17,11 @@ try:  # optional Stream Deck support
     hidden += ["StreamDeck", "PIL"]
 except ImportError:
     pass
+try:  # spreadsheet exports
+    import openpyxl  # noqa: F401
+    hidden += collect_submodules("openpyxl")
+except ImportError:
+    pass
 try:  # optional MIDI controller support (mido loads its backend by name, so list it)
     import mido  # noqa: F401
     import rtmidi  # noqa: F401

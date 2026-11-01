@@ -273,8 +273,9 @@ class WallStatusBar(QtWidgets.QWidget):
     """Always-visible bar showing what the LED wall is doing.
 
     Normal: green. Frozen: blue with a moving shimmer. Blacked out: slowly scrolling hazard stripes.
-    Test pattern: a picture of the pattern (the colour, colour bars, a grid, lines...).
-    Unavailable (no processor reachable): grey.
+    Test pattern: a picture of the pattern (the colour, colour bars, a grid, lines...). Locate: pulsing
+    purple. Unavailable (no processor reachable): grey. When processors are in different states the
+    bar splits into one part per state, each naming its processors.
     """
 
     SOLID = {"red": "#ff0000", "green": "#00ff00", "blue": "#0000ff", "white": "#ffffff", "black": "#000000"}
@@ -285,6 +286,7 @@ class WallStatusBar(QtWidgets.QWidget):
         self.setMinimumHeight(46)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.state, self.pattern, self._text = "normal", "", "WALL NORMAL"
+        self.segments = [{"state": "normal", "pattern": "", "text": "WALL NORMAL", "weight": 1}]
         self._phase = 0.0
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -292,21 +294,48 @@ class WallStatusBar(QtWidgets.QWidget):
     def text(self) -> str:
         return self._text
 
+    WORDS = {"normal": "NORMAL", "frozen": "FROZEN", "blackout": "BLACKED OUT", "locate": "LOCATING"}
+
     def show_wall(self, state: str, pattern: str = "", label: str = "") -> None:
-        """state: normal | frozen | blackout | pattern | unavailable"""
+        """The whole wall in one state: normal | frozen | blackout | pattern | locate | unavailable"""
         texts = {"normal": "WALL NORMAL", "frozen": "WALL FROZEN", "blackout": "WALL BLACKED OUT",
-                 "unavailable": "WALL STATUS UNKNOWN: NO LED PROCESSOR CONNECTED",
+                 "locate": "WALL LOCATING", "unavailable": "WALL STATUS UNKNOWN: NO LED PROCESSOR CONNECTED",
                  "pattern": f"TEST PATTERN: {(label or pattern).upper()}"}
-        text = texts.get(state, state.upper())
-        if (state, pattern, text) == (self.state, self.pattern, self._text):
+        self._set([{"state": state, "pattern": pattern, "text": texts.get(state, state.upper()), "weight": 1}])
+
+    def show_processors(self, groups) -> None:
+        """``groups``: (state, pattern id, pattern label, [processor names]) for each state in use.
+        One state: one bar ("ALL PROCESSORS FROZEN"); several: one part each, naming its processors."""
+        groups = [g for g in groups if g[3]]
+        if not groups:
+            return self.show_wall("unavailable")
+        if len(groups) == 1:
+            state, pattern, label, names = groups[0]
+            if len(names) == 1:  # a single processor is "the wall"
+                return self.show_wall(state, pattern, label)
+            what = f"TEST PATTERN {(label or pattern).upper()}" if state == "pattern" else self.WORDS.get(state, state.upper())
+            return self._set([{"state": state, "pattern": pattern, "text": f"ALL PROCESSORS {what}", "weight": 1}])
+        segments = []
+        for state, pattern, label, names in groups:
+            what = f"PATTERN {(label or pattern).upper()}" if state == "pattern" else self.WORDS.get(state, state.upper())
+            segments.append({"state": state, "pattern": pattern, "text": f"{', '.join(names).upper()}: {what}",
+                             "weight": len(names)})
+        self._set(segments)
+
+    def _set(self, segments) -> None:
+        if [(s["state"], s["pattern"], s["text"]) for s in segments] == \
+                [(s["state"], s["pattern"], s["text"]) for s in self.segments]:
             return
-        self.state, self.pattern, self._text = state, pattern, text
-        animated = state in ("frozen", "blackout") or (state == "pattern" and pattern == "aging")
+        self.segments = segments
+        self.state, self.pattern = segments[0]["state"], segments[0]["pattern"]
+        self._text = "  |  ".join(s["text"] for s in segments)
+        animated = any(s["state"] in ("frozen", "blackout", "locate") or
+                       (s["state"] == "pattern" and s["pattern"] == "aging") for s in segments)
         if animated and not self._timer.isActive():
             self._timer.start(33)
         elif not animated:
             self._timer.stop()
-        self.setToolTip(text)
+        self.setToolTip("\n".join(s["text"] for s in segments))
         self.update()
 
     def _tick(self) -> None:
@@ -317,22 +346,48 @@ class WallStatusBar(QtWidgets.QWidget):
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt API
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
-        rect = QtCore.QRectF(self.rect())
+        full = QtCore.QRectF(self.rect())
         clip = QtGui.QPainterPath()
-        clip.addRoundedRect(rect, 8, 8)
-        p.setClipPath(clip)
-        dark_text = False
-        if self.state == "frozen":
-            self._paint_shimmer(p, rect)
-        elif self.state == "blackout":
-            self._paint_hazard(p, rect)
-        elif self.state == "pattern":
-            dark_text = self._paint_pattern(p, rect)
-        else:
-            p.fillRect(rect, QtGui.QColor(COLORS["ok"] if self.state == "normal" else "#495057"))
-        p.setClipping(False)
-        self._paint_label(p, rect, boxed=self.state in ("blackout", "pattern"), dark=dark_text)
+        clip.addRoundedRect(full, 8, 8)
+        total = sum(max(1, s["weight"]) for s in self.segments) or 1
+        x = 0.0
+        for n, seg in enumerate(self.segments):
+            width = full.width() * max(1, seg["weight"]) / total
+            if n == len(self.segments) - 1:
+                width = full.width() - x
+            p.save()
+            part = QtGui.QPainterPath()
+            part.addRect(QtCore.QRectF(x, 0, width, full.height()))
+            p.setClipPath(clip.intersected(part))
+            p.translate(x, 0)
+            rect = QtCore.QRectF(0, 0, width, full.height())
+            state, self.pattern = seg["state"], seg["pattern"]
+            dark_text = False
+            if state == "frozen":
+                self._paint_shimmer(p, rect)
+            elif state == "blackout":
+                self._paint_hazard(p, rect)
+            elif state == "pattern":
+                dark_text = self._paint_pattern(p, rect)
+            elif state == "locate":
+                self._paint_locate(p, rect)
+            else:
+                p.fillRect(rect, QtGui.QColor(COLORS["ok"] if state == "normal" else "#495057"))
+            p.setClipping(False)
+            self._paint_label(p, rect, boxed=state in ("blackout", "pattern"), dark=dark_text, text=seg["text"],
+                              small=len(self.segments) > 1)
+            if n:  # a dark line between parts
+                p.fillRect(QtCore.QRectF(0, 0, 2, rect.height()), QtGui.QColor("#121417"))
+            p.restore()
+            x += width
+        self.state, self.pattern = self.segments[0]["state"], self.segments[0]["pattern"]
         p.end()
+
+    def _paint_locate(self, p, rect) -> None:
+        import math
+        pulse = (math.sin(self._phase * 4.0) + 1) / 2  # about two pulses a second
+        p.fillRect(rect, QtGui.QColor("#5f3dc4"))
+        p.fillRect(rect, QtGui.QColor(200, 170, 255, int(40 + 110 * pulse)))
 
     def _paint_shimmer(self, p, rect) -> None:
         p.fillRect(rect, QtGui.QColor("#1971c2"))
@@ -408,14 +463,15 @@ class WallStatusBar(QtWidgets.QWidget):
             p.fillRect(rect, QtGui.QColor("#a07400"))
         return False
 
-    def _paint_label(self, p, rect, boxed: bool, dark: bool) -> None:
+    def _paint_label(self, p, rect, boxed: bool, dark: bool, text: Optional[str] = None, small: bool = False) -> None:
         font = QtGui.QFont(self.font())
-        font.setPixelSize(19)
+        font.setPixelSize(14 if small else 19)
         font.setBold(True)
-        font.setLetterSpacing(QtGui.QFont.AbsoluteSpacing, 2)
+        font.setLetterSpacing(QtGui.QFont.AbsoluteSpacing, 1 if small else 2)
         p.setFont(font)
         metrics = QtGui.QFontMetrics(font)
-        tw = metrics.horizontalAdvance(self._text) if hasattr(metrics, "horizontalAdvance") else metrics.width(self._text)
+        text = metrics.elidedText(self._text if text is None else text, Qt.ElideRight, int(rect.width() - 36))
+        tw = metrics.horizontalAdvance(text) if hasattr(metrics, "horizontalAdvance") else metrics.width(text)
         if boxed:  # a dark pill keeps the words readable over stripes and patterns
             pill = QtCore.QRectF((rect.width() - tw) / 2 - 16, (rect.height() - metrics.height()) / 2 - 3,
                                  tw + 32, metrics.height() + 6)
@@ -423,7 +479,7 @@ class WallStatusBar(QtWidgets.QWidget):
             p.setBrush(QtGui.QColor(255, 255, 255, 215) if dark else QtGui.QColor(0, 0, 0, 190))
             p.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
         p.setPen(QtGui.QColor("#111111") if dark else QtGui.QColor("#ffffff"))
-        p.drawText(rect, Qt.AlignCenter, self._text)
+        p.drawText(rect, Qt.AlignCenter, text)
 
 
 class LineChart(QtWidgets.QWidget):

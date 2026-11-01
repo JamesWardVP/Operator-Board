@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Any, Dict, List, Optional
 
 from operator_board.analytics.metrics import MetricStore
 from operator_board.core.actions import ActionParam, ActionRegistry, ActionResult
+from operator_board.core.changelog import COLUMNS, ChangeLog, ChangeRecord, export_workbook, show
 from operator_board.core.config import AppConfig
 from operator_board.core.events import EventBus
 from operator_board.core.stage import ConfigStore, copy_into
@@ -36,9 +38,20 @@ def _errors_result(label: str, errors: List[str]) -> ActionResult:
 
 
 class AppContext:
-    def __init__(self, config: Optional[AppConfig] = None, config_path: Optional[str] = None) -> None:
+    def __init__(self, config: Optional[AppConfig] = None, config_path: Optional[str] = None,
+                 project_dir: Optional[str] = None) -> None:
+        """``project_dir``: the Operator Board project to open (core/projects.py); its settings, takes and
+        change log are kept in that folder. None keeps everything in ~/.operator_board as before."""
         self.config_path = config_path
-        self.store = ConfigStore(config_path)
+        self.project_dir = project_dir
+        self.project = None
+        if project_dir:
+            from operator_board.core import projects
+            try:
+                self.project = projects.read_info(os.path.basename(os.path.normpath(project_dir)))
+            except (OSError, ValueError, TypeError):
+                self.project = None
+        self.store = ConfigStore(config_path, project_dir)
         self.config = config or self.store.load()
         self.bus = EventBus()
         self.actions = ActionRegistry(self.bus)
@@ -52,7 +65,7 @@ class AppContext:
         self.cameras = CameraService(self.config, self.targets)
         self.objects = ObjectService(self.config, self.targets)
         self.dlss = DLSSService(self.targets)
-        self.takes = TakeManager(self.config, self.bus, self.targets)
+        self.takes = TakeManager(self.config, self.bus, self.targets, log_dir=project_dir)
         self.timing = TimingMonitor(self.targets, self.devices)
         self.editor = EditorWatcher(self.targets, self.bus)
         self.sync = SyncManager(self.config, self.bus)
@@ -68,6 +81,11 @@ class AppContext:
         self._scan_lock = threading.Lock()
         self._midi_inputs: List[str] = []
         self._stop = threading.Event()
+        self.changes = ChangeLog(self._change_context,
+                                 os.path.join(project_dir, "change_log.jsonl") if project_dir else None)
+        self._session_start = len(self.changes.records)  # changes before this index are from earlier runs
+        self.changes.listeners.append(lambda rec: self.bus.publish("changes.recorded", category=rec.category))
+        self.bus.subscribe("action.invoked", lambda _t, p: self._log_action(p))
         self.bus.subscribe("multiuser.session_renamed", lambda _t, _p: self._save_quietly())
         self.bus.subscribe("device.metrics", lambda _t, p: self.metrics.add_raw(p["name"], p.get("metrics") or {}))
         self._register_actions()
@@ -215,15 +233,14 @@ class AppContext:
         from operator_board.devices.launcher import engine_binary
         engine_dir = engine_dir or self.config.project().engine_dir
         if not engine_dir:
-            raise RuntimeError("The project has no engine folder set (Stage page), so SwitchboardListener "
+            raise RuntimeError("The project has no engine folder set (Switchboard Configs page), so SwitchboardListener "
                                "cannot be found")
         exe = engine_binary(engine_dir, "SwitchboardListener", "Win64")
         if not os.path.isfile(exe):
             raise RuntimeError(f"SwitchboardListener was not found at {exe}")
         if os.name == "nt":
-            running = subprocess.run(["tasklist", "/FI", "IMAGENAME eq SwitchboardListener.exe", "/NH"],
-                                     capture_output=True, text=True, creationflags=0x08000000).stdout
-            if "SwitchboardListener.exe" in running:
+            from operator_board.listener.local import running_listeners
+            if running_listeners():
                 return "SwitchboardListener is already running on this PC"
             flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
             subprocess.Popen([exe], cwd=os.path.dirname(exe), creationflags=flags, close_fds=True)
@@ -231,6 +248,63 @@ class AppContext:
             subprocess.Popen([exe], cwd=os.path.dirname(exe), start_new_session=True)
         log.info("Started %s", exe)
         return f"Started SwitchboardListener ({exe})"
+
+    def local_devices(self) -> List[str]:
+        from operator_board.devices.manager import _host_key
+        return [d.name for d in self.config.devices if d.enabled and _host_key(d.address) == "local"]
+
+    def check_local_listener(self) -> Dict[str, Any]:
+        """Is the SwitchboardListener running on this PC from the open config's engine?
+
+        status: "ok", "none" (not running), "mismatch" (another engine's listener), "no_engine" (the
+        config has no engine folder) or "no_devices" (no Unreal instance on this PC uses a listener)."""
+        from operator_board.core.ue_versions import detect_engine_version
+        from operator_board.listener.local import running_listeners
+        engine = self.config.project().engine_dir
+        wanted = detect_engine_version(engine) if engine else None
+        result: Dict[str, Any] = {"wanted_version": wanted, "engine_dir": engine, "running": []}
+        if not self.local_devices():
+            return dict(result, status="no_devices")
+        if not engine:
+            return dict(result, status="no_engine")
+        running = running_listeners()
+        result["running"] = [{"pid": l.pid, "path": l.path, "version": l.version} for l in running]
+        if not running:
+            return dict(result, status="none")
+        same = [l for l in running if l.engine_dir and os.path.normcase(os.path.normpath(l.engine_dir)) ==
+                os.path.normcase(os.path.normpath(self._engine_root(engine)))]
+        if same:
+            return dict(result, status="ok")
+        known = [l for l in running if l.version]
+        if known and wanted and all(l.version == wanted for l in known):
+            return dict(result, status="ok")  # another install of the same version: it works the same
+        if not known:
+            return dict(result, status="ok")  # Windows would not say where it came from: leave it alone
+        return dict(result, status="mismatch")
+
+    @staticmethod
+    def _engine_root(engine_dir: str) -> str:
+        root = os.path.normpath(engine_dir.rstrip("/\\"))
+        return os.path.dirname(root) if os.path.basename(root).lower() == "engine" else root
+
+    def replace_local_listener(self) -> str:
+        """Stop the other engine's listener(s) on this PC, start the open config's, and connect this
+        PC's devices again. Returns what happened."""
+        from operator_board.listener.local import running_listeners, stop_listener
+        names = self.local_devices()
+        for name in names:  # let go of the old listener first
+            try:
+                self.devices.disconnect(name)
+            except Exception:  # noqa: BLE001
+                pass
+        for listener in running_listeners():
+            if not stop_listener(listener.pid):
+                raise RuntimeError(f"Could not stop the SwitchboardListener that is running ({listener.path or listener.pid})")
+        message = self.start_local_listener()
+        connected = self.reconnect_local_devices(names)
+        missing = [n for n in names if n not in connected]
+        return message + (f"; connected {', '.join(connected)}" if connected else "") + \
+            (f"; not connected yet: {', '.join(missing)}" if missing else "")
 
     def reconnect_local_devices(self, names: List[str], wait_s: float = 20.0) -> List[str]:
         """Try ``names`` again until each connects or ``wait_s`` passes (a listener needs a few seconds
@@ -252,6 +326,106 @@ class AppContext:
                 elif rt and not (rt.last_error or "").startswith("Cannot reach listener"):
                     pending.remove(name)  # it answered (e.g. it wants the password): the prompt takes over
         return connected
+
+    # ---- change log, undo and production data ---------------------------------------------
+    def _change_context(self) -> Dict[str, Any]:
+        t = self.config.takes
+        return {"slate": t.slate, "take": t.take, "timecode": self.timing.timecode() or "",
+                "project": self.project.name if self.project else self.config.active_project,
+                "level": getattr(self.editor, "level", "") or ""}
+
+    # Not settings, so not in the change log: control surface page turns, LED wall / group states
+    # (freeze, blackout, test pattern, locate, normal) and connecting, starting or stopping instances.
+    NOT_LOGGED = ("surface.", "led.", "devices.", "group.")
+    LOGGED_ANYWAY = ("led.brightness",)  # a setting, not a state
+
+    def _log_action(self, payload: Dict[str, Any]) -> None:
+        """Every action run from a button, key, surface or the API goes into the change log."""
+        action_id = payload.get("action_id", "")
+        if any(action_id.startswith(p) for p in self.NOT_LOGGED) and action_id not in self.LOGGED_ANYWAY:
+            return
+        params = payload.get("params") or {}
+        if action_id == MACRO_ACTION:  # its steps are logged one by one
+            params = {"steps": len(params.get("steps") or [])}
+        item = ", ".join(show(v) for k, v in params.items() if k not in ("steps",)) or payload.get("category", "")
+        self.changes.record(payload.get("category", ""), item, payload.get("label", action_id),
+                            params or "", None, result="ok" if payload.get("ok") else f"failed: {payload.get('message', '')}")
+
+    def apply_setting(self, kind: str, ref: Dict[str, Any], value: Any) -> None:
+        """Apply a Remote Objects value again (Undo, presets). Raises when Unreal did not take it."""
+        if kind == "quick":
+            self.objects.set_quick_control(ref["path"], ref["control"], value)
+        elif kind == "property":
+            errors = self.objects.set_property(ref["path"], ref["prop"], value, ref.get("target", "primary"))
+            if errors:
+                raise RuntimeError("; ".join(errors))
+        elif kind == "preset":
+            errors = self.objects.set_preset_value(ref["preset"], ref["label"], value, ref.get("target", "primary"))
+            if errors:
+                raise RuntimeError("; ".join(errors))
+        else:
+            raise ValueError(f"Cannot apply a '{kind}' setting")
+
+    def session_changes(self) -> List[ChangeRecord]:
+        return self.changes.records[self._session_start:]
+
+    def changed_settings(self) -> List[Dict[str, Any]]:
+        """The latest value of every Remote Objects setting changed since Operator Board started
+        (what "Export changes" and a preset's Remote Objects item hold)."""
+        latest: Dict[tuple, ChangeRecord] = {}
+        for rec in self.session_changes():
+            if rec.kind and rec.result == "ok":
+                latest[rec.key] = rec
+        return [{"kind": r.kind, "ref": r.ref, "item": r.item, "setting": r.setting, "value": r.value}
+                for r in latest.values()]
+
+    def production_export(self, path: str) -> None:
+        """A spreadsheet for production: the change log, takes, camera positions, LED processors,
+        devices and the stage summary, one sheet each."""
+        import datetime
+        from operator_board import __version__
+        changes = [[show(getattr(r, key)) if key in ("value", "previous") else getattr(r, key) for key, _ in COLUMNS]
+                   for r in self.changes.records]
+        takes = []
+        for t in self.takes.log.takes:
+            start = datetime.datetime.fromtimestamp(t.started) if t.started else None
+            takes.append([t.slate, t.take, t.description, t.level, start.strftime("%Y-%m-%d") if start else "",
+                          start.strftime("%H:%M:%S") if start else "",
+                          datetime.datetime.fromtimestamp(t.stopped).strftime("%H:%M:%S") if t.stopped else "",
+                          round(t.duration_s, 1), t.rating, t.notes, t.sequence, t.saved])
+        cameras = [[c.name, c.target] + [round(float(v), 4) for v in list(c.location) + list(c.rotation)]
+                   for c in self.config.cameras]
+        leds = []
+        for cfg in self.config.led_processors:
+            p = self.led.get(cfg.name)
+            prof = self.led.registry.get(cfg.profile_id) or {}
+            leds.append([cfg.name, prof.get("name", cfg.profile_id), cfg.host, "yes" if cfg.enabled else "no",
+                         p.mode if p else "", (p.state.test_pattern or "") if p else "",
+                         ", ".join(g.name for g in self.config.led_groups if cfg.name in g.processors)])
+        devices = [[d.name, d.role, d.address, d.rc_port, "yes" if d.enabled else "no"] for d in self.config.devices]
+        mu = self.config.multiuser
+        now = datetime.datetime.now()
+        summary = [["Exported", now.strftime("%Y-%m-%d %H:%M:%S")], ["Timecode", self.timing.timecode() or ""]]
+        if self.project is not None:
+            from operator_board.core.projects import ProjectInfo
+            summary.append(["Project", self.project.name])
+            summary += [[label, getattr(self.project, key)] for key, label in ProjectInfo.DETAILS
+                        if getattr(self.project, key)]
+            summary += [["Project created", self.project.created]]
+        summary += [["Unreal project", self.config.active_project], ["Level", getattr(self.editor, "level", "") or ""],
+                   ["Switchboard config", self.config.switchboard.active_config],
+                   ["Scene (slate)", self.config.takes.slate], ["Next take", self.config.takes.take],
+                   ["Multi-user server", mu.server_name], ["Multi-user session", mu.session_name],
+                   ["Operator Board", __version__]]
+        export_workbook(path, [
+            ("Summary", ["Field", "Value"], summary),
+            ("Change log", [title for _k, title in COLUMNS], changes),
+            ("Takes", ["Slate", "Take", "Description", "Level", "Date", "Start", "End", "Duration (s)", "Rating",
+                       "Notes", "Level sequence", "Saved"], takes),
+            ("Camera positions", ["Name", "Target", "X", "Y", "Z", "Pitch", "Yaw", "Roll"], cameras),
+            ("LED processors", ["Name", "Type", "Address", "Enabled", "Mode", "Test pattern", "Groups"], leds),
+            ("Unreal instances", ["Name", "Role", "Address", "Remote Control port", "Enabled"], devices),
+        ])
 
     def run_steps(self, steps: List[Dict[str, Any]]) -> ActionResult:
         """Run a button's steps in order: {"action": id, "params": {...}} or {"delay": milliseconds}.
@@ -476,7 +650,23 @@ class AppContext:
               state=lambda: led.blackout, confirm=lambda: self.config.ui.confirm_blackout and not led.blackout)
         a.add("led.blackout_off", "Restore from blackout", "LED Wall",
               lambda: _errors_result("Restore", led.set_blackout(False)))
-        a.add("led.restore", "Wall to normal", "LED Wall", lambda: _errors_result("Wall normal", led.restore_all()))
+        a.add("led.restore", "Wall to normal", "LED Wall", lambda: _errors_result("Wall normal", led.restore_all()),
+              state=lambda: bool(led.active()) and all(m == "normal" for m in led.modes().values()))
+        a.add("led.locate", "Locate (toggle)", "LED Wall", lambda: _errors_result("Locate", led.set_locate(None)),
+              state=lambda: led.locate)
+        a.add("led.locate_on", "Locate on", "LED Wall", lambda: _errors_result("Locate", led.set_locate(True)),
+              state=lambda: led.locate)
+        a.add("led.locate_off", "Locate off", "LED Wall", lambda: _errors_result("Locate off", led.set_locate(False)))
+        led_targets = lambda: (["all"] + [g.name for g in self.config.led_groups]
+                               + [p.name for p in self.config.led_processors])
+        a.add("led.set_mode", "Set LED processor / group mode", "LED Wall",
+              lambda target="all", mode="normal", pattern="": _errors_result(
+                  f"{target}: {mode}", led.set_mode(target, mode, pattern or None)),
+              description="Put one processor, a group of processors or the whole wall into one mode",
+              params=[ActionParam("target", "Processor or group", "choice", "all", choices_provider=led_targets),
+                      ActionParam("mode", "Mode", "choice", "normal",
+                                  choices_provider=lambda: ["frozen", "blackout", "pattern", "locate", "normal"]),
+                      ActionParam("pattern", "Test pattern (for pattern)", "choice", choices_provider=patterns)])
         a.add("led.test_pattern", "Show test pattern", "LED Wall",
               lambda pattern="": _errors_result(f"Test pattern {pattern}", led.set_test_pattern(pattern or None)),
               params=[ActionParam("pattern", "Pattern", "choice", choices_provider=patterns)],

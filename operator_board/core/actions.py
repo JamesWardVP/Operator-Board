@@ -98,5 +98,6 @@ class ActionRegistry:
         else:
             result = value if isinstance(value, ActionResult) else ActionResult(True, action.label, value)
         if self._bus:
-            self._bus.publish("action.invoked", action_id=action_id, ok=result.ok, message=result.message)
+            self._bus.publish("action.invoked", action_id=action_id, ok=result.ok, message=result.message,
+                              params=dict(params), label=action.label, category=action.category)
         return result
