@@ -63,7 +63,9 @@ class LEDProcessorsPage(BasePage):
         mode.setObjectName("Muted")
         card.add(mode)
         self._mode_labels[target] = mode
-        strip = ModeButtons(self, target, vertical=True, pattern_picker=True)
+        # Normal first; Test pattern last, just above its pattern choice.
+        strip = ModeButtons(self, target, vertical=True, pattern_picker=True,
+                            modes=("normal", "frozen", "blackout", "locate", "pattern"))
         self._strips.append(strip)
         card.add(strip)
         if group is not None:

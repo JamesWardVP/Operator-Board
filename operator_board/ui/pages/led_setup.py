@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from operator_board.core.config import LEDProcessorConfig
 from operator_board.led.profiles import CONFIDENCE_LABELS
-from operator_board.qt import QtGui, QtWidgets, Qt
+from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.forms import edit_dataclass, unique_name_validator
 from operator_board.ui.group_dialog import edit_led_group
 from operator_board.ui.led_controls import ModeButtons
@@ -30,7 +30,6 @@ class LEDSetupPage(BasePage):
         super().__init__(ctx, window)
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(16, 16, 16, 16)
-        top = QtWidgets.QHBoxLayout()
         card = Card("LED processors on this stage")
         self.table = make_table(HEADERS)
         self.table.itemSelectionChanged.connect(self._show_details)
@@ -42,10 +41,12 @@ class LEDSetupPage(BasePage):
             b = QtWidgets.QPushButton(label)
             b.clicked.connect(fn)
             btns.append(b)
-        card.add_layout(hbox(*btns, None))
-        top.addWidget(card, 3)
-        top.addWidget(self._advanced_card(), 2)
-        lay.addLayout(top, 2)
+        self.adv_btn = QtWidgets.QPushButton("Advanced: groups and individual control  ▾")
+        self.adv_btn.setToolTip("Groups of LED processors, and buttons to control each group and processor on its own")
+        self.adv_btn.clicked.connect(self._show_advanced)
+        card.add_layout(hbox(*btns, self.adv_btn, None))
+        lay.addWidget(card, 2)
+        self._build_advanced_popup()
 
         bottom = QtWidgets.QHBoxLayout()
         manual = Card("Selected processor")
@@ -93,21 +94,16 @@ class LEDSetupPage(BasePage):
         lay.addLayout(bottom, 3)
 
     # ---- advanced: groups and individual control ---------------------------------------
-    def _advanced_card(self) -> QtWidgets.QWidget:
-        card = Card()
-        self.adv_toggle = QtWidgets.QToolButton()
-        self.adv_toggle.setText("ADVANCED: GROUPS AND INDIVIDUAL CONTROL")
-        self.adv_toggle.setObjectName("CardTitle")
-        self.adv_toggle.setCheckable(True)
-        self.adv_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.adv_toggle.setArrowType(Qt.RightArrow)
-        self.adv_toggle.setStyleSheet("QToolButton { border: none; background: transparent; font-weight: 700; }")
-        self.adv_toggle.toggled.connect(self._toggle_advanced)
-        card.add(self.adv_toggle)
-        self.adv_body = QtWidgets.QWidget()
-        self.adv_body.setObjectName("PlainRow")
+    def _build_advanced_popup(self) -> None:
+        """A drop-down panel that opens over the page below the Advanced button and closes when you
+        click anywhere else, so it takes no room when not in use."""
+        self.adv_body = QtWidgets.QFrame(self, Qt.Popup)
+        self.adv_body.setObjectName("Card")
         body = QtWidgets.QVBoxLayout(self.adv_body)
-        body.setContentsMargins(0, 0, 0, 0)
+        body.setContentsMargins(14, 12, 14, 14)
+        title = QtWidgets.QLabel("ADVANCED: GROUPS AND INDIVIDUAL CONTROL")
+        title.setObjectName("CardTitle")
+        body.addWidget(title)
         new_group = QtWidgets.QPushButton("+ New group")
         new_group.setToolTip("A group of LED processors that you can freeze, black out... together")
         new_group.clicked.connect(lambda: self._edit_group(None))
@@ -115,30 +111,41 @@ class LEDSetupPage(BasePage):
         self.adv_rows = QtWidgets.QVBoxLayout()
         self.adv_rows.setSpacing(6)
         body.addLayout(self.adv_rows)
-        body.addWidget(muted("Each button puts that group or processor into the mode (pressing a lit one returns "
-                             "it to normal). The LED Processors page shows the same as columns."))
-        body.addStretch(1)
-        card.add(self.adv_body)
-        self.adv_body.hide()
+        note = muted("Each button puts that group or processor into the mode (pressing a lit one returns it to "
+                     "normal). The LED Processors page shows the same as columns.")
+        note.setWordWrap(True)
+        body.addWidget(note)
         self._adv_key = None
         self._adv_strips = []
-        return card
 
-    def _toggle_advanced(self, on: bool) -> None:
-        self.adv_toggle.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
-        self.adv_body.setVisible(on)
+    def _show_advanced(self) -> None:
         self._adv_key = None
-        self.refresh()
+        self._fill_advanced(force=True)
+        self.adv_body.adjustSize()
+        width = max(720, self.adv_body.sizeHint().width())
+        self.adv_body.resize(width, self.adv_body.sizeHint().height())
+        pos = self.adv_btn.mapToGlobal(QtCore.QPoint(0, self.adv_btn.height() + 4))
+        screen = QtWidgets.QApplication.screenAt(pos) or QtWidgets.QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        x = max(area.left(), min(pos.x(), area.right() - width))
+        y = pos.y() if pos.y() + self.adv_body.height() <= area.bottom() else \
+            self.adv_btn.mapToGlobal(QtCore.QPoint(0, 0)).y() - self.adv_body.height() - 4  # open upwards
+        self.adv_body.move(x, max(area.top(), y))
+        self.adv_body.show()
 
     def _edit_group(self, group) -> None:
+        reopen = self.adv_body.isVisible()
+        self.adv_body.hide()  # the dialog takes over; the drop-down comes back afterwards
         if edit_led_group(self, self.ctx.config, group):
             self.save_config()
             self.ctx.bus.publish("led.groups_changed")
             self._adv_key = None
             self.refresh()
+        if reopen:
+            self._show_advanced()
 
-    def _fill_advanced(self) -> None:
-        if not self.adv_body.isVisible():
+    def _fill_advanced(self, force: bool = False) -> None:
+        if not (force or self.adv_body.isVisible()):
             return
         cfg = self.ctx.config
         key = ([(g.name, g.color, tuple(g.processors)) for g in cfg.led_groups], [p.name for p in cfg.led_processors])
