@@ -241,7 +241,9 @@ class ObjectsPage(BasePage):
             return
         kind = "Light" if quick.get("kind") == "light" else "Camera"
         drivers = quick.get("drivers") or []
-        self.quick_title.setText(f"{kind} controls (changes apply in the editor and reach the nodes through multi-user)"
+        where = ("changes apply in the editor and reach the nodes through multi-user" if quick.get("world") != "game"
+                 else "no editor is running: changes apply on every running nDisplay node, until it restarts")
+        self.quick_title.setText(f"{kind} controls ({where})"
                                  + (f". Locked: driven by {' and '.join(drivers)}" if drivers else ""))
         for c in controls:
             self.quick_form.addRow(f"{c['label']}" + (f" ({c['unit']})" if c.get("unit") else ""),

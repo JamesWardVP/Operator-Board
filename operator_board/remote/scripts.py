@@ -331,7 +331,7 @@ elif kind == 'camera':
     add('focus_distance', 'Focus distance', 'float', fs.get_editor_property('manual_focus_distance'), 0, 10000, 'cm',
         locked)
 result = {{'kind': kind, 'component': comp.get_class().get_name() if comp else '', 'controls': controls,
-          'drivers': drivers}}
+          'drivers': drivers, 'world': _level_actors()[1]}}
 """
 
 
@@ -348,7 +348,10 @@ if _drivers(actor) and control not in ('cast_shadows',):
     raise RuntimeError(actor.get_actor_label() + ' is driven by ' + ' and '.join(_drivers(actor)) +
                        ', which would overwrite the change')
 extra = {{}}
-with unreal.ScopedEditorTransaction('Operator Board: ' + control):
+world_kind = _level_actors()[1]
+import contextlib
+with (unreal.ScopedEditorTransaction('Operator Board: ' + control) if world_kind == 'editor'
+      else contextlib.nullcontext()):
     comp.modify()
     if kind == 'light':
         if control in FLOATS:
@@ -388,7 +391,7 @@ with unreal.ScopedEditorTransaction('Operator Board: ' + control):
             comp.set_editor_property('focus_settings', fs)
         else:
             raise RuntimeError('Unknown camera control: ' + control)
-result = dict({{'ok': True}}, **extra)
+result = dict({{'ok': True, 'world': world_kind}}, **extra)
 """
 
 def list_camera_targets() -> str:
