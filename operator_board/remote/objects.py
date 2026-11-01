@@ -72,6 +72,15 @@ class ObjectService:
         result = self.targets.primary().run_python(python_result_wrapper(scripts.list_actors(class_filter)))
         return list(result.get("actors", [])) if isinstance(result, dict) else []
 
+    def quick_controls(self, actor_path: str) -> Dict[str, Any]:
+        """Light / cine camera controls with current values (empty ``kind`` for other actors)."""
+        result = self.targets.primary().run_python(python_result_wrapper(scripts.actor_quick_controls(actor_path)))
+        return result if isinstance(result, dict) else {"kind": "", "controls": []}
+
+    def set_quick_control(self, actor_path: str, control: str, value: Any) -> None:
+        self.targets.primary().run_python(python_result_wrapper(
+            scripts.set_actor_quick_control(actor_path, control, value)))
+
     def describe(self, object_path: str) -> Dict[str, Any]:
         return self.targets.primary().describe(object_path) or {}
 

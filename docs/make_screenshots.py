@@ -62,6 +62,7 @@ def demo_context():
 
     # Multi-user session with everyone joined
     ctx.multiuser.running = True
+    ctx.multiuser.session_live = True  # every device has joined the session
     ctx.multiuser.tracker.clients.update(d.name for d in cfg.devices)
 
     # Levels found in the project
@@ -177,7 +178,7 @@ def main() -> int:
     for p in ctx.led.processors:
         p.state.frozen = False
     ctx.led._publish()
-    shot("Levels & Cameras", "levels.png")
+    shot("Cameras & Levels", "levels.png")
     shot("Takes", "takes.png")
     shot("Stage", "stage.png", lambda p: (p.refresh(), select_first(p), hide_local_paths(p, folder)))
     shot("Devices", "devices.png", select_first)

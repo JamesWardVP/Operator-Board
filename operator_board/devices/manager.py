@@ -110,6 +110,8 @@ class DeviceManager:
             rt.last_error = error
             if state == ERROR:
                 log.warning("%s: %s", rt.name, error)
+        elif state in (CONNECTED, RUNNING):
+            rt.last_error = ""  # recovered: an old error no longer applies
         self.bus.publish("device.state", name=rt.name, state=state, error=error)
 
     # ---- connection -------------------------------------------------------
@@ -181,7 +183,7 @@ class DeviceManager:
         except (ValueError, OSError) as exc:
             self._set_state(rt, ERROR, str(exc))
             return
-        rt.log_tail.append(f"> {spec.as_command_line()}")
+        rt.log_tail.append(f"Launch command (not an error): {spec.as_command_line()}")
         # Mark it starting *before* sending: a local listener can report "program started"
         # before start_process() returns, and that RUNNING must not be overwritten.
         self._set_state(rt, STARTING)

@@ -78,3 +78,19 @@ def test_flatten_preset_and_extract_value():
     assert [(r["kind"], r["label"]) for r in rows] == [("property", "Intensity"), ("function", "Reset")]
     assert extract_value({"PropertyValues": [{"PropertyValue": 5}]}) == 5
     assert extract_value({"Intensity": 2}) == 2
+
+
+def test_camera_names_are_never_overwritten():
+    from operator_board.remote.cameras import unique_name
+    assert unique_name("Wide", []) == "Wide"
+    assert unique_name("Wide", ["Wide"]) == "Wide_2"
+    assert unique_name("Wide", ["Wide", "Wide_2"]) == "Wide_3"
+    assert unique_name("Wide_2", ["Wide", "Wide_2"]) == "Wide_3"
+
+
+def test_camera_scripts_compile():
+    from operator_board.remote import scripts
+    for script in (scripts.list_camera_targets(), scripts.get_actor_transform("Cine'Cam"),
+                   scripts.set_actor_transform("/Game/M.M:PersistentLevel.Cam", [1, 2, 3], [4, 5, 6]),
+                   scripts.take_recorder_save("", "Scene's", 3)):
+        compile(script, "<editor>", "exec")

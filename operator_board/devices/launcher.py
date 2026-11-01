@@ -144,18 +144,30 @@ def unreal_launch_spec(device: DeviceConfig, project: ProjectConfig, multiuser: 
 
 
 def multiuser_server_spec(project: ProjectConfig, mu: MultiUserConfig, platform: str = "Win64",
-                          engine_dir_override: str = "") -> LaunchSpec:
+                          engine_dir_override: str = "", session: str = "", clean: Optional[bool] = None) -> LaunchSpec:
+    """The multi-user server's command line.
+
+    ``session`` makes the server create (or reuse) that session for the project at start-up
+    ("Auto-start session"); ``clean`` overrides ``mu.clean_history``.
+    """
     info = get_version_info(project.ue_version)
     engine_dir = engine_dir_override or project.engine_dir
     if not engine_dir:
         raise ValueError("Project has no engine directory configured")
     exe_name = info.multiuser_slate_server_exe if mu.use_slate_server else info.multiuser_server_exe
     exe = engine_binary(engine_dir, exe_name, platform)
-    # No -CONCERTSESSION here: a session the server creates at start-up has no project, so
-    # editors and nodes are refused with "Invalid project name (expected '', got '<project>')".
-    # As in Switchboard, the first client to join creates the session with its project.
+    # Without a session, the first client to join creates it with its project (as in Switchboard).
+    # With one, -CONCERTPROJECT is required: a session created without it has no project and
+    # refuses every client with "Invalid project name (expected '', got '<project>')". A server
+    # given a session name that already exists reuses it (both checked on a real 5.8 server).
     args = [f"-CONCERTSERVER={_quote(mu.server_name)}", "-UDPMESSAGING_SHARE_KNOWN_NODES=1"]
-    if mu.clean_history:
+    if session:
+        uproject = project.uproject_path
+        if not uproject:
+            raise ValueError("Project has no .uproject configured, so the server cannot create its session")
+        name = posixpath.splitext(posixpath.basename(uproject.replace("\\", "/")))[0]
+        args += [f"-CONCERTSESSION={_quote(session)}", f"-CONCERTPROJECT={_quote(name)}"]
+    if mu.clean_history if clean is None else clean:
         args.append("-CONCERTCLEAN")
     if mu.udp_unicast_endpoint:
         args.append(f"-UDPMESSAGING_TRANSPORT_UNICAST={mu.udp_unicast_endpoint}")

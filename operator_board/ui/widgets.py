@@ -16,11 +16,30 @@ class Card(QtWidgets.QFrame):
         self.layout_ = QtWidgets.QVBoxLayout(self)
         self.layout_.setContentsMargins(14, 12, 14, 14)
         self.layout_.setSpacing(10)
+        self._header = None
         if title:
             label = QtWidgets.QLabel(title.upper())
             label.setObjectName("CardTitle")
             label.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Maximum)
-            self.layout_.addWidget(label)
+            self._header = QtWidgets.QHBoxLayout()
+            self._header.setContentsMargins(0, 0, 0, 0)
+            self._header.addWidget(label, 1)
+            self.layout_.addLayout(self._header)
+
+    def set_link(self, tooltip: str, callback) -> QtWidgets.QPushButton:
+        """A small button in the card's top-right corner, e.g. to open the page behind the card."""
+        button = QtWidgets.QPushButton("\u2197")
+        button.setObjectName("CardLink")
+        button.setToolTip(tooltip)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setFixedSize(30, 26)
+        button.clicked.connect(callback)
+        if self._header is None:
+            self._header = QtWidgets.QHBoxLayout()
+            self._header.addStretch(1)
+            self.layout_.insertLayout(0, self._header)
+        self._header.addWidget(button, 0, Qt.AlignRight | Qt.AlignTop)
+        return button
 
     def add(self, widget) -> QtWidgets.QWidget:
         self.layout_.addWidget(widget)
@@ -250,6 +269,163 @@ class Banner(QtWidgets.QLabel):
                                " border-radius: 8px; letter-spacing: 2px;")
 
 
+class WallStatusBar(QtWidgets.QWidget):
+    """Always-visible bar showing what the LED wall is doing.
+
+    Normal: green. Frozen: blue with a moving shimmer. Blacked out: slowly scrolling hazard stripes.
+    Test pattern: a picture of the pattern (the colour, colour bars, a grid, lines...).
+    Unavailable (no processor reachable): grey.
+    """
+
+    SOLID = {"red": "#ff0000", "green": "#00ff00", "blue": "#0000ff", "white": "#ffffff", "black": "#000000"}
+    BARS = ["#c0c0c0", "#c0c000", "#00c0c0", "#00c000", "#c000c0", "#c00000", "#0000c0"]  # SMPTE-style bars
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setMinimumHeight(46)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.state, self.pattern, self._text = "normal", "", "WALL NORMAL"
+        self._phase = 0.0
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self._tick)
+
+    def text(self) -> str:
+        return self._text
+
+    def show_wall(self, state: str, pattern: str = "", label: str = "") -> None:
+        """state: normal | frozen | blackout | pattern | unavailable"""
+        texts = {"normal": "WALL NORMAL", "frozen": "WALL FROZEN", "blackout": "WALL BLACKED OUT",
+                 "unavailable": "WALL STATUS UNKNOWN: NO LED PROCESSOR CONNECTED",
+                 "pattern": f"TEST PATTERN: {(label or pattern).upper()}"}
+        text = texts.get(state, state.upper())
+        if (state, pattern, text) == (self.state, self.pattern, self._text):
+            return
+        self.state, self.pattern, self._text = state, pattern, text
+        animated = state in ("frozen", "blackout") or (state == "pattern" and pattern == "aging")
+        if animated and not self._timer.isActive():
+            self._timer.start(33)
+        elif not animated:
+            self._timer.stop()
+        self.setToolTip(text)
+        self.update()
+
+    def _tick(self) -> None:
+        self._phase = (self._phase + 0.033) % 3600.0
+        self.update()
+
+    # ---- painting ---------------------------------------------------------------------------
+    def paintEvent(self, _event) -> None:  # noqa: N802 - Qt API
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        rect = QtCore.QRectF(self.rect())
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(rect, 8, 8)
+        p.setClipPath(clip)
+        dark_text = False
+        if self.state == "frozen":
+            self._paint_shimmer(p, rect)
+        elif self.state == "blackout":
+            self._paint_hazard(p, rect)
+        elif self.state == "pattern":
+            dark_text = self._paint_pattern(p, rect)
+        else:
+            p.fillRect(rect, QtGui.QColor(COLORS["ok"] if self.state == "normal" else "#495057"))
+        p.setClipping(False)
+        self._paint_label(p, rect, boxed=self.state in ("blackout", "pattern"), dark=dark_text)
+        p.end()
+
+    def _paint_shimmer(self, p, rect) -> None:
+        p.fillRect(rect, QtGui.QColor("#1971c2"))
+        width = rect.width()
+        centre = ((self._phase * 0.45) % 1.6 - 0.3) * width  # a band of light sweeping across, then a pause
+        band = QtGui.QLinearGradient(centre - width * 0.18, 0, centre + width * 0.18, rect.height())
+        band.setColorAt(0.0, QtGui.QColor(255, 255, 255, 0))
+        band.setColorAt(0.5, QtGui.QColor(190, 235, 255, 150))
+        band.setColorAt(1.0, QtGui.QColor(255, 255, 255, 0))
+        p.fillRect(rect, band)
+        glow = QtGui.QLinearGradient(0, 0, 0, rect.height())
+        glow.setColorAt(0.0, QtGui.QColor(255, 255, 255, 40))
+        glow.setColorAt(1.0, QtGui.QColor(0, 0, 0, 40))
+        p.fillRect(rect, glow)
+
+    def _paint_hazard(self, p, rect) -> None:
+        p.fillRect(rect, QtGui.QColor("#111111"))
+        stripe = 22.0
+        offset = (self._phase * 18.0) % (stripe * 2)  # slow drift
+        h = rect.height()
+        p.setPen(Qt.NoPen)
+        p.setBrush(QtGui.QColor("#f5c400"))
+        x = -h - stripe * 2 + offset
+        while x < rect.width() + h:
+            p.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(x, h), QtCore.QPointF(x + stripe, h),
+                                           QtCore.QPointF(x + stripe + h, 0), QtCore.QPointF(x + h, 0)]))
+            x += stripe * 2
+
+    def _paint_pattern(self, p, rect) -> bool:
+        """Draw the test pattern; returns True if the label needs dark text."""
+        pattern = (self.pattern or "").lower()
+        w, h = rect.width(), rect.height()
+        if pattern in self.SOLID:
+            p.fillRect(rect, QtGui.QColor(self.SOLID[pattern]))
+            return pattern in ("white", "green")
+        if pattern == "aging":  # the processor cycles colours
+            colours = ["#ff0000", "#00ff00", "#0000ff", "#ffffff"]
+            p.fillRect(rect, QtGui.QColor(colours[int(self._phase / 1.5) % len(colours)]))
+            return False
+        if pattern in ("smpte-bars", "smpte_bars", "bars", "colour_bars", "color_bars", "brompton"):
+            n = len(self.BARS)
+            for i, colour in enumerate(self.BARS):
+                p.fillRect(QtCore.QRectF(w * i / n, 0, w / n + 1, h * 0.72), QtGui.QColor(colour))
+            reverse = ["#0000c0", "#111111", "#c000c0", "#111111", "#00c0c0", "#111111", "#c0c0c0"]
+            for i, colour in enumerate(reverse):
+                p.fillRect(QtCore.QRectF(w * i / n, h * 0.72, w / n + 1, h * 0.28), QtGui.QColor(colour))
+            return False
+        if pattern == "grayscale":
+            steps = 11
+            for i in range(steps):
+                v = round(255 * i / (steps - 1))
+                p.fillRect(QtCore.QRectF(w * i / steps, 0, w / steps + 1, h), QtGui.QColor(v, v, v))
+            return False
+        p.fillRect(rect, QtGui.QColor("#000000"))
+        p.setPen(QtGui.QPen(QtGui.QColor("#ffffff"), 1.5))
+        spacing = 12.0
+        if pattern in ("grid", "vertical"):
+            x = 0.0
+            while x <= w:
+                p.drawLine(QtCore.QPointF(x, 0), QtCore.QPointF(x, h))
+                x += spacing
+        if pattern in ("grid", "horizontal"):
+            y = 0.0
+            while y <= h:
+                p.drawLine(QtCore.QPointF(0, y), QtCore.QPointF(w, y))
+                y += spacing
+        if pattern == "diagonal":
+            x = -h
+            while x <= w:
+                p.drawLine(QtCore.QPointF(x, h), QtCore.QPointF(x + h, 0))
+                x += spacing
+        if pattern not in ("grid", "vertical", "horizontal", "diagonal"):  # unknown pattern: amber
+            p.fillRect(rect, QtGui.QColor("#a07400"))
+        return False
+
+    def _paint_label(self, p, rect, boxed: bool, dark: bool) -> None:
+        font = QtGui.QFont(self.font())
+        font.setPixelSize(19)
+        font.setBold(True)
+        font.setLetterSpacing(QtGui.QFont.AbsoluteSpacing, 2)
+        p.setFont(font)
+        metrics = QtGui.QFontMetrics(font)
+        tw = metrics.horizontalAdvance(self._text) if hasattr(metrics, "horizontalAdvance") else metrics.width(self._text)
+        if boxed:  # a dark pill keeps the words readable over stripes and patterns
+            pill = QtCore.QRectF((rect.width() - tw) / 2 - 16, (rect.height() - metrics.height()) / 2 - 3,
+                                 tw + 32, metrics.height() + 6)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QtGui.QColor(255, 255, 255, 215) if dark else QtGui.QColor(0, 0, 0, 190))
+            p.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
+        p.setPen(QtGui.QColor("#111111") if dark else QtGui.QColor("#ffffff"))
+        p.drawText(rect, Qt.AlignCenter, self._text)
+
+
 class LineChart(QtWidgets.QWidget):
     """Dependency-free time-series line chart."""
 
@@ -346,12 +522,72 @@ def scroll(widget: QtWidgets.QWidget) -> QtWidgets.QScrollArea:
     return area
 
 
-def make_table(headers: List[str]) -> QtWidgets.QTableWidget:
-    t = QtWidgets.QTableWidget(0, len(headers))
+class EvenColumnsTable(QtWidgets.QTableWidget):
+    """Columns share the width equally; a column whose text needs more gets it, and the table
+    then scrolls sideways instead of cutting values off. Call ``refit()`` after filling it."""
+
+    def __init__(self, rows: int, columns: int, parent=None) -> None:
+        super().__init__(rows, columns, parent)
+        header = self.horizontalHeader()
+        header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
+        header.setStretchLastSection(False)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+
+    def refit(self) -> None:
+        columns = self.columnCount()
+        if not columns:
+            return
+        self.resizeColumnsToContents()
+        needed = [self.columnWidth(c) + 12 for c in range(columns)]
+        share = self.viewport().width() // columns
+        widths = [max(n, share) for n in needed]
+        spare = self.viewport().width() - sum(widths)
+        if spare > 0:  # rounding: give the last few pixels to the last column
+            widths[-1] += spare
+        for c, w in enumerate(widths):
+            self.setColumnWidth(c, w)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self.refit()
+
+
+def make_searchable(combo: QtWidgets.QComboBox, threshold: int = 8) -> None:
+    """Once a drop-down has more than ``threshold`` entries, let the operator type to filter it
+    (matches anywhere in the name, e.g. "apc" finds "Akai APC mini")."""
+    if combo.count() <= threshold:
+        return
+    combo.setEditable(True)
+    combo.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+    combo.lineEdit().setPlaceholderText("Type to search…")
+    completer = combo.completer()
+    completer.setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
+    completer.setFilterMode(Qt.MatchContains)
+    completer.setCaseSensitivity(Qt.CaseInsensitive)
+
+
+def local_addresses() -> List[str]:
+    """This PC's IPv4 addresses on its networks (for "open this on your phone" links)."""
+    import socket
+    found = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127.") and ip not in found:
+                found.append(ip)
+    except OSError:
+        pass
+    return found
+
+
+def make_table(headers: List[str], even: bool = False) -> QtWidgets.QTableWidget:
+    t = EvenColumnsTable(0, len(headers)) if even else QtWidgets.QTableWidget(0, len(headers))
     t.setHorizontalHeaderLabels(headers)
     header = t.horizontalHeader()
-    header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
-    header.setStretchLastSection(True)
+    if not even:
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        header.setStretchLastSection(True)
     t.verticalHeader().setVisible(False)
     t.setAlternatingRowColors(True)
     t.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)

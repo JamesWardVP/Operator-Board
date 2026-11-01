@@ -20,6 +20,7 @@ from operator_board.remote.levels import LevelInfo, LevelService
 from operator_board.remote.objects import ObjectService
 from operator_board.remote.takes import TakeManager
 from operator_board.remote.timing import TimingMonitor
+from operator_board.remote.editor_watch import EditorWatcher
 from operator_board.remote.targets import TargetResolver
 from operator_board.surfaces.api_server import ApiServer
 from operator_board.surfaces.controller import SurfaceController
@@ -52,6 +53,7 @@ class AppContext:
         self.dlss = DLSSService(self.targets)
         self.takes = TakeManager(self.config, self.bus, self.targets)
         self.timing = TimingMonitor(self.targets, self.devices)
+        self.editor = EditorWatcher(self.targets, self.bus)
         self.sync = SyncManager(self.config, self.bus)
         self.metrics = MetricStore()
         self.level_cache: List[LevelInfo] = []
@@ -59,6 +61,8 @@ class AppContext:
         self.surface = SurfaceController(self._load_surface_layout(), self.actions, self.bus)
         self.api: Optional[ApiServer] = None
         self.streamdeck = None
+        self.osc = None
+        self.midi = None
         self._stop = threading.Event()
         self.bus.subscribe("multiuser.session_renamed", lambda _t, _p: self._save_quietly())
         self.bus.subscribe("device.metrics", lambda _t, p: self.metrics.add_raw(p["name"], p.get("metrics") or {}))
@@ -78,7 +82,8 @@ class AppContext:
         s = self.config.surfaces
         if s.api_server_enabled:
             try:
-                self.api = ApiServer(self.actions, self.state_snapshot, s.api_bind, s.api_port, s.api_token)
+                self.api = ApiServer(self.actions, self.state_snapshot, s.api_bind, s.api_port, s.api_token,
+                                     surface=self.surface)
                 self.api.start()
             except OSError as exc:
                 log.warning("API server could not start on %s:%s: %s", s.api_bind, s.api_port, exc)
@@ -88,13 +93,59 @@ class AppContext:
             if StreamDeckBackend.available():
                 self.streamdeck = StreamDeckBackend(self.surface, self.bus, s.streamdeck_brightness)
                 self.streamdeck.start()
+        self.start_surface_backends(enable_hardware)
         threading.Thread(target=self._metrics_loop, daemon=True, name="metrics-poll").start()
         threading.Thread(target=self._led_monitor, daemon=True, name="led-monitor").start()
+        self.refresh_levels_in_background()
         self.timing.start()
+        self.editor.start()
+
+    def start_surface_backends(self, enable_hardware: bool = True) -> None:
+        """OSC and MIDI surfaces, when switched on in Settings > Control surfaces (restartable)."""
+        self.stop_surface_backends()
+        s = self.config.surfaces
+        if s.osc_enabled:
+            from operator_board.surfaces.osc import OscServer
+            try:
+                self.osc = OscServer(self.surface, s.osc_port)
+                self.osc.start()
+            except OSError as exc:
+                log.warning("OSC could not listen on UDP %s: %s", s.osc_port, exc)
+                self.osc = None
+        if enable_hardware and s.midi_enabled:
+            from operator_board.surfaces.midi import MidiBackend
+            backend = MidiBackend(self.surface, self.bus, s.midi_port)
+            self.midi = backend if backend.start() else None
+
+    def stop_surface_backends(self) -> None:
+        for name in ("osc", "midi"):
+            backend = getattr(self, name, None)
+            if backend is not None:
+                backend.stop()
+            setattr(self, name, None)
+
+    def restart_api(self) -> str:
+        """Restart the HTTP API / web panel with the current settings; returns an error or ''."""
+        s = self.config.surfaces
+        if self.api:
+            self.api.stop()
+            self.api = None
+        if not s.api_server_enabled:
+            return ""
+        try:
+            self.api = ApiServer(self.actions, self.state_snapshot, s.api_bind, s.api_port, s.api_token,
+                                 surface=self.surface)
+            self.api.start()
+        except OSError as exc:
+            self.api = None
+            return f"The web panel / API could not start on {s.api_bind}:{s.api_port}: {exc}"
+        return ""
 
     def shutdown(self) -> None:
         self._stop.set()
+        self.stop_surface_backends()
         self.timing.stop()
+        self.editor.stop()
         if self.api:
             self.api.stop()
         if self.streamdeck:
@@ -140,6 +191,16 @@ class AppContext:
         self.reload_all()
         self.bus.publish("project.changed", project=self.config.active_project)
         self.bus.publish("stage.changed", switchboard_config=self.switchboard_config)
+        self.refresh_levels_in_background()
+
+    def refresh_levels_in_background(self) -> None:
+        """Fill the level list for the current project without the operator pressing refresh."""
+        def work() -> None:
+            try:
+                self.refresh_levels()
+            except Exception as exc:  # noqa: BLE001 - no project on disk and no editor yet is normal
+                log.debug("Level list not refreshed: %s", exc)
+        threading.Thread(target=work, daemon=True, name="levels-refresh").start()
 
     def open_switchboard_config(self, path: str) -> None:
         if self.switchboard_config:
@@ -256,6 +317,7 @@ class AppContext:
         self.level_cache = []
         self.selected_level = 0
         self.bus.publish("project.changed", project=project)
+        self.refresh_levels_in_background()
         if relaunch and was_running:
             time.sleep(2)
             self.devices.start_all()
@@ -333,11 +395,33 @@ class AppContext:
               params=[ActionParam("group", "Group", "choice", choices_provider=group_names)])
 
         # Multi-user
-        def start_mu(server_name="", session_name="") -> ActionResult:
-            mu.start(server_name or None, session_name or None)
+        def start_mu(server_name="", session_name="", interactive=False) -> ActionResult:
+            mu.start(server_name or None, session_name or None, interactive=bool(interactive))
+            name = self.config.multiuser.session_name
+            if mu.clash:
+                return ActionResult(True, f"Multi-user server started. Session '{mu.clash}' already exists on it: "
+                                          "choose whether to start a new session or use the existing one")
             if mu.session_warning:
                 return ActionResult(False, f"Multi-user server started. Warning: {mu.session_warning}")
-            return ActionResult(True, f"Multi-user server started (session '{self.config.multiuser.session_name}')")
+            if mu.session_live:
+                return ActionResult(True, f"Multi-user server and session '{name}' are live")
+            return ActionResult(True, f"Multi-user server started (session '{name}')")
+
+        def start_session() -> ActionResult:
+            if not mu.running:
+                start_mu()
+                if mu.session_live:
+                    return ActionResult(True, f"Multi-user session '{self.config.multiuser.session_name}' is live")
+            mu.start_session()
+            return ActionResult(True, f"Multi-user session '{self.config.multiuser.session_name}' is live")
+
+        def resolve_clash(increment=True) -> ActionResult:
+            old = mu.clash
+            mu.resolve_clash(str(increment).lower() not in ("false", "0", "no", ""))
+            name = self.config.multiuser.session_name
+            if old and name != old:
+                return ActionResult(True, f"New session '{name}' (not the previous session '{old}')")
+            return ActionResult(True, f"Keeping the existing session '{name}'")
 
         def stop_mu() -> ActionResult:
             mu.stop()
@@ -349,6 +433,11 @@ class AppContext:
         a.add("multiuser.start", "Start multi-user server", "Multi-User", start_mu, state=lambda: mu.running,
               params=[ActionParam("server_name", "Server name"), ActionParam("session_name", "Session name")])
         a.add("multiuser.stop", "Stop multi-user server", "Multi-User", stop_mu)
+        a.add("multiuser.start_session", "Start multi-user session", "Multi-User", start_session,
+              state=lambda: mu.session_live)
+        a.add("multiuser.resolve_clash", "Session name clash: new session or keep", "Multi-User", resolve_clash,
+              params=[ActionParam("increment", "Start a new session (true) or keep the existing one (false)",
+                                  "bool")])
         a.add("multiuser.toggle", "Multi-user server (toggle)", "Multi-User",
               lambda: stop_mu() if mu.running else start_mu(), state=lambda: mu.running)
 
@@ -377,10 +466,9 @@ class AppContext:
               params=[ActionParam("preset", "Camera preset", "choice", choices_provider=cam_names)])
 
         def capture_next():
-            name = f"Camera {len(self.config.cameras) + 1}"
-            self.cameras.capture(name)
+            preset = self.cameras.capture(f"Camera {len(self.config.cameras) + 1}")
             self.bus.publish("cameras.changed")
-            return ActionResult(True, f"Saved {name}")
+            return ActionResult(True, f"Saved {preset.name}")
         a.add("camera.capture_next", "Save current viewport as new camera", "Cameras", capture_next)
 
         # Takes
@@ -414,6 +502,15 @@ class AppContext:
               params=[ActionParam("slate", "Scene / slate name")])
         a.add("takes.set_take", "Set take number", "Takes", lambda take: takes.set_take(int(take)),
               params=[ActionParam("take", "Take number", "int")])
+        a.add("takes.set_description", "Set take description", "Takes",
+              lambda description="": takes.set_description(str(description)),
+              params=[ActionParam("description", "Description")])
+
+        def describe_take(index, description="") -> ActionResult:
+            note = takes.describe_take(int(index), str(description))
+            return ActionResult(True, "Description changed" + (f" ({note})" if note else ""))
+        a.add("takes.describe", "Change a recorded take's description", "Takes", describe_take,
+              params=[ActionParam("index", "Take log row (0 = first)", "int"), ActionParam("description", "Description")])
 
         # DLSS
         a.add("dlss.set", "Set DLSS option", "DLSS",

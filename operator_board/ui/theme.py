@@ -8,6 +8,7 @@ COLORS = {
     "bg": "#121417", "panel": "#1b1e23", "panel2": "#23272e", "border": "#30353d", "text": "#e9ecef",
     "muted": "#8b949e", "accent": "#3d8bfd", "ok": "#2f9e44", "warn": "#f08c00", "err": "#e03131",
     "freeze": "#1fa2ff", "blackout": "#e03131", "pattern": "#fab005", "mu": "#7950f2",
+    "session": "#f08c00", "live": "#3f7d5a",
 }
 
 STATE_COLORS = {
@@ -25,10 +26,17 @@ QLabel { background: transparent; }
 QListWidget#Nav { background: %(panel)s; border: none; font-size: 15px; padding-top: 8px; outline: 0; }
 QListWidget#Nav::item { padding: 12px 14px; border-radius: 6px; margin: 2px 6px; }
 QListWidget#Nav::item:selected { background: %(accent)s; color: white; }
+QTreeWidget#Nav { background: %(panel)s; border: none; font-size: 15px; padding-top: 6px; outline: 0; }
+QTreeWidget#Nav::item { padding: 9px 10px; border-radius: 6px; margin: 1px 6px; }
+QTreeWidget#Nav::item:selected { background: %(accent)s; color: white; }
+QTreeWidget#Nav::item:hover:!selected { background: %(panel2)s; }
+QTreeWidget#Nav::branch { background: %(panel)s; image: none; border: none; }
 QPushButton { background: %(panel2)s; border: 1px solid %(border)s; border-radius: 8px; padding: 8px 14px; }
 QPushButton:hover { border-color: %(accent)s; }
 QPushButton:pressed { background: %(border)s; }
 QPushButton:disabled { color: %(muted)s; }
+QPushButton#CardLink { padding: 0; font-size: 15px; font-weight: 700; color: %(muted)s; }
+QPushButton#CardLink:hover { color: %(text)s; }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit {
   background: %(panel2)s; border: 1px solid %(border)s; border-radius: 6px; padding: 4px 6px; min-height: 24px; }
 QTableWidget, QTreeWidget, QListWidget { background: %(panel)s; border: 1px solid %(border)s; gridline-color: %(border)s;

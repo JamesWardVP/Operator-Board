@@ -36,8 +36,16 @@ class BasePage(QtWidgets.QWidget):
         run_async(lambda: self.ctx.actions.invoke(action_id, **params), finished)
 
     def background(self, fn: Callable[[], Any], done: Optional[Callable[[Any], None]] = None,
-                   what: str = "Operation") -> None:
-        run_async(fn, done, lambda exc: self.notify(f"{what} failed: {exc}", False))
+                   what: str = "Operation", quiet: bool = False,
+                   failed: Optional[Callable[[Exception], None]] = None) -> None:
+        """Run ``fn`` off the UI thread. ``quiet``: no failure message (automatic refreshes);
+        ``failed`` is called with the error instead or as well."""
+        def on_error(exc) -> None:
+            if failed:
+                failed(exc)
+            if not quiet:
+                self.notify(f"{what} failed: {exc}", False)
+        run_async(fn, done, on_error)
 
     def report(self, label: str):
         """Callback for background calls returning a list of error strings."""

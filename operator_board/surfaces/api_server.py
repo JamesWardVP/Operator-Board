@@ -3,6 +3,9 @@
   GET  /api/actions                  list actions
   GET  /api/state                    wall / takes / multi-user / device state
   GET|POST /api/action/<id>?k=v      invoke an action (POST may carry a JSON body of params)
+  GET  /panel                        the control surface as a web page (phone / tablet)
+  GET  /api/surface                  the surface's current page (labels, colours, active keys)
+  GET|POST /api/surface/press/<n>    press key n;  /api/surface/page/next|prev|<n>  change page
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, Optional
 
 from operator_board.core.actions import ActionRegistry
+from operator_board.surfaces.web_panel import PANEL_HTML, surface_state
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +36,9 @@ def _coerce(value: str) -> Any:
 
 class ApiServer:
     def __init__(self, actions: ActionRegistry, state_provider: Callable[[], Dict[str, Any]],
-                 bind: str = "127.0.0.1", port: int = 8765, token: str = "") -> None:
+                 bind: str = "127.0.0.1", port: int = 8765, token: str = "", surface=None) -> None:
         self.actions = actions
+        self.surface = surface  # SurfaceController for the web panel (optional)
         self.state_provider = state_provider
         self.bind = bind
         self.port = port
@@ -55,6 +60,15 @@ class ApiServer:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _send_html(self, html: str) -> None:
+                body = html.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
             def _authorised(self, query: Dict[str, Any]) -> bool:
                 if not server_ref.token:
                     return True
@@ -63,6 +77,8 @@ class ApiServer:
             def _handle(self, body: Optional[Dict[str, Any]] = None) -> None:
                 parsed = urllib.parse.urlparse(self.path)
                 query = {k: v[-1] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+                if parsed.path.rstrip("/") in ("/panel", ""):  # the page itself holds no secrets
+                    return self._send_html(PANEL_HTML)
                 if not self._authorised(query):
                     return self._send(401, {"ok": False, "message": "invalid token"})
                 query.pop("token", None)
@@ -72,6 +88,26 @@ class ApiServer:
                                              "params": [p.name for p in a.params]} for a in server_ref.actions.all()])
                 if parts == ["api", "state"]:
                     return self._send(200, server_ref.state_provider())
+                surface = server_ref.surface
+                if parts[:2] == ["api", "surface"] and surface is None:
+                    return self._send(404, {"ok": False, "message": "no control surface"})
+                if parts == ["api", "surface"]:
+                    return self._send(200, surface_state(surface))
+                if len(parts) == 4 and parts[:3] == ["api", "surface", "press"] and parts[3].isdigit():
+                    result = surface.press(int(parts[3]))
+                    return self._send(200 if result.ok else 400, {"ok": result.ok, "message": result.message})
+                if len(parts) == 4 and parts[:3] == ["api", "surface", "page"]:
+                    n = max(1, len(surface.layout.pages))
+                    target = parts[3]
+                    if target == "next":
+                        surface.page = (surface.page + 1) % n
+                    elif target == "prev":
+                        surface.page = (surface.page - 1) % n
+                    elif target.isdigit():
+                        surface.page = int(target) % n
+                    surface.bus.publish("surface.changed")
+                    page = surface.current_page
+                    return self._send(200, {"ok": True, "message": f"Page: {page.name if page else ''}"})
                 if len(parts) == 3 and parts[:2] == ["api", "action"]:
                     params = {k: _coerce(v) for k, v in query.items()}
                     params.update(body or {})
