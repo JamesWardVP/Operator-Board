@@ -71,7 +71,8 @@ jobs:
   # Publish each release to the download page on virtualfilmtools.com, which serves its own copy of
   # the files (so it keeps working without GitHub). Needs the repository secrets VFT_FTP_HOST,
   # VFT_FTP_USER and VFT_FTP_PASSWORD (an FTP account limited to the site's downloads/operator-board
-  # folder; VFT_FTP_DIR is optional, for an account that starts elsewhere). Without them it skips.
+  # folder; VFT_FTP_PORT is optional, 21 when empty, and VFT_FTP_DIR is optional, for an account that
+  # starts elsewhere). Without them it skips.
   publish-website:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
@@ -83,6 +84,7 @@ jobs:
       VFT_FTP_USER: ${{ secrets.VFT_FTP_USER }}
       LFTP_PASSWORD: ${{ secrets.VFT_FTP_PASSWORD }}
       VFT_FTP_DIR: ${{ secrets.VFT_FTP_DIR }}
+      VFT_FTP_PORT: ${{ secrets.VFT_FTP_PORT }}
       SITE_URL: https://virtualfilmtools.com/downloads/operator-board
     steps:
       - name: Check the website upload is set up
@@ -125,7 +127,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq lftp > /dev/null
           ftp() {  # run lftp commands in the downloads folder; TLS required, certificate checked
-            lftp --env-password -u "$VFT_FTP_USER" -e "set ftp:ssl-force true; set ftp:ssl-protect-data true; \
+            lftp --env-password -u "$VFT_FTP_USER" -p "${VFT_FTP_PORT:-21}" -e "set ftp:ssl-force true; set ftp:ssl-protect-data true; \
               set ssl:verify-certificate yes; set net:max-retries 2; set net:timeout 30; \
               cd '${VFT_FTP_DIR:-.}'; $1; bye" "$VFT_FTP_HOST"
           }
