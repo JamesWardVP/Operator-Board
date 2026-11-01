@@ -247,3 +247,34 @@ def test_led_command_editor_saves_a_custom_copy(tmp_path):
     assert dialog.saved["test_patterns"][-1]["id"].startswith("pattern_")
     assert registry.get("novastar_mctrl")["commands"]["freeze_on"].get("hex") != "55 AA 00 01"
     app.processEvents()
+
+
+def test_remote_objects_shows_actioning_while_busy(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPERATOR_BOARD_HOME", str(tmp_path))
+    import time
+    from operator_board.context import AppContext
+    from operator_board.core.config import AppConfig
+    from operator_board.ui.main_window import MainWindow
+
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    ctx = AppContext(AppConfig(), config_path=str(tmp_path / "config.json"))
+    window = MainWindow(ctx)
+    window.show()
+    window.show_page("Remote Objects")
+    page = window.current_page()
+    assert page.busy.label.text() == "...Actioning" and not page.busy.label.isVisible()
+    results = []
+
+    def fail():
+        raise RuntimeError("no editor")
+    page.background(lambda: time.sleep(0.3), results.append, "Slow", quiet=True)
+    page.background(fail, results.append, "Failing", quiet=True, failed=results.append)
+    app.processEvents()
+    assert page.busy.active and page.busy.label.isVisible() and page.busy.spinner.isVisible()
+    deadline = time.time() + 5
+    while page.busy.active and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    assert not page.busy.active and not page.busy.label.isVisible() and len(results) == 2
+    window.skip_save_on_close = True
+    window.close()

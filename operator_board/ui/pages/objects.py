@@ -6,7 +6,7 @@ import json
 from operator_board.qt import QtGui, QtWidgets, Qt
 from operator_board.remote.targets import TARGET_CHOICES
 from operator_board.ui.pages.base import BasePage
-from operator_board.ui.widgets import Card, DragNumber, LiveSetter, hbox, make_table, muted, set_row
+from operator_board.ui.widgets import BusyIndicator, Card, DragNumber, LiveSetter, hbox, make_table, muted, set_row
 
 
 def parse_value(text: str):
@@ -36,7 +36,25 @@ class ObjectsPage(BasePage):
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(self._presets_tab(), "Remote Control Presets")
         tabs.addTab(self._actors_tab(), "Actor browser")
+        # Shown while anything on this page is loading from or changing Unreal.
+        self.busy = BusyIndicator("...Actioning")
+        tabs.setCornerWidget(self.busy, Qt.TopRightCorner)
         lay.addWidget(tabs)
+
+    def background(self, fn, done=None, what: str = "Operation", quiet: bool = False, failed=None) -> None:
+        """As BasePage.background, with the "...Actioning" spinner showing until it has finished."""
+        self.busy.busy(+1)
+
+        def finished(result) -> None:
+            self.busy.busy(-1)
+            if done:
+                done(result)
+
+        def errored(exc) -> None:
+            self.busy.busy(-1)
+            if failed:
+                failed(exc)
+        super().background(fn, finished, what, quiet, errored)
 
     # ---- presets ------------------------------------------------------------------
     def _presets_tab(self):
