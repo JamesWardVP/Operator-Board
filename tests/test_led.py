@@ -98,7 +98,7 @@ def test_novastar_vx_models_frames():
     assert frame(vx600, "blackout_on")[:-2].hex() == "55aa0080fe000100ffff010000010002010" + "0ff"
 
 
-def test_coex_display_mode_and_screen_mapping():
+def test_coex_display_mode_and_screen_ids():
     def responder(method, path, body):
         if path == "/api/v1/screen":
             return {"code": 0, "data": {"screens": [{"screenID": "S1"}, {"screenID": "S2"}]}}
@@ -108,21 +108,20 @@ def test_coex_display_mode_and_screen_mapping():
     try:
         cfg = LEDProcessorConfig(name="C", profile_id="novastar_coex", host="127.0.0.1", port=server.port)
         p = LEDProcessor(cfg, REG.get("novastar_coex"))
-        assert p.locate_name == "Screen Mapping" and "locate" in p.capabilities()
-        assert "test_pattern" not in p.capabilities()
+        assert p.capabilities() == ["freeze", "blackout", "brightness"]  # no test pattern command
         p.set_freeze(True)
-        p.set_locate(True)
         p.set_brightness(50)
-        p.set_locate(False)
+        p.set_brightness(40)
         assert server.requests == [
             ("PUT", "/api/v1/screen/output/displaymode", {"value": 2}),
             ("GET", "/api/v1/screen", None),  # asked once, then remembered
-            ("POST", "/api/v1/screen/mapping/update", {"screenIDs": ["S1", "S2"], "enable": True}),
             ("PUT", "/api/v1/screen/brightness", {"brightness": 0.5, "screenIdList": ["S1", "S2"]}),
-            ("POST", "/api/v1/screen/mapping/update", {"screenIDs": ["S1", "S2"], "enable": False})]
+            ("PUT", "/api/v1/screen/brightness", {"brightness": 0.4, "screenIdList": ["S1", "S2"]})]
         cfg.options = {"screen_ids": "A, B"}  # the operator's own list wins
-        p.set_locate(True)
-        assert server.requests[-1][2] == {"screenIDs": ["A", "B"], "enable": True}
+        p.set_blackout(True)
+        p.set_brightness(50)
+        assert server.requests[-2][2] == {"value": 1}
+        assert server.requests[-1][2] == {"brightness": 0.5, "screenIdList": ["A", "B"]}
     finally:
         server.close()
 
@@ -165,7 +164,7 @@ def test_manager_fan_out_and_restore():
     assert not mgr.get("Off").state.frozen
     assert mgr.restore_all() == []
     assert not (mgr.frozen or mgr.blackout or mgr.test_pattern)
-    assert events[-1] == {"frozen": False, "blackout": False, "test_pattern": None, "locate": False,
+    assert events[-1] == {"frozen": False, "blackout": False, "test_pattern": None,
                           "modes": {"A": "normal", "B": "normal"}}
 
 

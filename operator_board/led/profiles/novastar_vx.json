@@ -4,7 +4,7 @@
   "manufacturer": "NovaStar",
   "transport": "tcp",
   "default_port": 5200,
-  "notes": "NovaStar binary protocol over TCP 5200, frames from the Bitfocus Companion 'novastar-controller' module (2.6), which uses these display-mode frames for VX4S, NovaPro HD and MCTRL4K. VX1000, VX16S, VX Pro, J6 and NovaPro UHD Jr have their own profile, and so does VX600. VX6S is not covered: the module's frames for it are all the same, so try this profile and check. No test pattern off or identify/locate command is known.",
+  "notes": "NovaStar binary protocol over TCP 5200, frames from the Bitfocus Companion 'novastar-controller' module (2.6), which uses these display-mode frames for VX4S, NovaPro HD and MCTRL4K. VX1000, VX16S, VX Pro, J6 and NovaPro UHD Jr have their own profile, and so does VX600. VX6S is not covered: the module's frames for it are all the same, so try this profile and check. No test pattern off command is known.",
   "commands": {
     "normal": {
       "hex": "55 AA 00 00 FE 00 00 00 00 00 01 00 50 00 20 02 01 00 00",

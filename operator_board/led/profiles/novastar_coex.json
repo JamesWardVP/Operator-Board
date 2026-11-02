@@ -4,8 +4,7 @@
   "manufacturer": "NovaStar",
   "transport": "http",
   "default_port": 8001,
-  "locate_name": "Screen Mapping",
-  "notes": "COEX HTTP API (port 8001) as used by the Bitfocus Companion 'novastar-coex' module (2.0). Freeze and blackout are display modes (0 normal, 1 blackout, 2 freeze), so they don't combine. Locate turns on Screen Mapping, which shows each cabinet's number on the wall. Brightness and Screen Mapping apply to every screen the processor lists (or list them in the 'screen_ids' option). If COEX VMP is open on another computer the processor answers 'device locked': close VMP there. The API has no test pattern command.",
+  "notes": "COEX HTTP API (port 8001) as used by the Bitfocus Companion 'novastar-coex' module (2.0). Freeze and blackout are display modes (0 normal, 1 blackout, 2 freeze), so they don't combine. Brightness applies to every screen the processor lists (or list them in the 'screen_ids' option). If COEX VMP is open on another computer the processor answers 'device locked': close VMP there. The API has no test pattern command.",
   "status_command": {
     "method": "GET",
     "path": "/api/v1/screen/output/display/state"
@@ -57,24 +56,6 @@
     },
     "freeze_off": {
       "ref": "normal"
-    },
-    "locate_on": {
-      "method": "POST",
-      "path": "/api/v1/screen/mapping/update",
-      "json": {
-        "screenIDs": "{screen_ids}",
-        "enable": true
-      },
-      "confidence": "source"
-    },
-    "locate_off": {
-      "method": "POST",
-      "path": "/api/v1/screen/mapping/update",
-      "json": {
-        "screenIDs": "{screen_ids}",
-        "enable": false
-      },
-      "confidence": "source"
     },
     "brightness": {
       "method": "PUT",

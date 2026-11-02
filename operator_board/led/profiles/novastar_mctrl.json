@@ -4,7 +4,7 @@
   "manufacturer": "NovaStar",
   "transport": "tcp",
   "default_port": 5200,
-  "notes": "NovaStar binary protocol over TCP 5200, frames from the Bitfocus Companion 'novastar-controller' module (2.6). The checksum is appended automatically. Freeze, blackout and test patterns are display modes: Normal clears all three, so they don't combine. MCTRL4K uses the VX4S frames: pick the NovaStar VX4S profile. The protocol used here has no identify/locate command.",
+  "notes": "NovaStar binary protocol over TCP 5200, frames from the Bitfocus Companion 'novastar-controller' module (2.6). The checksum is appended automatically. Freeze, blackout and test patterns are display modes: Normal clears all three, so they don't combine. MCTRL4K uses the VX4S frames: pick the NovaStar VX4S profile.",
   "commands": {
     "normal": {
       "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 00 01 00 02 03 00 00 00 00",

@@ -17,33 +17,41 @@ Every command carries a `confidence` value, which is shown in colour on the LED 
 
 ## Status per processor
 
-### NovaStar MCTRL (`novastar_mctrl`) and VX / NovaPro (`novastar_vx`)
+Checked in 0.8 against the Bitfocus Companion modules installed with Companion 4.2 (`%APPDATA%\companion\modules`): brompton-tessera 2.2, mvr-helios 2.3, novastar-controller 2.6 and novastar-coex 2.0. None of them has an identify / locate command.
+
+### NovaStar MCTRL, VX and NovaPro (`novastar_mctrl`, `novastar_vx`, `novastar_vx1000`, `novastar_vx600`)
 - Binary protocol over TCP 5200. VX Pro series units listen on 15200.
-- Source: `bitfocus/companion-module-novastar-controller` (`choices.js`, `actions.js`).
-- The checksum is the sum of every byte after `55 AA`, plus `0x5555`, written as little-endian uint16. Operator Board appends it automatically (`"checksum": "novastar"`).
-- **Freeze, Black and Normal display modes:** from source. Freeze and Black are a single display mode on these units, so turning on one cancels the other.
-- **MCTRL Normal frame:** corrected to `…00 01 00 02 01 00 00`. This reproduces the published checksum `D6 59`.
-- **Test patterns:** built with the module's runtime frame layout (byte 3 = `00`). Red is verified against the published checksum; the other patterns follow the same layout.
-- **Brightness:** `makeBrightnessCommand` from source; the value is 0–255.
-- VX600, VX1000 and VX6S have model-specific frames in the Companion module. Use command overrides if your unit ignores the generic frames.
+- Source: `companion-module-novastar-controller` 2.6.
+- The checksum is the sum of every byte after `55 AA`, plus `0x5555`, written as little-endian uint16. Operator Board appends it automatically (`"checksum": "novastar"`). The module overwrites byte 3 with a message counter and recomputes the checksum, so byte 3 does not matter.
+- **Display modes** (Normal, Freeze, Black) are from source, so they cancel each other. Each model family has its own frames:
+  - MCTRL300 / 500 / 600 / 660 (`novastar_mctrl`): Normal writes three zero bytes at `0x02000100` (black, test pattern and freeze), so it also unfreezes and turns a test pattern off.
+  - VX4S, NovaPro HD and MCTRL4K (`novastar_vx`).
+  - VX1000, VX16S, VX Pro, J6 and NovaPro UHD Jr (`novastar_vx1000`).
+  - VX600 (`novastar_vx600`).
+  - VX6S is not covered: the module's three VX6S frames are identical apart from the message counter.
+- **Test patterns** (MCTRL): from source. VX models have patterns in the module but no "pattern off", so none are built in.
+- **Brightness:** `makeBrightnessCommand` from source; the value is 0-255 (MCTRL and VX4S family).
+
+### NovaStar COEX (`novastar_coex`): MX40 Pro, KU20, CX80 Pro
+- HTTP on port 8001. Source: `companion-module-novastar-coex` 2.0.
+- `PUT /api/v1/screen/output/displaymode` with `{"value": 0|1|2}` (normal, blackout, freeze).
+- Brightness: `PUT /api/v1/screen/brightness` with `{"brightness": 0-1, "screenIdList": [...]}`. The screen IDs come from `GET /api/v1/screen` (`data.screens[].screenID`), asked once, or from the processor's `screen_ids` option.
+- No test pattern command (the module's action calls an API function that does not exist).
+- If COEX VMP is open on another computer, the processor answers "device locked".
 
 ### Brompton Tessera (`brompton_tessera`)
-- HTTP GET `http://<ip>/api/<path>?set=<value>`.
-- Source: `bitfocus/companion-module-brompton-tessera` (`apiKeys.js`).
-- Paths come from source: `override/freeze/enabled`, `override/blackout/enabled`, `override/test-pattern/enabled`, `override/test-pattern/type`, and `output/global-colour/brightness` (nits, 0–10000).
-- The `true`/`false` value format is **assumed**.
+- HTTP GET `http://<ip>/api/<path>?set=<value>`. Source: `companion-module-brompton-tessera` 2.2.
+- `override/freeze/enabled`, `override/blackout/enabled`, `override/test-pattern/enabled` with `true` / `false`, `override/test-pattern/type` with the pattern name, and `output/global-colour/brightness` (nits, 0-10000).
 
 ### Megapixel HELIOS (`megapixel_helios`)
-- REST API: `PATCH /api/v1/public` (firmware 24.11+). Basic or Digest auth via the `username` and `password` options.
-- Endpoints come from the PepperDash Megapixel plugin's documentation.
-- Blackout and brightness bodies follow the `dev.display.*` tree and are **partial**.
-- Freeze and test pattern bodies are **assumed**.
+- The module POSTs JSON to `/api/v1/public`. Basic or Digest auth via the `username` and `password` options. Source: `companion-module-mvr-helios` 2.3.
+- `dev.display.blackout`, `dev.display.freeze`, `dev.display.brightness` (0-100), `dev.ingest.testPattern.enabled` and `.type`.
 
 ## Command format
 
 ```jsonc
 // HTTP
-{"method": "PATCH", "path": "/api/v1/public", "json": {"dev": {"display": {"blackout": true}}}}
+{"method": "POST", "path": "/api/v1/public", "json": {"dev": {"display": {"blackout": true}}}}
 // TCP / UDP
 {"hex": "55 AA 00 80 FE ...", "checksum": "novastar"}
 {"text": "FREEZE 1\r\n"}

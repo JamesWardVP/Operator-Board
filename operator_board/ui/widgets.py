@@ -253,7 +253,7 @@ class HazardOverlay(QtWidgets.QWidget):
 
 
 class UnsupportedTape(QtWidgets.QWidget):
-    """Faded, crossed hazard tape over a button the processor can't do (e.g. Locate on a Brompton):
+    """Faded, crossed hazard tape over a button the processor can't do (e.g. test patterns on a COEX):
     a quieter version of HazardOverlay's tape, so it reads as "not here" rather than a warning."""
 
     TAPE = QtGui.QColor(150, 150, 150, 70)
@@ -340,8 +340,8 @@ class WallStatusBar(QtWidgets.QWidget):
     """Always-visible bar showing what the LED wall is doing.
 
     Normal: green. Frozen: blue with a moving shimmer. Blacked out: slowly scrolling hazard stripes.
-    Test pattern: a picture of the pattern (the colour, colour bars, a grid, lines...). Locate: pulsing
-    purple. Unavailable (no processor reachable): grey. When processors are in different states the
+    Test pattern: a picture of the pattern (the colour, colour bars, a grid, lines...).
+    Unavailable (no processor reachable): grey. When processors are in different states the
     bar splits into one part per state, each naming its processors.
     """
 
@@ -361,12 +361,12 @@ class WallStatusBar(QtWidgets.QWidget):
     def text(self) -> str:
         return self._text
 
-    WORDS = {"normal": "NORMAL", "frozen": "FROZEN", "blackout": "BLACKED OUT", "locate": "LOCATING"}
+    WORDS = {"normal": "NORMAL", "frozen": "FROZEN", "blackout": "BLACKED OUT"}
 
     def show_wall(self, state: str, pattern: str = "", label: str = "") -> None:
-        """The whole wall in one state: normal | frozen | blackout | pattern | locate | unavailable"""
+        """The whole wall in one state: normal | frozen | blackout | pattern | unavailable"""
         texts = {"normal": "WALL NORMAL", "frozen": "WALL FROZEN", "blackout": "WALL BLACKED OUT",
-                 "locate": "WALL LOCATING", "unavailable": "WALL STATUS UNKNOWN: NO LED PROCESSOR CONNECTED",
+                 "unavailable": "WALL STATUS UNKNOWN: NO LED PROCESSOR CONNECTED",
                  "pattern": f"TEST PATTERN: {(label or pattern).upper()}"}
         self._set([{"state": state, "pattern": pattern, "text": texts.get(state, state.upper()), "weight": 1}])
 
@@ -396,7 +396,7 @@ class WallStatusBar(QtWidgets.QWidget):
         self.segments = segments
         self.state, self.pattern = segments[0]["state"], segments[0]["pattern"]
         self._text = "  |  ".join(s["text"] for s in segments)
-        animated = any(s["state"] in ("frozen", "blackout", "locate") or
+        animated = any(s["state"] in ("frozen", "blackout") or
                        (s["state"] == "pattern" and s["pattern"] == "aging") for s in segments)
         if animated and not self._timer.isActive():
             self._timer.start(33)
@@ -436,8 +436,6 @@ class WallStatusBar(QtWidgets.QWidget):
                 self._paint_hazard(p, rect)
             elif state == "pattern":
                 dark_text = self._paint_pattern(p, rect)
-            elif state == "locate":
-                self._paint_locate(p, rect)
             else:
                 p.fillRect(rect, QtGui.QColor(COLORS["ok"] if state == "normal" else "#495057"))
             p.setClipping(False)
@@ -449,12 +447,6 @@ class WallStatusBar(QtWidgets.QWidget):
             x += width
         self.state, self.pattern = self.segments[0]["state"], self.segments[0]["pattern"]
         p.end()
-
-    def _paint_locate(self, p, rect) -> None:
-        import math
-        pulse = (math.sin(self._phase * 4.0) + 1) / 2  # about two pulses a second
-        p.fillRect(rect, QtGui.QColor("#5f3dc4"))
-        p.fillRect(rect, QtGui.QColor(200, 170, 255, int(40 + 110 * pulse)))
 
     def _paint_shimmer(self, p, rect) -> None:
         p.fillRect(rect, QtGui.QColor("#1971c2"))

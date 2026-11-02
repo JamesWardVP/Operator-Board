@@ -1,18 +1,18 @@
 """Buttons that put one LED processor or a group of them into a mode (freeze, blackout, test pattern,
-locate, normal), lit for the mode it is in. Used on the LED Processor Setup page (in a row) and on the
+normal), lit for the mode it is in. Used on the LED Processor Setup page (in a row) and on the
 LED Processors page (in a column)."""
 from __future__ import annotations
 
 from typing import List, Optional
 
-from operator_board.led.processor import CAP_BLACKOUT, CAP_FREEZE, CAP_LOCATE, CAP_TEST_PATTERN
+from operator_board.led.processor import CAP_BLACKOUT, CAP_FREEZE, CAP_TEST_PATTERN
 from operator_board.qt import QtWidgets, Qt
 from operator_board.ui.led_status import MODE_COLORS, MODE_LABELS
 from operator_board.ui.theme import COLORS
 from operator_board.ui.widgets import set_unsupported
 
-ORDER = ("frozen", "blackout", "pattern", "locate", "normal")
-NEEDS = {"frozen": CAP_FREEZE, "blackout": CAP_BLACKOUT, "pattern": CAP_TEST_PATTERN, "locate": CAP_LOCATE}
+ORDER = ("frozen", "blackout", "pattern", "normal")
+NEEDS = {"frozen": CAP_FREEZE, "blackout": CAP_BLACKOUT, "pattern": CAP_TEST_PATTERN}
 
 
 def unsupported_reason(procs, mode: str) -> str:
@@ -22,25 +22,15 @@ def unsupported_reason(procs, mode: str) -> str:
     if not cap or not procs or any(cap in p.capabilities() for p in procs):
         return ""
     kinds = sorted({p.profile.get("name", "this processor type") for p in procs})
-    what = "Locate / identify" if mode == "locate" else MODE_LABELS[mode]
-    return (f"{what} isn't supported by {' or '.join(kinds)}. If your processor can do it, add the commands "
-            "with Edit commands… on LED Processor Setup.")
+    return (f"{MODE_LABELS[mode]} isn't supported by {' or '.join(kinds)}. If your processor can do it, add "
+            "the commands with Edit commands… on LED Processor Setup.")
 
 
 def supported_tip(procs, mode: str) -> str:
-    """The tooltip of a mode button that can be used: what Locate is called on these processors,
-    and which of them won't follow."""
+    """The tooltip of a mode button that can be used: which of ``procs`` won't follow, if any."""
     cap = NEEDS.get(mode)
-    able = [p for p in procs if cap is None or cap in p.capabilities()]
-    tip = ""
-    if mode == "locate" and able:
-        names = sorted({p.locate_name for p in able})
-        tip = ("Shows which panels each processor drives (" + " / ".join(names) + " on the processor)"
-               if names != ["Locate"] else "Shows which panels each processor drives")
-    left_out = [p.name for p in procs if p not in able]
-    if left_out:
-        tip += ("\n" if tip else "") + "Not supported by " + ", ".join(left_out)
-    return tip
+    left_out = [p.name for p in procs if cap is not None and cap not in p.capabilities()]
+    return "Not supported by " + ", ".join(left_out) if left_out else ""
 
 
 def mode_button_style(mode: str, lit: bool, compact: bool = False) -> str:
@@ -55,7 +45,7 @@ def mode_button_style(mode: str, lit: bool, compact: bool = False) -> str:
 
 
 class ModeButtons(QtWidgets.QWidget):
-    """Five mode buttons for ``target`` (a processor name or a group name)."""
+    """Mode buttons for ``target`` (a processor name or a group name)."""
 
     def __init__(self, page, target: str, vertical: bool = False, compact: bool = False,
                  pattern_picker: bool = False, modes=ORDER) -> None:

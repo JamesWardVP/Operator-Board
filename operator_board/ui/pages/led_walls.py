@@ -1,5 +1,5 @@
 """LED Processors: the wall status bar, then a column for each LED group and each processor with
-buttons for its five modes (the current one lit) and its own test pattern choice."""
+buttons for its four modes (the current one lit) and its own test pattern choice."""
 from __future__ import annotations
 
 from operator_board.qt import QtWidgets, Qt
@@ -10,7 +10,7 @@ from operator_board.ui.pages.base import BasePage
 from operator_board.ui.widgets import Card, WallStatusBar, hbox, muted
 
 COLUMN_WIDTH = 190
-STATE_WORDS = {"frozen": "Frozen", "blackout": "Blacked out", "pattern": "Test pattern", "locate": "Locating",
+STATE_WORDS = {"frozen": "Frozen", "blackout": "Blacked out", "pattern": "Test pattern",
                "normal": "Normal"}
 
 
@@ -65,7 +65,7 @@ class LEDProcessorsPage(BasePage):
         self._mode_labels[target] = mode
         # Normal first; Test pattern last, just above its pattern choice.
         strip = ModeButtons(self, target, vertical=True, pattern_picker=True,
-                            modes=("normal", "frozen", "blackout", "locate", "pattern"))
+                            modes=("normal", "frozen", "blackout", "pattern"))
         self._strips.append(strip)
         card.add(strip)
         if group is not None:

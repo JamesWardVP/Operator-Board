@@ -1,5 +1,5 @@
 """LED processor setup: choose the processor type, set its address, test and fine-tune commands. Each
-processor can be frozen, blacked out, located and resumed from its row; the Advanced section adds
+processor can be frozen, blacked out and resumed from its row; the Advanced section adds
 groups of processors and individual control of each one."""
 from __future__ import annotations
 
@@ -14,9 +14,8 @@ from operator_board.ui.pages.base import BasePage
 from operator_board.ui.widgets import Card, hbox, make_table, muted, set_row
 
 CONFIDENCE_COLORS = {"source": "#2f9e44", "partial": "#f08c00", "assumed": "#e03131", "user": "#3d8bfd"}
-COMMANDS = ["freeze_on", "freeze_off", "blackout_on", "blackout_off", "test_pattern_off", "locate_on", "locate_off",
-            "brightness"]
-ROW_MODES = (("Freeze", "frozen"), ("Blackout", "blackout"), ("Locate", "locate"), ("Resume", "normal"))
+COMMANDS = ["freeze_on", "freeze_off", "blackout_on", "blackout_off", "test_pattern_off", "brightness"]
+ROW_MODES = (("Freeze", "frozen"), ("Blackout", "blackout"), ("Resume", "normal"))
 HEADERS = ["Name", "Processor type", "Address", "Enabled", "Status"] + [m[0] for m in ROW_MODES] + \
           ["Last command / error"]
 LAST = len(HEADERS) - 1
@@ -312,7 +311,7 @@ class LEDSetupPage(BasePage):
             if self.selected_modes is not None:
                 self.selected_modes.hide()
                 self.selected_modes.deleteLater()
-            self.selected_modes = ModeButtons(self, p.name, modes=("frozen", "blackout", "locate", "normal"))
+            self.selected_modes = ModeButtons(self, p.name, modes=("frozen", "blackout", "normal"))
             self.selected_modes_holder.addWidget(self.selected_modes)
         self.selected_modes.show()
         self.selected_modes.refresh()

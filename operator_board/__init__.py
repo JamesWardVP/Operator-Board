@@ -1,3 +1,3 @@
 """Operator Board - an operator-friendly Virtual Production front end for Unreal Engine Switchboard."""
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

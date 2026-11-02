@@ -335,7 +335,7 @@ class AppContext:
                 "level": getattr(self.editor, "level", "") or ""}
 
     # Not settings, so not in the change log: control surface page turns, LED wall / group states
-    # (freeze, blackout, test pattern, locate, normal) and connecting, starting or stopping instances.
+    # (freeze, blackout, test pattern, normal) and connecting, starting or stopping instances.
     NOT_LOGGED = ("surface.", "led.", "devices.", "group.")
     LOGGED_ANYWAY = ("led.brightness",)  # a setting, not a state
 
@@ -652,11 +652,6 @@ class AppContext:
               lambda: _errors_result("Restore", led.set_blackout(False)))
         a.add("led.restore", "Wall to normal", "LED Wall", lambda: _errors_result("Wall normal", led.restore_all()),
               state=lambda: bool(led.active()) and all(m == "normal" for m in led.modes().values()))
-        a.add("led.locate", "Locate (toggle)", "LED Wall", lambda: _errors_result("Locate", led.set_locate(None)),
-              state=lambda: led.locate)
-        a.add("led.locate_on", "Locate on", "LED Wall", lambda: _errors_result("Locate", led.set_locate(True)),
-              state=lambda: led.locate)
-        a.add("led.locate_off", "Locate off", "LED Wall", lambda: _errors_result("Locate off", led.set_locate(False)))
         led_targets = lambda: (["all"] + [g.name for g in self.config.led_groups]
                                + [p.name for p in self.config.led_processors])
         a.add("led.set_mode", "Set LED processor / group mode", "LED Wall",
@@ -665,16 +660,24 @@ class AppContext:
               description="Put one processor, a group of processors or the whole wall into one mode",
               params=[ActionParam("target", "Processor or group", "choice", "all", choices_provider=led_targets),
                       ActionParam("mode", "Mode", "choice", "normal",
-                                  choices_provider=lambda: ["frozen", "blackout", "pattern", "locate", "normal"]),
+                                  choices_provider=lambda: ["frozen", "blackout", "pattern", "normal"]),
                       ActionParam("pattern", "Test pattern (for pattern)", "choice", choices_provider=patterns)])
+
+        def on(target: str):  # the processor names of a processor, a group or "all" (None)
+            return None if target in ("", "all") else led.resolve(target)
+
         a.add("led.test_pattern", "Show test pattern", "LED Wall",
-              lambda pattern="": _errors_result(f"Test pattern {pattern}", led.set_test_pattern(pattern or None)),
-              params=[ActionParam("pattern", "Pattern", "choice", choices_provider=patterns)],
+              lambda pattern="", target="all": _errors_result(
+                  f"Test pattern {pattern}", led.set_test_pattern(pattern or None, on(target))),
+              description="Show a test pattern or block colour on the whole wall, a group or one processor",
+              params=[ActionParam("pattern", "Pattern", "choice", choices_provider=patterns),
+                      ActionParam("target", "Processor or group", "choice", "all", choices_provider=led_targets)],
               state=lambda: led.test_pattern is not None)
         a.add("led.test_pattern_next", "Next test pattern", "LED Wall", next_pattern,
               state=lambda: led.test_pattern is not None)
         a.add("led.test_pattern_off", "Test pattern off", "LED Wall",
-              lambda: _errors_result("Pattern off", led.set_test_pattern(None)))
+              lambda target="all": _errors_result("Pattern off", led.set_test_pattern(None, on(target))),
+              params=[ActionParam("target", "Processor or group", "choice", "all", choices_provider=led_targets)])
         a.add("led.brightness", "Set wall brightness", "LED Wall",
               lambda percent=100: _errors_result(f"Brightness {percent}%", led.set_brightness(float(percent))),
               params=[ActionParam("percent", "Brightness %", "float", 100)])

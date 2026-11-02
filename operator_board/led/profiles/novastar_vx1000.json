@@ -4,7 +4,7 @@
   "manufacturer": "NovaStar",
   "transport": "tcp",
   "default_port": 5200,
-  "notes": "NovaStar binary protocol over TCP 5200 (VX Pro: port 15200), display-mode frames from the Bitfocus Companion 'novastar-controller' module (2.6) for VX1000, VX16S, VX Pro, J6 and NovaPro UHD Jr. No test pattern off or identify/locate command is known.",
+  "notes": "NovaStar binary protocol over TCP 5200 (VX Pro: port 15200), display-mode frames from the Bitfocus Companion 'novastar-controller' module (2.6) for VX1000, VX16S, VX Pro, J6 and NovaPro UHD Jr. No test pattern off command is known.",
   "commands": {
     "normal": {
       "hex": "55 AA 00 00 FE 00 00 00 00 00 01 00 04 00 00 13 02 00 03 00",

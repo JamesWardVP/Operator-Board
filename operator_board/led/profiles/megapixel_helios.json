@@ -4,7 +4,7 @@
   "manufacturer": "Megapixel VR",
   "transport": "http",
   "default_port": 80,
-  "notes": "HELIOS HTTP API as used by the Bitfocus Companion 'mvr-helios' module (2.3): changes are POSTed as JSON to /api/v1/public (dev.display.blackout / freeze / brightness, dev.ingest.testPattern). Older firmware may not answer. The API has no identify/locate command, so Locate is not available. Basic/Digest auth can be set in the processor options (username/password).",
+  "notes": "HELIOS HTTP API as used by the Bitfocus Companion 'mvr-helios' module (2.3): changes are POSTed as JSON to /api/v1/public (dev.display.blackout / freeze / brightness, dev.ingest.testPattern). Older firmware may not answer. Basic/Digest auth can be set in the processor options (username/password).",
   "status_command": {
     "method": "GET",
     "path": "/api/v1/public"

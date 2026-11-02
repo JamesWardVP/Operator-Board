@@ -4,7 +4,7 @@
   "manufacturer": "Brompton Technology",
   "transport": "http",
   "default_port": 80,
-  "notes": "HTTP API as used by the Bitfocus Companion 'brompton-tessera' module (2.2): GET /api/<path>?set=<value>, with true/false for on/off. Enable IP Control on the processor's Control tile in Tessera. Tessera's API has no identify/locate command, so Locate is not available.",
+  "notes": "HTTP API as used by the Bitfocus Companion 'brompton-tessera' module (2.2): GET /api/<path>?set=<value>, with true/false for on/off. Enable IP Control on the processor's Control tile in Tessera.",
   "status_command": {
     "method": "GET",
     "path": "/api/"
