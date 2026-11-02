@@ -4,6 +4,7 @@ from __future__ import annotations
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
+from operator_board.ui.led_advanced import LEDAdvancedButton
 from operator_board.ui.led_controls import supported_tip, unsupported_reason
 from operator_board.ui.led_status import status_groups
 from operator_board.ui.widgets import (BigButton, Card, HazardOverlay, RecordButton, StateDot, WallStatusBar,
@@ -98,13 +99,15 @@ class OperatePage(BasePage):
                                                              target=self.pattern_target.currentData() or "all"))
         self.pattern_off_btn.clicked.connect(
             lambda: self.invoke("led.test_pattern_off", target=self.pattern_target.currentData() or "all"))
+        # The same drop-down as on LED Processor Setup: each group and processor on its own.
+        self.led_advanced = LEDAdvancedButton(self)
         wall.add_layout(hbox(QtWidgets.QLabel("Test pattern"), self.pattern_combo, QtWidgets.QLabel("on"),
-                             self.pattern_target, self.pattern_btn, self.pattern_off_btn, None))
+                             self.pattern_target, self.pattern_btn, self.pattern_off_btn, self.led_advanced, None))
         self.proc_row = QtWidgets.QHBoxLayout()
         wall.add_layout(self.proc_row)
         grid.addWidget(wall, 1, 0, 1, 3)
         self.wall_controls = [self.freeze_btn, self.blackout_btn, self.normal_btn, self.pattern_combo,
-                              self.pattern_target, self.pattern_btn, self.pattern_off_btn]
+                              self.pattern_target, self.pattern_btn, self.pattern_off_btn, self.led_advanced]
         self.wall_overlay = HazardOverlay(wall)
         self._wall_state = None      # None (usable), "none" (no processor) or "offline:<names>"
         self._wall_dismissed = None  # a state the operator chose to "use anyway"
@@ -531,6 +534,7 @@ class OperatePage(BasePage):
         self._update_wall_overlay()
         self._update_pattern_targets()
         self._update_wall_support()
+        self.led_advanced.refresh_popup()
 
         # devices & groups
         devices = self.ctx.devices.devices()
