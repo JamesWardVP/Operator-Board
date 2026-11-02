@@ -228,3 +228,30 @@ def test_unsupported_modes_are_greyed_out_under_faded_tape():
         app.processEvents()
     finally:
         c.shutdown()
+
+
+def test_operate_has_the_advanced_groups_drop_down(ctx):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("operator_board.qt", exc_type=ImportError)
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    from operator_board.ui.main_window import MainWindow
+    window = MainWindow(ctx)
+    try:
+        operate = window.pages[[p.title for p in window.pages].index("Operate")]
+        texts = [b.text() for b in operate.findChildren(qt.QtWidgets.QPushButton)]
+        assert not any("Locate" in t for t in texts)
+        operate.led_advanced.show_popup()
+        app.processEvents()
+        strips = operate.led_advanced._strips
+        assert [s.target for s in strips] == ["Walls", "A", "B", "C"]  # each group, then each processor
+        strips[3].pattern.setCurrentIndex(strips[3].pattern.findData("blue"))
+        strips[3]._clicked("pattern")  # C shows blue on its own, through the page's invoke
+        deadline = time.time() + 5
+        while ctx.led.get("C").state.test_pattern != "blue" and time.time() < deadline:
+            app.processEvents()
+            time.sleep(0.02)
+        assert ctx.led.modes() == {"A": "normal", "B": "normal", "C": "pattern"}
+        operate.led_advanced.popup.hide()
+    finally:
+        window.skip_save_on_close = True
+        window.close()
