@@ -1,4 +1,4 @@
-"""LED control: one button freezes, blacks out, test-patterns or locates every processor, and each
+"""LED control: one button freezes, blacks out, or test-patterns every processor, and each
 processor or group of processors can also be set on its own."""
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from operator_board.core.config import AppConfig
 from operator_board.core.events import EventBus
-from operator_board.led.processor import (CAP_BLACKOUT, CAP_FREEZE, CAP_LOCATE, CAP_TEST_PATTERN, MODE_BLACKOUT,
-                                          MODE_FROZEN, MODE_LOCATE, MODE_NORMAL, MODE_PATTERN, LEDProcessor)
+from operator_board.led.processor import (CAP_BLACKOUT, CAP_FREEZE, CAP_TEST_PATTERN, MODE_BLACKOUT, MODE_FROZEN,
+                                          MODE_NORMAL, MODE_PATTERN, MODES, LEDProcessor)
 from operator_board.led.profiles import ProfileRegistry
 from operator_board.led.transports import TransportError
 
@@ -58,13 +58,8 @@ class LEDManager:
         patterns = {p.state.test_pattern for p in self.active()}
         return patterns.pop() if len(patterns) == 1 else None
 
-    @property
-    def locate(self) -> bool:
-        procs = [p for p in self.active() if CAP_LOCATE in p.capabilities()]
-        return bool(procs) and all(p.state.locate for p in procs)
-
     def modes(self) -> Dict[str, str]:
-        """Each enabled processor's mode (normal, frozen, blackout, pattern, locate)."""
+        """Each enabled processor's mode (normal, frozen, blackout, pattern)."""
         return {p.name: p.mode for p in self.active()}
 
     def mode_of(self, names: List[str]) -> Optional[str]:
@@ -144,13 +139,11 @@ class LEDManager:
             p.set_test_pattern(pattern_id)
         return self._fan_out(f"test pattern {pattern_id or 'off'}", apply, CAP_TEST_PATTERN, names)
 
-    def set_locate(self, on: Optional[bool] = None, names: Optional[List[str]] = None) -> List[str]:
-        on = (not self.locate) if on is None else on
-        return self._fan_out("locate" if on else "locate off", lambda p: p.set_locate(on), CAP_LOCATE, names)
-
     def set_mode(self, target: str, mode: str, pattern: Optional[str] = None) -> List[str]:
         """Put a processor, a group or "all" into one mode. The other modes are cleared first, so
         exactly one is showing; choosing the mode they are all already in returns them to normal."""
+        if mode not in MODES:  # e.g. "locate" on a surface or preset from 0.7
+            return [f"'{mode}' is not an LED mode"]
         names = self.resolve(target)
         if not names:
             return [f"'{target}' has no enabled LED processors"]
@@ -163,8 +156,7 @@ class LEDManager:
                 return [f"No test patterns on {target or 'the wall'}"]
             pattern = procs[0].test_patterns[0]["id"]
         errors: List[str] = []
-        keep = {MODE_FROZEN: "frozen", MODE_BLACKOUT: "blackout", MODE_PATTERN: "test_pattern",
-                MODE_LOCATE: "locate"}.get(mode)
+        keep = {MODE_FROZEN: "frozen", MODE_BLACKOUT: "blackout", MODE_PATTERN: "test_pattern"}.get(mode)
         errors += self.restore(names, keep=keep)
         if mode == MODE_FROZEN:
             errors += self.set_freeze(True, names)
@@ -172,8 +164,6 @@ class LEDManager:
             errors += self.set_blackout(True, names)
         elif mode == MODE_PATTERN:
             errors += self.set_test_pattern(pattern, names)
-        elif mode == MODE_LOCATE:
-            errors += self.set_locate(True, names)
         return errors
 
     def set_brightness(self, percent: float, names: Optional[List[str]] = None) -> List[str]:
@@ -181,13 +171,12 @@ class LEDManager:
 
     def restore(self, names: Optional[List[str]] = None, keep: Optional[str] = None) -> List[str]:
         """Return processors (all when ``names`` is None) to normal output: pattern off, blackout off,
-        unfreeze, locate off. ``keep`` leaves one of those states alone ("frozen", "test_pattern"...)."""
+        unfreeze. ``keep`` leaves one of those states alone ("frozen", "test_pattern"...)."""
         procs = [p for p in self.active() if names is None or p.name in names]
         errors: List[str] = []
         for state, off in (("test_pattern", lambda n: self.set_test_pattern(None, n)),
                            ("blackout", lambda n: self.set_blackout(False, n)),
-                           ("frozen", lambda n: self.set_freeze(False, n)),
-                           ("locate", lambda n: self.set_locate(False, n))):
+                           ("frozen", lambda n: self.set_freeze(False, n))):
             if state == keep:
                 continue
             on = [p.name for p in procs if getattr(p.state, state)]
@@ -196,7 +185,7 @@ class LEDManager:
         return errors
 
     def restore_all(self) -> List[str]:
-        """Return the whole wall to normal output: unfreeze, un-blackout, pattern off, locate off."""
+        """Return the whole wall to normal output: unfreeze, un-blackout, pattern off."""
         return self.restore()
 
     def check_all(self) -> Dict[str, bool]:
@@ -206,4 +195,4 @@ class LEDManager:
 
     def _publish(self) -> None:
         self.bus.publish("led.state", frozen=self.frozen, blackout=self.blackout, test_pattern=self.test_pattern,
-                         locate=self.locate, modes=self.modes())
+                         modes=self.modes())

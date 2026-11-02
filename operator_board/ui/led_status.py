@@ -6,9 +6,9 @@ from typing import List, Tuple
 from operator_board.led.processor import MODES
 
 # Button colours for each mode (lit when the processor or group is in it).
-MODE_COLORS = {"frozen": "#1fa2ff", "blackout": "#e03131", "pattern": "#fab005", "locate": "#7048e8",
+MODE_COLORS = {"frozen": "#1fa2ff", "blackout": "#e03131", "pattern": "#fab005",
                "normal": "#2f9e44"}
-MODE_LABELS = {"frozen": "Freeze", "blackout": "Blackout", "pattern": "Test pattern", "locate": "Locate",
+MODE_LABELS = {"frozen": "Freeze", "blackout": "Blackout", "pattern": "Test pattern",
                "normal": "Normal"}
 
 

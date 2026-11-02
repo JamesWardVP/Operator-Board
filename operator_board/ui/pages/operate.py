@@ -4,9 +4,10 @@ from __future__ import annotations
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
+from operator_board.ui.led_controls import supported_tip, unsupported_reason
 from operator_board.ui.led_status import status_groups
 from operator_board.ui.widgets import (BigButton, Card, HazardOverlay, RecordButton, StateDot, WallStatusBar,
-                                       clear_layout, hbox, muted, scroll)
+                                       clear_layout, hbox, muted, scroll, set_unsupported)
 
 
 def _restyle(label: QtWidgets.QLabel, css: str) -> None:
@@ -88,19 +89,22 @@ class OperatePage(BasePage):
         self.pattern_combo = QtWidgets.QComboBox()
         self.pattern_btn = QtWidgets.QPushButton("Show test pattern")
         self.pattern_off_btn = QtWidgets.QPushButton("Pattern off")
-        self.pattern_btn.clicked.connect(lambda: self.invoke("led.test_pattern", pattern=self.pattern_combo.currentData()))
-        self.pattern_off_btn.clicked.connect(lambda: self.invoke("led.test_pattern_off"))
-        self.locate_btn = QtWidgets.QPushButton("Locate")
-        self.locate_btn.setToolTip("The LED processors' locate function, to see which panels each one drives "
-                                   "(press again to stop)")
-        self.locate_btn.clicked.connect(lambda: self.invoke("led.locate"))
-        wall.add_layout(hbox(QtWidgets.QLabel("Test pattern"), self.pattern_combo, self.pattern_btn,
-                             self.pattern_off_btn, self.locate_btn, None))
+        # Where the pattern goes: the whole wall, an LED group or one processor.
+        self.pattern_target = QtWidgets.QComboBox()
+        self.pattern_target.setToolTip("Show the test pattern or block colour on the whole wall, a group of "
+                                       "processors or one processor")
+        self.pattern_target.currentIndexChanged.connect(lambda _=0: self.refresh())
+        self.pattern_btn.clicked.connect(lambda: self.invoke("led.test_pattern", pattern=self.pattern_combo.currentData(),
+                                                             target=self.pattern_target.currentData() or "all"))
+        self.pattern_off_btn.clicked.connect(
+            lambda: self.invoke("led.test_pattern_off", target=self.pattern_target.currentData() or "all"))
+        wall.add_layout(hbox(QtWidgets.QLabel("Test pattern"), self.pattern_combo, QtWidgets.QLabel("on"),
+                             self.pattern_target, self.pattern_btn, self.pattern_off_btn, None))
         self.proc_row = QtWidgets.QHBoxLayout()
         wall.add_layout(self.proc_row)
         grid.addWidget(wall, 1, 0, 1, 3)
         self.wall_controls = [self.freeze_btn, self.blackout_btn, self.normal_btn, self.pattern_combo,
-                              self.pattern_btn, self.pattern_off_btn, self.locate_btn]
+                              self.pattern_target, self.pattern_btn, self.pattern_off_btn]
         self.wall_overlay = HazardOverlay(wall)
         self._wall_state = None      # None (usable), "none" (no processor) or "offline:<names>"
         self._wall_dismissed = None  # a state the operator chose to "use anyway"
@@ -331,6 +335,38 @@ class OperatePage(BasePage):
             return "offline:" + ", ".join(p.name for p in active)
         return None
 
+    def _update_wall_support(self) -> None:
+        """Grey out, under faded hazard tape, what none of the processors can do (test patterns on a COEX...)."""
+        led = self.ctx.led
+        blocked = self._wall_state is not None and self._wall_state != self._wall_dismissed
+        procs = led.active()
+        try:
+            names = led.resolve(self.pattern_target.currentData() or "all")
+        except KeyError:
+            names = []
+        targets = [p for p in procs if p.name in names]
+        for widget, mode, on in ((self.freeze_btn, "frozen", procs), (self.blackout_btn, "blackout", procs),
+                                 (self.pattern_combo, "pattern", targets), (self.pattern_btn, "pattern", targets),
+                                 (self.pattern_off_btn, "pattern", targets)):
+            set_unsupported(widget, unsupported_reason(on, mode), enabled=not blocked)
+        if self.pattern_btn.isEnabled():
+            self.pattern_btn.setToolTip(supported_tip(targets, "pattern"))
+
+    def _update_pattern_targets(self) -> None:
+        """"Whole wall", then each LED group, then each processor."""
+        led = self.ctx.led
+        items = [("Whole wall", "all")] + [(g.name, g.name) for g in self.ctx.config.led_groups] + \
+                [(p.name, p.name) for p in led.active()]
+        if not self._changed("pattern_targets", items):
+            return
+        current = self.pattern_target.currentData() or "all"
+        self.pattern_target.blockSignals(True)
+        self.pattern_target.clear()
+        for label, data in items:
+            self.pattern_target.addItem(label, data)
+        self.pattern_target.setCurrentIndex(max(0, self.pattern_target.findData(current)))
+        self.pattern_target.blockSignals(False)
+
     def _update_wall_overlay(self) -> None:
         state = self._wall_unavailable()
         if state == self._wall_state:
@@ -462,7 +498,6 @@ class OperatePage(BasePage):
         self.blackout_btn.set_active(led.blackout)
         modes = led.modes()
         self.normal_btn.set_active(bool(modes) and all(m == "normal" for m in modes.values()))
-        _restyle(self.locate_btn, "QPushButton { background: #7048e8; border-color: #ffffff; }" if led.locate else "")
         if self._wall_unavailable():
             self.banner.show_wall("unavailable")
         else:  # one bar when every processor is in the same state, else one part per state
@@ -494,6 +529,8 @@ class OperatePage(BasePage):
             chip.setStyleSheet(f"background: {color}; border-radius: 10px; padding: 4px; color: white;")
             chip.setToolTip(st.last_error or st.last_command or "No commands sent yet")
         self._update_wall_overlay()
+        self._update_pattern_targets()
+        self._update_wall_support()
 
         # devices & groups
         devices = self.ctx.devices.devices()

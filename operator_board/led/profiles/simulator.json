@@ -26,14 +26,6 @@
       "sim": "test_pattern_off",
       "confidence": "source"
     },
-    "locate_on": {
-      "sim": "locate_on",
-      "confidence": "source"
-    },
-    "locate_off": {
-      "sim": "locate_off",
-      "confidence": "source"
-    },
     "brightness": {
       "sim": "brightness",
       "confidence": "source"

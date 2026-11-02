@@ -25,14 +25,20 @@ def ctx():
 
 def test_each_processor_or_group_has_one_mode(ctx):
     led = ctx.led
-    assert "locate" in led.get("A").capabilities()
     assert led.set_mode("Walls", "frozen") == [] and led.modes() == {"A": "frozen", "B": "frozen", "C": "normal"}
     assert led.set_mode("A", "blackout") == [] and led.get("A").mode == "blackout" and not led.get("A").state.frozen
-    assert led.set_mode("C", "locate") == [] and led.locate is False  # only C
+    assert led.set_mode("C", "pattern", "blue") == [] and led.test_pattern is None  # only C
     assert led.set_mode("all", "pattern", "red") == [] and led.test_pattern == "red"
-    assert not any(p.state.locate or p.state.frozen for p in led.active())  # one mode at a time
+    assert not any(p.state.blackout or p.state.frozen for p in led.active())  # one mode at a time
     assert led.set_mode("all", "pattern", "red") == [] and set(led.modes().values()) == {"normal"}  # pressed again
-    assert ctx.actions.invoke("led.locate").ok and led.locate
+    assert led.set_mode("A", "locate") == ["'locate' is not an LED mode"]  # a 0.7 surface or preset
+    # A test pattern or block colour on one processor or a group, the rest of the wall untouched
+    assert ctx.actions.invoke("led.test_pattern", pattern="green", target="C").ok
+    assert led.modes() == {"A": "normal", "B": "normal", "C": "pattern"} and led.get("C").state.test_pattern == "green"
+    assert ctx.actions.invoke("led.test_pattern", pattern="red", target="Walls").ok and led.test_pattern is None
+    assert ctx.actions.invoke("led.test_pattern_off", target="Walls").ok
+    assert led.modes() == {"A": "normal", "B": "normal", "C": "pattern"}
+    assert ctx.actions.invoke("led.test_pattern", pattern="white").ok and led.test_pattern == "white"  # all
     assert ctx.actions.invoke("led.restore").ok and ctx.actions.state_of("led.restore")
     with pytest.raises(KeyError):
         led.resolve("Nope")
@@ -52,8 +58,8 @@ def test_status_bar_groups_processors_by_state(ctx):
     ctx.led.restore()
     bar.show_processors(status_groups(ctx.led))
     assert bar.text() == "ALL PROCESSORS NORMAL"
-    bar.show_processors([("locate", "", "", ["Only"])])
-    assert bar.text() == "WALL LOCATING"  # one processor is the wall
+    bar.show_processors([("frozen", "", "", ["Only"])])
+    assert bar.text() == "WALL FROZEN"  # one processor is the wall
     app.processEvents()
 
 
@@ -61,7 +67,7 @@ def test_changes_are_logged_with_slate_take_and_values(ctx, tmp_path):
     ctx.config.takes.slate, ctx.config.takes.take = "Sc_12", 4
     before = len(ctx.changes.records)
     for action, params in (("led.set_mode", {"target": "Walls", "mode": "frozen"}), ("led.freeze", {}),
-                           ("led.locate", {}), ("led.restore", {}), ("devices.connect_all", {}),
+                           ("led.test_pattern", {"pattern": "red", "target": "C"}), ("led.restore", {}), ("devices.connect_all", {}),
                            ("devices.stop_all", {})):
         ctx.actions.invoke(action, **params)
     assert len(ctx.changes.records) == before  # wall states and device control are not settings
@@ -90,7 +96,7 @@ def test_changes_are_logged_with_slate_take_and_values(ctx, tmp_path):
 
 def test_production_spreadsheet(ctx, tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
-    ctx.led.set_mode("C", "locate")
+    ctx.led.set_mode("C", "blackout")
     path = str(tmp_path / "production.xlsx")
     ctx.production_export(path)
     wb = openpyxl.load_workbook(path)
@@ -98,7 +104,7 @@ def test_production_spreadsheet(ctx, tmp_path):
                              "Unreal instances"]
     leds = list(wb["LED processors"].values)
     assert leds[0][:5] == ("Name", "Type", "Address", "Enabled", "Mode") and ("C" in [r[0] for r in leds])
-    assert [r for r in leds if r[0] == "C"][0][4] == "locate"
+    assert [r for r in leds if r[0] == "C"][0][4] == "blackout"
     assert list(wb["Camera positions"].values)[1][0] == "Wide"
 
 
@@ -189,3 +195,36 @@ def test_remote_objects_undo_puts_the_value_back(ctx, monkeypatch):
     assert [r.source for r in ctx.changes.records[-2:]] == ["Undo", "Undo"]
     window.skip_save_on_close = True
     window.close()
+
+
+def test_unsupported_modes_are_greyed_out_under_faded_tape():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("operator_board.qt", exc_type=ImportError)
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    from operator_board.ui.led_controls import ModeButtons
+    cfg = AppConfig(led_processors=[LEDProcessorConfig(name="Wall", profile_id="novastar_coex", host="127.0.0.1"),
+                                    LEDProcessorConfig(name="Sim", profile_id="simulator")],
+                    led_groups=[LEDGroupConfig(name="Both", processors=["Wall", "Sim"])])
+    cfg.surfaces.streamdeck_enabled = False
+    c = AppContext(cfg)
+    try:
+        page = type("Page", (), {"ctx": c, "invoke": lambda self, *a, **k: None})()
+        wall, sim, both = (ModeButtons(page, t, pattern_picker=True) for t in ("Wall", "Sim", "Both"))
+        for buttons in (wall, sim, both):
+            buttons.resize(600, 60)
+            buttons.show()
+            buttons.refresh()
+        pattern = wall.buttons["pattern"]  # a COEX has no test pattern command
+        assert not pattern.isEnabled() and pattern._unsupported_tape.isVisible()
+        assert "isn't supported by NovaStar COEX" in pattern.toolTip()
+        assert not wall.pattern.isEnabled() and wall.buttons["frozen"].isEnabled()
+        assert "locate" not in wall.buttons
+        assert sim.buttons["pattern"].isEnabled() and not getattr(sim.buttons["pattern"], "_unsupported_tape", None)
+        assert both.buttons["pattern"].isEnabled()  # one of them can: it works, and says who won't follow
+        assert both.buttons["pattern"].toolTip() == "Not supported by Wall"
+        for buttons in (wall, sim, both):
+            buttons.close()
+            buttons.deleteLater()
+        app.processEvents()
+    finally:
+        c.shutdown()

@@ -4,7 +4,7 @@
   "manufacturer": "Megapixel VR",
   "transport": "http",
   "default_port": 80,
-  "notes": "HELIOS public REST API (PATCH /api/v1/public, firmware 24.11+). Endpoints are documented; the JSON bodies follow the HELIOS data tree (dev.display.*) and should be verified against your firmware's API docs. Basic/Digest auth can be set in the processor options (username/password).",
+  "notes": "HELIOS HTTP API as used by the Bitfocus Companion 'mvr-helios' module (2.3): changes are POSTed as JSON to /api/v1/public (dev.display.blackout / freeze / brightness, dev.ingest.testPattern). Older firmware may not answer. Basic/Digest auth can be set in the processor options (username/password).",
   "status_command": {
     "method": "GET",
     "path": "/api/v1/public"
@@ -28,7 +28,7 @@
   ],
   "commands": {
     "blackout_on": {
-      "method": "PATCH",
+      "method": "POST",
       "path": "/api/v1/public",
       "json": {
         "dev": {
@@ -37,10 +37,10 @@
           }
         }
       },
-      "confidence": "partial"
+      "confidence": "source"
     },
     "blackout_off": {
-      "method": "PATCH",
+      "method": "POST",
       "path": "/api/v1/public",
       "json": {
         "dev": {
@@ -49,10 +49,10 @@
           }
         }
       },
-      "confidence": "partial"
+      "confidence": "source"
     },
     "freeze_on": {
-      "method": "PATCH",
+      "method": "POST",
       "path": "/api/v1/public",
       "json": {
         "dev": {
@@ -61,10 +61,10 @@
           }
         }
       },
-      "confidence": "assumed"
+      "confidence": "source"
     },
     "freeze_off": {
-      "method": "PATCH",
+      "method": "POST",
       "path": "/api/v1/public",
       "json": {
         "dev": {
@@ -73,10 +73,10 @@
           }
         }
       },
-      "confidence": "assumed"
+      "confidence": "source"
     },
     "test_pattern_off": {
-      "method": "PATCH",
+      "method": "POST",
       "path": "/api/v1/public",
       "json": {
         "dev": {
@@ -87,10 +87,10 @@
           }
         }
       },
-      "confidence": "assumed"
+      "confidence": "source"
     },
     "brightness": {
-      "method": "PATCH",
+      "method": "POST",
       "path": "/api/v1/public",
       "json": {
         "dev": {
@@ -99,7 +99,7 @@
           }
         }
       },
-      "confidence": "partial",
+      "confidence": "source",
       "value": {
         "min": 0,
         "max": 100,
@@ -114,7 +114,7 @@
       "label": "Red",
       "commands": [
         {
-          "method": "PATCH",
+          "method": "POST",
           "path": "/api/v1/public",
           "json": {
             "dev": {
@@ -126,7 +126,7 @@
               }
             }
           },
-          "confidence": "assumed"
+          "confidence": "source"
         }
       ]
     },
@@ -135,7 +135,7 @@
       "label": "Green",
       "commands": [
         {
-          "method": "PATCH",
+          "method": "POST",
           "path": "/api/v1/public",
           "json": {
             "dev": {
@@ -147,7 +147,7 @@
               }
             }
           },
-          "confidence": "assumed"
+          "confidence": "source"
         }
       ]
     },
@@ -156,7 +156,7 @@
       "label": "Blue",
       "commands": [
         {
-          "method": "PATCH",
+          "method": "POST",
           "path": "/api/v1/public",
           "json": {
             "dev": {
@@ -168,7 +168,7 @@
               }
             }
           },
-          "confidence": "assumed"
+          "confidence": "source"
         }
       ]
     },
@@ -177,7 +177,7 @@
       "label": "White",
       "commands": [
         {
-          "method": "PATCH",
+          "method": "POST",
           "path": "/api/v1/public",
           "json": {
             "dev": {
@@ -189,7 +189,7 @@
               }
             }
           },
-          "confidence": "assumed"
+          "confidence": "source"
         }
       ]
     },
@@ -198,7 +198,7 @@
       "label": "Grid",
       "commands": [
         {
-          "method": "PATCH",
+          "method": "POST",
           "path": "/api/v1/public",
           "json": {
             "dev": {
@@ -210,7 +210,133 @@
               }
             }
           },
-          "confidence": "assumed"
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "black",
+      "label": "Black",
+      "commands": [
+        {
+          "method": "POST",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "black"
+                }
+              }
+            }
+          },
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "colorBars",
+      "label": "Color Bars",
+      "commands": [
+        {
+          "method": "POST",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "colorBars"
+                }
+              }
+            }
+          },
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "smallGrid",
+      "label": "Small Grid",
+      "commands": [
+        {
+          "method": "POST",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "smallGrid"
+                }
+              }
+            }
+          },
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "horizontalGradient",
+      "label": "Horizontal Gradient",
+      "commands": [
+        {
+          "method": "POST",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "horizontalGradient"
+                }
+              }
+            }
+          },
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "verticalGraySteps",
+      "label": "Vertical Gray Steps",
+      "commands": [
+        {
+          "method": "POST",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "verticalGraySteps"
+                }
+              }
+            }
+          },
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "aspectRatioTest",
+      "label": "Aspect Ratio Test",
+      "commands": [
+        {
+          "method": "POST",
+          "path": "/api/v1/public",
+          "json": {
+            "dev": {
+              "ingest": {
+                "testPattern": {
+                  "enabled": true,
+                  "type": "aspectRatioTest"
+                }
+              }
+            }
+          },
+          "confidence": "source"
         }
       ]
     }
