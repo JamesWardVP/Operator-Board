@@ -1,0 +1,159 @@
+name: Publish to virtualfilmtools.com
+
+# Puts a release on the download page at virtualfilmtools.com/operator-board/, which serves its own
+# copy of the files (so it keeps working without GitHub):
+#   - the installer and zip, then releases.json (every release's notes, for the release notes and
+#     earlier releases on the page), then latest.json (the version to download, with its notes)
+#   - the previous version's installer and zip are removed; nothing else is touched
+#
+# Runs by itself for every X.Y.0 release (from the Windows build), or by hand for any release:
+#   Actions > Publish to virtualfilmtools.com > Run workflow (the tag, or empty for the latest), or
+#   gh workflow run publish-website.yml -f tag=v0.7.0
+#
+# Repository secrets: VFT_FTP_HOST, VFT_FTP_USER, VFT_FTP_PASSWORD (an FTP account limited to the
+# site's downloads/operator-board folder), optional VFT_FTP_PORT (21) and VFT_FTP_DIR. Without the
+# first three it skips with a notice.
+#
+# The FTP server presents Hostinger's shared *.hstgr.io certificate, which does not match
+# ftp.virtualfilmtools.com, so the upload trusts exactly that certificate by its SHA-1 fingerprint
+# (still encrypted, and no other certificate is accepted). When Hostinger renews it the upload fails
+# and prints the new fingerprint: put it in the repository variable VFT_FTP_CERT_FINGERPRINT.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to publish, e.g. v0.7.0 (empty: the latest release)"
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-website
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      VFT_FTP_HOST: ${{ secrets.VFT_FTP_HOST }}
+      VFT_FTP_USER: ${{ secrets.VFT_FTP_USER }}
+      LFTP_PASSWORD: ${{ secrets.VFT_FTP_PASSWORD }}
+      VFT_FTP_DIR: ${{ secrets.VFT_FTP_DIR }}
+      VFT_FTP_PORT: ${{ secrets.VFT_FTP_PORT }}
+      VFT_FTP_CERT_FINGERPRINT: ${{ vars.VFT_FTP_CERT_FINGERPRINT || 'D5:F8:12:83:AA:BE:1E:92:51:FF:84:B3:A5:65:D6:51:91:C9:A5:28' }}
+      SITE_URL: https://virtualfilmtools.com/downloads/operator-board
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check the website upload is set up
+        id: check
+        run: |
+          if [ -z "$VFT_FTP_HOST" ] || [ -z "$VFT_FTP_USER" ] || [ -z "$LFTP_PASSWORD" ]; then
+            echo "::notice::Not publishing to virtualfilmtools.com: add the repository secrets VFT_FTP_HOST, VFT_FTP_USER and VFT_FTP_PASSWORD to turn it on."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.check.outputs.configured == 'true'
+        with:
+          sparse-checkout: packaging/website
+
+      - name: Get the release files and write latest.json and releases.json
+        if: steps.check.outputs.configured == 'true'
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$TAG_INPUT"
+          if [ -z "$tag" ]; then
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          fi
+          version="${tag#v}"
+          setup="OperatorBoard-Setup-${version}.exe"
+          zip="OperatorBoard-${version}-win64.zip"
+          echo "Publishing $tag"
+          mkdir -p out
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" -D out -p "$setup" -p "$zip"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases_api.json
+          python3 packaging/website/release_data.py --releases releases_api.json --tag "$tag" --files out --out out
+          { echo "TAG=$tag"; echo "SETUP=$setup"; echo "ZIP=$zip"; } >> "$GITHUB_ENV"
+
+      - name: Upload to virtualfilmtools.com (FTP over TLS)
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp > /dev/null
+          ftp() {  # lftp commands in the downloads folder; TLS required; only the pinned certificate is trusted
+            lftp --env-password -u "$VFT_FTP_USER" -p "${VFT_FTP_PORT:-21}" -e "set ftp:ssl-force true; \
+              set ftp:ssl-protect-data true; set ssl:verify-certificate yes; \
+              set ssl:verify-certificate/$VFT_FTP_CERT_FINGERPRINT no; set net:max-retries 2; set net:timeout 30; \
+              cd '${VFT_FTP_DIR:-.}'; $1; bye" "$VFT_FTP_HOST"
+          }
+          listing() {  # the server's own listing (ls -l style: size in column 5, name last)
+            ftp "ls"
+          }
+          check() {
+            local want got
+            want=$(stat -c %s "out/$1")
+            got=$(listing | awk -v f="$1" '$NF == f {print $5}' || true)
+            if [ "$got" != "$want" ]; then
+              echo "::error::$1 on the server is ${got:-missing} bytes, expected $want"
+              exit 1
+            fi
+            echo "$1: $got bytes on the server"
+          }
+          # Files first, then releases.json, then latest.json, so the page never points at a missing file.
+          ftp "put 'out/$SETUP' -o '$SETUP'; put 'out/$ZIP' -o '$ZIP'"
+          check "$SETUP"
+          check "$ZIP"
+          ftp "put out/releases.json -o releases.json"
+          check releases.json
+          ftp "put out/latest.json -o latest.json"
+          check latest.json
+          # Only the current version's files stay: remove older installers and zips, nothing else.
+          for name in $(listing | awk '{print $NF}'); do
+            case "$name" in
+              "$SETUP"|"$ZIP") ;;
+              OperatorBoard-Setup-*.exe|OperatorBoard-*-win64.zip)
+                echo "Removing old $name"
+                ftp "rm '$name'" ;;
+            esac
+          done
+
+      - name: If the certificate changed, show the new fingerprint
+        if: failure() && steps.check.outputs.configured == 'true'
+        run: |
+          fp=$(timeout 20 openssl s_client -starttls ftp -connect "$VFT_FTP_HOST:${VFT_FTP_PORT:-21}" </dev/null 2>/dev/null \
+               | openssl x509 -noout -fingerprint -sha1 2>/dev/null | cut -d= -f2)
+          subject=$(timeout 20 openssl s_client -starttls ftp -connect "$VFT_FTP_HOST:${VFT_FTP_PORT:-21}" </dev/null 2>/dev/null \
+               | openssl x509 -noout -subject 2>/dev/null)
+          echo "The FTP server's certificate: $subject, SHA-1 $fp (trusted: $VFT_FTP_CERT_FINGERPRINT)"
+          if [ -n "$fp" ] && [ "$fp" != "$VFT_FTP_CERT_FINGERPRINT" ]; then
+            echo "::error::The FTP server's certificate has changed (Hostinger renewed it?). If it is still Hostinger's ($subject), set the repository variable VFT_FTP_CERT_FINGERPRINT to $fp and run this workflow again."
+          fi
+
+      - name: Check the download page's files
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          set -uo pipefail
+          for name in "$SETUP" "$ZIP"; do
+            want=$(stat -c %s "out/$name")
+            got=$(curl -sIL "$SITE_URL/$name?check=$GITHUB_RUN_ID" | tr -d '\r' | awk 'tolower($1)=="content-length:" {v=$2} END {print v}')
+            status=$(curl -s -o /dev/null -w '%{http_code}' -I "$SITE_URL/$name?check=$GITHUB_RUN_ID")
+            if [ "$status" != "200" ] || [ "$got" != "$want" ]; then
+              echo "::warning::$SITE_URL/$name answered HTTP $status with ${got:-no} Content-Length (expected $want); the upload itself was verified, so this may be the site's cache"
+            else
+              echo "$SITE_URL/$name: HTTP 200, $got bytes"
+            fi
+          done
+          echo "latest.json on the site:"
+          curl -s "$SITE_URL/latest.json?check=$GITHUB_RUN_ID" | head -c 600 || echo "::warning::could not read $SITE_URL/latest.json"
