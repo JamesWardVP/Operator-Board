@@ -4,7 +4,7 @@
   "manufacturer": "Brompton Technology",
   "transport": "http",
   "default_port": 80,
-  "notes": "HTTP API used by the Bitfocus Companion 'brompton-tessera' module: GET /api/<path>?set=<value>. Enable the processor's network API in Tessera. The on/off value format (true/false) is assumed - verify on your firmware.",
+  "notes": "HTTP API as used by the Bitfocus Companion 'brompton-tessera' module (2.2): GET /api/<path>?set=<value>, with true/false for on/off. Enable IP Control on the processor's Control tile in Tessera. Tessera's API has no identify/locate command, so Locate is not available.",
   "status_command": {
     "method": "GET",
     "path": "/api/"
@@ -13,32 +13,32 @@
     "freeze_on": {
       "method": "GET",
       "path": "/api/override/freeze/enabled?set=true",
-      "confidence": "partial"
+      "confidence": "source"
     },
     "freeze_off": {
       "method": "GET",
       "path": "/api/override/freeze/enabled?set=false",
-      "confidence": "partial"
+      "confidence": "source"
     },
     "blackout_on": {
       "method": "GET",
       "path": "/api/override/blackout/enabled?set=true",
-      "confidence": "partial"
+      "confidence": "source"
     },
     "blackout_off": {
       "method": "GET",
       "path": "/api/override/blackout/enabled?set=false",
-      "confidence": "partial"
+      "confidence": "source"
     },
     "test_pattern_off": {
       "method": "GET",
       "path": "/api/override/test-pattern/enabled?set=false",
-      "confidence": "partial"
+      "confidence": "source"
     },
     "brightness": {
       "method": "GET",
       "path": "/api/output/global-colour/brightness?set={value}",
-      "confidence": "partial",
+      "confidence": "source",
       "value": {
         "min": 0,
         "max": 10000,
@@ -55,12 +55,12 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=brompton",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -71,12 +71,12 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=red",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -87,12 +87,12 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=green",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -103,12 +103,12 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=blue",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -119,12 +119,12 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=white",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -135,12 +135,12 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=black",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -151,12 +151,12 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=grid",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -167,12 +167,92 @@
         {
           "method": "GET",
           "path": "/api/override/test-pattern/type?set=smpte-bars",
-          "confidence": "partial"
+          "confidence": "source"
         },
         {
           "method": "GET",
           "path": "/api/override/test-pattern/enabled?set=true",
-          "confidence": "partial"
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "cyan",
+      "label": "Cyan",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=cyan",
+          "confidence": "source"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "magenta",
+      "label": "Magenta",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=magenta",
+          "confidence": "source"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "yellow",
+      "label": "Yellow",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=yellow",
+          "confidence": "source"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "checkerboard",
+      "label": "Checkerboard",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=checkerboard",
+          "confidence": "source"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "source"
+        }
+      ]
+    },
+    {
+      "id": "colour-bars",
+      "label": "Colour Bars",
+      "commands": [
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/type?set=colour-bars",
+          "confidence": "source"
+        },
+        {
+          "method": "GET",
+          "path": "/api/override/test-pattern/enabled?set=true",
+          "confidence": "source"
         }
       ]
     }

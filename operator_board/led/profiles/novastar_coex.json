@@ -1,0 +1,96 @@
+{
+  "id": "novastar_coex",
+  "name": "NovaStar COEX (MX40 Pro / KU20 / CX80 Pro)",
+  "manufacturer": "NovaStar",
+  "transport": "http",
+  "default_port": 8001,
+  "locate_name": "Screen Mapping",
+  "notes": "COEX HTTP API (port 8001) as used by the Bitfocus Companion 'novastar-coex' module (2.0). Freeze and blackout are display modes (0 normal, 1 blackout, 2 freeze), so they don't combine. Locate turns on Screen Mapping, which shows each cabinet's number on the wall. Brightness and Screen Mapping apply to every screen the processor lists (or list them in the 'screen_ids' option). If COEX VMP is open on another computer the processor answers 'device locked': close VMP there. The API has no test pattern command.",
+  "status_command": {
+    "method": "GET",
+    "path": "/api/v1/screen/output/display/state"
+  },
+  "options": [
+    {
+      "name": "screen_ids",
+      "label": "Screen IDs (comma-separated, blank: all)",
+      "default": ""
+    }
+  ],
+  "lookups": {
+    "screen_ids": {
+      "command": {
+        "method": "GET",
+        "path": "/api/v1/screen"
+      },
+      "list": "data.screens",
+      "field": "screenID"
+    }
+  },
+  "commands": {
+    "normal": {
+      "method": "PUT",
+      "path": "/api/v1/screen/output/displaymode",
+      "json": {
+        "value": 0
+      },
+      "confidence": "source"
+    },
+    "blackout_on": {
+      "method": "PUT",
+      "path": "/api/v1/screen/output/displaymode",
+      "json": {
+        "value": 1
+      },
+      "confidence": "source"
+    },
+    "blackout_off": {
+      "ref": "normal"
+    },
+    "freeze_on": {
+      "method": "PUT",
+      "path": "/api/v1/screen/output/displaymode",
+      "json": {
+        "value": 2
+      },
+      "confidence": "source"
+    },
+    "freeze_off": {
+      "ref": "normal"
+    },
+    "locate_on": {
+      "method": "POST",
+      "path": "/api/v1/screen/mapping/update",
+      "json": {
+        "screenIDs": "{screen_ids}",
+        "enable": true
+      },
+      "confidence": "source"
+    },
+    "locate_off": {
+      "method": "POST",
+      "path": "/api/v1/screen/mapping/update",
+      "json": {
+        "screenIDs": "{screen_ids}",
+        "enable": false
+      },
+      "confidence": "source"
+    },
+    "brightness": {
+      "method": "PUT",
+      "path": "/api/v1/screen/brightness",
+      "json": {
+        "brightness": "{value}",
+        "screenIdList": "{screen_ids}"
+      },
+      "confidence": "source",
+      "value": {
+        "min": 0,
+        "max": 1,
+        "format": "float",
+        "unit": "%"
+      }
+    }
+  },
+  "test_patterns": []
+}

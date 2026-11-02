@@ -9,9 +9,38 @@ from operator_board.led.processor import CAP_BLACKOUT, CAP_FREEZE, CAP_LOCATE, C
 from operator_board.qt import QtWidgets, Qt
 from operator_board.ui.led_status import MODE_COLORS, MODE_LABELS
 from operator_board.ui.theme import COLORS
+from operator_board.ui.widgets import set_unsupported
 
 ORDER = ("frozen", "blackout", "pattern", "locate", "normal")
 NEEDS = {"frozen": CAP_FREEZE, "blackout": CAP_BLACKOUT, "pattern": CAP_TEST_PATTERN, "locate": CAP_LOCATE}
+
+
+def unsupported_reason(procs, mode: str) -> str:
+    """Why ``mode`` can't be used on any of ``procs`` (their processor types lack it), or "" when at
+    least one of them can do it."""
+    cap = NEEDS.get(mode)
+    if not cap or not procs or any(cap in p.capabilities() for p in procs):
+        return ""
+    kinds = sorted({p.profile.get("name", "this processor type") for p in procs})
+    what = "Locate / identify" if mode == "locate" else MODE_LABELS[mode]
+    return (f"{what} isn't supported by {' or '.join(kinds)}. If your processor can do it, add the commands "
+            "with Edit commands… on LED Processor Setup.")
+
+
+def supported_tip(procs, mode: str) -> str:
+    """The tooltip of a mode button that can be used: what Locate is called on these processors,
+    and which of them won't follow."""
+    cap = NEEDS.get(mode)
+    able = [p for p in procs if cap is None or cap in p.capabilities()]
+    tip = ""
+    if mode == "locate" and able:
+        names = sorted({p.locate_name for p in able})
+        tip = ("Shows which panels each processor drives (" + " / ".join(names) + " on the processor)"
+               if names != ["Locate"] else "Shows which panels each processor drives")
+    left_out = [p.name for p in procs if p not in able]
+    if left_out:
+        tip += ("\n" if tip else "") + "Not supported by " + ", ".join(left_out)
+    return tip
 
 
 def mode_button_style(mode: str, lit: bool, compact: bool = False) -> str:
@@ -74,12 +103,10 @@ class ModeButtons(QtWidgets.QWidget):
         names = self.names()
         procs = [p for p in led.active() if p.name in names]
         mode: Optional[str] = led.mode_of(names) if procs else None
-        caps = set().union(*[set(p.capabilities()) for p in procs]) if procs else set()
         for m, b in self.buttons.items():
-            supported = m == "normal" or NEEDS[m] in caps
-            b.setEnabled(bool(procs) and supported)
-            b.setToolTip("" if supported else "Not supported by this processor type (add the commands with "
-                                              "Edit commands… on LED Processor Setup)")
+            reason = unsupported_reason(procs, m)
+            set_unsupported(b, reason, enabled=bool(procs))
+            b.setToolTip(reason or supported_tip(procs, m))
             style = mode_button_style(m, m == mode, self.compact)
             if b.styleSheet() != style:
                 b.setStyleSheet(style)
@@ -102,4 +129,4 @@ class ModeButtons(QtWidgets.QWidget):
             showing = led.pattern_of(names)
             if mode == "pattern" and showing and self.pattern.findData(showing) >= 0 and not self.pattern.hasFocus():
                 self.pattern.setCurrentIndex(self.pattern.findData(showing))
-            self.pattern.setEnabled(bool(patterns))
+            set_unsupported(self.pattern, unsupported_reason(procs, "pattern"), enabled=bool(patterns))

@@ -18,8 +18,9 @@ def frame(proc, name, value=None):
 
 def test_all_builtin_profiles_load():
     ids = set(REG.profiles)
-    assert {"brompton_tessera", "megapixel_helios", "novastar_mctrl", "novastar_vx", "simulator",
-            "generic_http", "generic_tcp", "generic_udp", "generic_osc"} <= ids
+    assert {"brompton_tessera", "megapixel_helios", "novastar_mctrl", "novastar_vx", "novastar_vx1000",
+            "novastar_vx600", "novastar_coex", "simulator", "generic_http", "generic_tcp", "generic_udp",
+            "generic_osc"} <= ids
 
 
 @pytest.mark.parametrize("hex_frame", [
@@ -40,8 +41,10 @@ def test_novastar_profile_frames():
     assert frame(p, "blackout_on")[-2:].hex() == "d55a"
     assert frame(p, "freeze_off") == frame(p, "normal")
     assert frame(p, "brightness", "FF")[-3:].hex() == "ff545b"
+    # Normal clears black, test pattern and freeze in one write, as the Companion module does
+    assert frame(p, "normal")[:-2].hex() == "55aa0080fe0001ffffff0100000100020300000000"
     red = bytes(p.prepare(p.test_patterns[0]["commands"][0])["bytes"])
-    assert red[-2:].hex() == "5959"
+    assert red[:-2].hex() == "55aa0080fe0001ffffff01000101000201000" + "2"
 
 
 def test_scale_value():
@@ -74,15 +77,52 @@ def test_brompton_http_requests():
         server.close()
 
 
-def test_helios_patch_bodies():
+def test_helios_post_bodies():
     server = RecordingHTTPServer()
     try:
         cfg = LEDProcessorConfig(name="H", profile_id="megapixel_helios", host="127.0.0.1", port=server.port)
         p = LEDProcessor(cfg, REG.get("megapixel_helios"))
         p.set_blackout(True)
         p.set_brightness(40)
-        assert server.requests[0] == ("PATCH", "/api/v1/public", {"dev": {"display": {"blackout": True}}})
+        assert server.requests[0] == ("POST", "/api/v1/public", {"dev": {"display": {"blackout": True}}})
         assert server.requests[1][2] == {"dev": {"display": {"brightness": 40}}}
+    finally:
+        server.close()
+
+
+def test_novastar_vx_models_frames():
+    vx1000 = LEDProcessor(LEDProcessorConfig(profile_id="novastar_vx1000"), REG.get("novastar_vx1000"), SimulatorTransport())
+    assert frame(vx1000, "freeze_on")[:-2].hex() == "55aa0000fe00000000000100040000130200" + "0400"
+    assert frame(vx1000, "blackout_off") == frame(vx1000, "normal")
+    vx600 = LEDProcessor(LEDProcessorConfig(profile_id="novastar_vx600"), REG.get("novastar_vx600"), SimulatorTransport())
+    assert frame(vx600, "blackout_on")[:-2].hex() == "55aa0080fe000100ffff010000010002010" + "0ff"
+
+
+def test_coex_display_mode_and_screen_mapping():
+    def responder(method, path, body):
+        if path == "/api/v1/screen":
+            return {"code": 0, "data": {"screens": [{"screenID": "S1"}, {"screenID": "S2"}]}}
+        return {"code": 0}
+
+    server = RecordingHTTPServer(responder)
+    try:
+        cfg = LEDProcessorConfig(name="C", profile_id="novastar_coex", host="127.0.0.1", port=server.port)
+        p = LEDProcessor(cfg, REG.get("novastar_coex"))
+        assert p.locate_name == "Screen Mapping" and "locate" in p.capabilities()
+        assert "test_pattern" not in p.capabilities()
+        p.set_freeze(True)
+        p.set_locate(True)
+        p.set_brightness(50)
+        p.set_locate(False)
+        assert server.requests == [
+            ("PUT", "/api/v1/screen/output/displaymode", {"value": 2}),
+            ("GET", "/api/v1/screen", None),  # asked once, then remembered
+            ("POST", "/api/v1/screen/mapping/update", {"screenIDs": ["S1", "S2"], "enable": True}),
+            ("PUT", "/api/v1/screen/brightness", {"brightness": 0.5, "screenIdList": ["S1", "S2"]}),
+            ("POST", "/api/v1/screen/mapping/update", {"screenIDs": ["S1", "S2"], "enable": False})]
+        cfg.options = {"screen_ids": "A, B"}  # the operator's own list wins
+        p.set_locate(True)
+        assert server.requests[-1][2] == {"screenIDs": ["A", "B"], "enable": True}
     finally:
         server.close()
 

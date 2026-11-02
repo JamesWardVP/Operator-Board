@@ -1,0 +1,32 @@
+{
+  "id": "novastar_vx600",
+  "name": "NovaStar VX600",
+  "manufacturer": "NovaStar",
+  "transport": "tcp",
+  "default_port": 5200,
+  "notes": "NovaStar binary protocol over TCP 5200, display-mode frames from the Bitfocus Companion 'novastar-controller' module (2.6) for VX600. No test pattern off or identify/locate command is known.",
+  "commands": {
+    "normal": {
+      "hex": "55 AA 00 00 FE 00 00 00 00 00 01 00 04 00 00 13 02 00 03 00",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "freeze_on": {
+      "hex": "55 AA 00 80 FE 00 01 00 FF FF 01 00 02 01 00 02 01 00 FF",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "freeze_off": {
+      "ref": "normal"
+    },
+    "blackout_on": {
+      "hex": "55 AA 00 80 FE 00 01 00 FF FF 01 00 00 01 00 02 01 00 FF",
+      "checksum": "novastar",
+      "confidence": "source"
+    },
+    "blackout_off": {
+      "ref": "normal"
+    }
+  },
+  "test_patterns": []
+}

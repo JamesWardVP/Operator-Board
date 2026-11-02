@@ -4,9 +4,10 @@ from __future__ import annotations
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.ui.pages.base import BasePage
 from operator_board.ui.theme import COLORS
+from operator_board.ui.led_controls import supported_tip, unsupported_reason
 from operator_board.ui.led_status import status_groups
 from operator_board.ui.widgets import (BigButton, Card, HazardOverlay, RecordButton, StateDot, WallStatusBar,
-                                       clear_layout, hbox, muted, scroll)
+                                       clear_layout, hbox, muted, scroll, set_unsupported)
 
 
 def _restyle(label: QtWidgets.QLabel, css: str) -> None:
@@ -331,6 +332,18 @@ class OperatePage(BasePage):
             return "offline:" + ", ".join(p.name for p in active)
         return None
 
+    def _update_wall_support(self) -> None:
+        """Grey out, under faded hazard tape, what none of the processors can do (Locate on a Brompton...)."""
+        blocked = self._wall_state is not None and self._wall_state != self._wall_dismissed
+        procs = self.ctx.led.active()
+        for widget, mode in ((self.freeze_btn, "frozen"), (self.blackout_btn, "blackout"),
+                             (self.pattern_combo, "pattern"), (self.pattern_btn, "pattern"),
+                             (self.pattern_off_btn, "pattern"), (self.locate_btn, "locate")):
+            set_unsupported(widget, unsupported_reason(procs, mode), enabled=not blocked)
+        if self.locate_btn.isEnabled():
+            tip = supported_tip(procs, "locate")
+            self.locate_btn.setToolTip((tip or "The LED processors' locate function") + " (press again to stop)")
+
     def _update_wall_overlay(self) -> None:
         state = self._wall_unavailable()
         if state == self._wall_state:
@@ -494,6 +507,7 @@ class OperatePage(BasePage):
             chip.setStyleSheet(f"background: {color}; border-radius: 10px; padding: 4px; color: white;")
             chip.setToolTip(st.last_error or st.last_command or "No commands sent yet")
         self._update_wall_overlay()
+        self._update_wall_support()
 
         # devices & groups
         devices = self.ctx.devices.devices()

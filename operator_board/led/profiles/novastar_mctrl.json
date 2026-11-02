@@ -1,13 +1,13 @@
 {
   "id": "novastar_mctrl",
-  "name": "NovaStar MCTRL (MCTRL300 / 600 / 660 / 4K / R5)",
+  "name": "NovaStar MCTRL (MCTRL300 / 500 / 600 / 660)",
   "manufacturer": "NovaStar",
   "transport": "tcp",
   "default_port": 5200,
-  "notes": "NovaStar binary protocol over TCP 5200 (frames taken from the Bitfocus Companion 'novastar-controller' module). NovaStar checksum is appended automatically. Blackout uses the 'Black' display mode, so blackout and freeze are mutually exclusive on these units.",
+  "notes": "NovaStar binary protocol over TCP 5200, frames from the Bitfocus Companion 'novastar-controller' module (2.6). The checksum is appended automatically. Freeze, blackout and test patterns are display modes: Normal clears all three, so they don't combine. MCTRL4K uses the VX4S frames: pick the NovaStar VX4S profile. The protocol used here has no identify/locate command.",
   "commands": {
     "normal": {
-      "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 00 01 00 02 01 00 00",
+      "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 00 01 00 02 03 00 00 00 00",
       "checksum": "novastar",
       "confidence": "source"
     },
@@ -28,9 +28,9 @@
       "ref": "normal"
     },
     "test_pattern_off": {
-      "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 00",
+      "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 00",
       "checksum": "novastar",
-      "confidence": "partial"
+      "confidence": "source"
     },
     "brightness": {
       "hex": "55 AA 00 00 FE FF 01 FF FF FF 01 00 01 00 00 02 01 00 {value}",
@@ -50,7 +50,7 @@
       "label": "Red",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 02",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 02",
           "checksum": "novastar",
           "confidence": "source"
         }
@@ -61,9 +61,9 @@
       "label": "Green",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 03",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 03",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -72,9 +72,9 @@
       "label": "Blue",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 04",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 04",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -83,9 +83,9 @@
       "label": "White",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 05",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 05",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -94,9 +94,9 @@
       "label": "Horizontal Lines",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 06",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 06",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -105,9 +105,9 @@
       "label": "Vertical Lines",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 07",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 07",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -116,9 +116,9 @@
       "label": "Diagonal Lines",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 08",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 08",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -127,9 +127,9 @@
       "label": "Gray Scale",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 09",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 09",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     },
@@ -138,9 +138,9 @@
       "label": "Aging (All)",
       "commands": [
         {
-          "hex": "55 AA 00 00 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 0A",
+          "hex": "55 AA 00 80 FE 00 01 FF FF FF 01 00 01 01 00 02 01 00 0A",
           "checksum": "novastar",
-          "confidence": "partial"
+          "confidence": "source"
         }
       ]
     }

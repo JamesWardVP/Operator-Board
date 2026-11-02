@@ -189,3 +189,35 @@ def test_remote_objects_undo_puts_the_value_back(ctx, monkeypatch):
     assert [r.source for r in ctx.changes.records[-2:]] == ["Undo", "Undo"]
     window.skip_save_on_close = True
     window.close()
+
+
+def test_unsupported_modes_are_greyed_out_under_faded_tape():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("operator_board.qt", exc_type=ImportError)
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    from operator_board.ui.led_controls import ModeButtons
+    cfg = AppConfig(led_processors=[LEDProcessorConfig(name="Wall", profile_id="brompton_tessera", host="127.0.0.1"),
+                                    LEDProcessorConfig(name="Sim", profile_id="simulator")],
+                    led_groups=[LEDGroupConfig(name="Both", processors=["Wall", "Sim"])])
+    cfg.surfaces.streamdeck_enabled = False
+    c = AppContext(cfg)
+    try:
+        page = type("Page", (), {"ctx": c, "invoke": lambda self, *a, **k: None})()
+        wall, sim, both = (ModeButtons(page, t, pattern_picker=True) for t in ("Wall", "Sim", "Both"))
+        for buttons in (wall, sim, both):
+            buttons.resize(600, 60)
+            buttons.show()
+            buttons.refresh()
+        locate = wall.buttons["locate"]
+        assert not locate.isEnabled() and locate._unsupported_tape.isVisible()
+        assert "isn't supported by Brompton Tessera" in locate.toolTip()
+        assert wall.buttons["frozen"].isEnabled() and wall.pattern.isEnabled()
+        assert sim.buttons["locate"].isEnabled() and "Identify" in sim.buttons["locate"].toolTip()
+        assert both.buttons["locate"].isEnabled()  # one of them can: it works, and says who won't follow
+        assert "Not supported by Wall" in both.buttons["locate"].toolTip()
+        for buttons in (wall, sim, both):
+            buttons.close()
+            buttons.deleteLater()
+        app.processEvents()
+    finally:
+        c.shutdown()

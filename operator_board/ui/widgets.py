@@ -252,6 +252,73 @@ class HazardOverlay(QtWidgets.QWidget):
         p.restore()
 
 
+class UnsupportedTape(QtWidgets.QWidget):
+    """Faded, crossed hazard tape over a button the processor can't do (e.g. Locate on a Brompton):
+    a quieter version of HazardOverlay's tape, so it reads as "not here" rather than a warning."""
+
+    TAPE = QtGui.QColor(150, 150, 150, 70)
+    STRIPE = QtGui.QColor(20, 22, 26, 90)
+
+    def __init__(self, target: QtWidgets.QWidget) -> None:
+        super().__init__(target)
+        self.target = target
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)  # the button's tooltip still shows
+        target.installEventFilter(self)
+        self.hide()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+        if obj is self.target and event.type() in (QtCore.QEvent.Resize, QtCore.QEvent.Show):
+            self.setGeometry(self.target.rect())
+        return False
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(QtCore.QRectF(self.rect()).adjusted(1, 1, -1, -1), 8, 8)
+        p.setClipPath(path)
+        w, h = self.width(), self.height()
+        thickness = max(8, min(18, h // 4))
+        angle = max(12.0, min(35.0, math.degrees(math.atan2(h, w))))
+        for sign in (1, -1):
+            p.save()
+            p.translate(w / 2, h / 2)
+            p.rotate(sign * angle)
+            length = (w ** 2 + h ** 2) ** 0.5 + 20
+            band = QtCore.QRectF(-length / 2, -thickness / 2, length, thickness)
+            p.fillRect(band, self.TAPE)
+            p.setClipRect(band, Qt.IntersectClip)
+            p.setPen(Qt.NoPen)
+            p.setBrush(self.STRIPE)
+            x = -length / 2 - thickness
+            while x < length / 2 + thickness:
+                p.drawPolygon(QtGui.QPolygonF([
+                    QtCore.QPointF(x, thickness / 2), QtCore.QPointF(x + thickness / 2, thickness / 2),
+                    QtCore.QPointF(x + thickness * 1.5, -thickness / 2), QtCore.QPointF(x + thickness, -thickness / 2)]))
+                x += thickness
+            p.restore()
+        p.end()
+
+
+def set_unsupported(widget: QtWidgets.QWidget, reason: str = "", enabled: bool = True) -> None:
+    """Grey ``widget`` out under faded hazard tape with ``reason`` as its tooltip when ``reason`` is
+    given; otherwise it is supported and enabled as ``enabled`` says."""
+    tape = getattr(widget, "_unsupported_tape", None)
+    if reason and tape is None:
+        tape = widget._unsupported_tape = UnsupportedTape(widget)
+    widget.setEnabled(enabled and not reason)
+    if tape is not None:
+        tape.setGeometry(widget.rect())
+        tape.setVisible(bool(reason))
+    if reason:
+        if getattr(widget, "_supported_tip", None) is None:
+            widget._supported_tip = widget.toolTip()
+        widget.setToolTip(reason)
+    elif getattr(widget, "_supported_tip", None) is not None:
+        widget.setToolTip(widget._supported_tip)
+        widget._supported_tip = None
+
+
 class Banner(QtWidgets.QLabel):
     """Full-width status banner, e.g. 'WALL FROZEN'."""
 

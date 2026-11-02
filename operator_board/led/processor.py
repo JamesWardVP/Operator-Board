@@ -32,16 +32,30 @@ def novastar_checksum(frame: bytes) -> bytes:
     return total.to_bytes(2, "little")
 
 
-def _substitute(obj: Any, value: Any) -> Any:
+def _substitute(obj: Any, value: Any, key: str = "value") -> Any:
+    """Put ``value`` in place of "{key}": a string that is only the placeholder takes the value
+    itself (a number, or a list such as screen IDs), anywhere else its text."""
+    token = "{" + key + "}"
     if isinstance(obj, str):
-        if obj == "{value}":
+        if obj == token:
             return value
-        return obj.replace("{value}", str(value))
+        return obj.replace(token, str(value))
     if isinstance(obj, list):
-        return [_substitute(v, value) for v in obj]
+        return [_substitute(v, value, key) for v in obj]
     if isinstance(obj, dict):
-        return {k: _substitute(v, value) for k, v in obj.items()}
+        return {k: _substitute(v, value, key) for k, v in obj.items()}
     return obj
+
+
+def _uses(obj: Any, key: str) -> bool:
+    return ("{" + key + "}") in json.dumps(obj)
+
+
+def _pluck(data: Any, path: str, field_name: str) -> List[Any]:
+    """``field_name`` of each item in the list at the dotted ``path`` of a JSON reply."""
+    for part in [p for p in path.split(".") if p]:
+        data = data.get(part) if isinstance(data, dict) else None
+    return [item.get(field_name) for item in data or [] if isinstance(item, dict) and field_name in item]
 
 
 def scale_value(percent: float, spec: Dict[str, Any]) -> Any:
@@ -99,7 +113,13 @@ class LEDProcessor:
         self.test_patterns: List[Dict[str, Any]] = list(profile.get("test_patterns", []))
         for pattern in (config.options or {}).get("custom_test_patterns", []) or []:
             self.test_patterns.append(pattern)
+        self._looked_up: Dict[str, Any] = {}
         self.transport = transport or self._make_transport()
+
+    @property
+    def locate_name(self) -> str:
+        """What this processor calls its locate function (Identify, Screen Mapping...)."""
+        return self.profile.get("locate_name") or "Locate"
 
     @property
     def name(self) -> str:
@@ -155,10 +175,29 @@ class LEDProcessor:
         return (cmd or {}).get("confidence", "assumed")
 
     # ---- sending -----------------------------------------------------------------
+    def lookup(self, key: str) -> Any:
+        """A value a command needs from the processor itself, e.g. NovaStar COEX screen IDs: the
+        processor option of that name if set, else asked for once with the profile's lookup."""
+        given = (self.config.options or {}).get(key)
+        if given not in (None, "", []):
+            return [s.strip() for s in given.split(",") if s.strip()] if isinstance(given, str) else given
+        if key not in self._looked_up:
+            spec = (self.profile.get("lookups") or {}).get(key)
+            if not spec:
+                raise TransportError(f"{self.name}: set the '{key}' option")
+            found = _pluck(self.transport.send(spec["command"]), spec.get("list", ""), spec.get("field", ""))
+            if not found:
+                raise TransportError(f"{self.name}: the processor listed no {key.replace('_', ' ')}")
+            self._looked_up[key] = found
+        return self._looked_up[key]
+
     def prepare(self, command: Dict[str, Any], value: Any = None) -> Dict[str, Any]:
         cmd = {k: v for k, v in command.items() if k not in ("confidence", "value", "description")}
         if value is not None:
             cmd = _substitute(cmd, value)
+        for key in self.profile.get("lookups") or {}:
+            if _uses(cmd, key):
+                cmd = _substitute(cmd, self.lookup(key), key)
         if cmd.pop("checksum", None) == "novastar":
             frame = command_bytes(cmd)
             cmd = {"bytes": list(frame + novastar_checksum(frame))}
@@ -170,6 +209,7 @@ class LEDProcessor:
                 for c in commands:
                     self.transport.send(self.prepare(c, value))
             except TransportError as exc:
+                self._looked_up.clear()  # ask again next time (the processor may have been reconfigured)
                 self.state.online = False
                 self.state.last_error = str(exc)
                 self._record(f"FAILED {label}: {exc}")
