@@ -133,9 +133,11 @@ def hide_local_paths(page, folder):
 
 def main() -> int:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+    from operator_board.core.projects import ProjectInfo
     from operator_board.ui.main_window import MainWindow
 
     ctx = demo_context()
+    ctx.project = ProjectInfo(name="Car Commercial", production="Car Commercial")  # the sidebar's project button
     folder = link_switchboard_config(ctx)
     window = MainWindow(ctx)
     window.resize(1600, 1060)
