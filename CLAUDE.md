@@ -23,7 +23,7 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 10. Future ideas live in `docs/ROADMAP.md`, never the README. The **README lists only shipped features and the supported UE versions (5.2 → 5.8)**.
 11. GitHub: `JamesWardVP/Operator-Board`.
 
-**Next priorities, chosen by the owner and not started:** Custom Pages, custom pictures on control surface buttons, a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
+**Custom Pages is built** (on `Development`, not yet released; see "Custom pages" below). **Next priorities, chosen by the owner and not started:** custom pictures on control surface buttons, a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
 
 ## Current state (v0.8.0)
 Every brief item has a first implementation. See:
@@ -283,6 +283,20 @@ Older packages are removed. Always build into `dist/`, never side folders.
   - `macro.run` (`AppContext.run_steps`: steps are `{"action", "params"}` or `{"delay": ms}`; failures are reported and the rest still run; no nesting).
 
   Their editors are in `ui/action_editors.py`.
+
+**Custom pages** (`core/custom_pages.py`, `ui/custom_grid.py`, `ui/pages/custom.py`, `ui/pages/custom_pages.py`, `ui/button_dialog.py`)
+- **Storage:** `custom_pages.json` in the project folder (not in `AppConfig`, so the pages are the same whichever Switchboard config is open). It travels in `.opproject` exports and templates, and `projects.create(setup_from=...)` copies it. Own file format `operator-board-custom-pages`.
+- **Grid:** 24 columns that stretch with the window, 44-px rows; an item is `(col, row, w, h)` and items never overlap (`CustomPage.fits`). `GridCanvas.place` is the one way to move or resize.
+- **Items:** a button is a `surfaces.layout.ButtonBinding` (the same fields as a surface key, so button pictures will apply to both). A panel is `source` (a page title) + `panel` (a card title, `tab:<name>`, `*` for the whole page, or `ctl:<...>` for one control).
+- **Panels are not copies.** `BasePage.panels()` lists a page's tabs, titled `Card`s and `extra_panels()`. A custom page makes a hidden instance of that page (a "controller", `page.host` = the custom page) and re-parents the real card into its grid. Panels of one page share a controller; a tab or whole page gets its own. So:
+  - a new titled `Card` on any page is offered automatically;
+  - **individual controls** come from `BasePage.controls()`: every widget a page keeps as an attribute inside a card (key `ctl:<attribute>`, so renaming an attribute breaks saved pages) and every other button with unique text (key `ctl:<card>/<text>`). `control_labels` gives them plain names, `control_skip` hides ones that are not controls. A row must be a widget, not a bare layout, to be offered (`OperatePage._row`);
+  - a controller hands out a widget only while it is whole and in place (`CustomPageView._free`): a button taken out of a card means the card needs another controller;
+  - a page must use `self.is_live()`, not `self.isVisible()`, to decide whether to update;
+  - pages whose cards are rebuilt as they run set `panels_from_cards = False` (LED Processors: whole page only);
+  - a choice made inside a panel (a selected row, a drop-down) is separate from the same panel on its own page.
+- **Window:** built-in pages keep their place in `MainWindow.pages`; custom views come after them in the stack and first in the side menu, in a "Custom" group that is only there while a custom page exists. `custom_pages.changed` rebuilds them unless `layout_only`; `custom_pages.show` (action `custom_page.show`, preset item `custom_pages`) switches to one.
+- **Tried** in a real window with real mouse drags on the demo stage; not yet on a live stage.
 
 **LED processors**
 - **Modes:**

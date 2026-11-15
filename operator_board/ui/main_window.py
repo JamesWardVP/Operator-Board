@@ -11,6 +11,8 @@ from operator_board.ui.bridge import EventBridge, run_async
 from operator_board.ui.listener_login import ListenerLogin
 from operator_board.ui.nav import NavTree
 from operator_board.ui.pages.analytics import AnalyticsPage
+from operator_board.ui.pages.custom import CustomPageView
+from operator_board.ui.pages.custom_pages import CustomPagesPage
 from operator_board.ui.pages.devices import DevicesPage
 from operator_board.ui.pages.dlss import DLSSPage
 from operator_board.ui.pages.led_setup import LEDSetupPage
@@ -28,12 +30,13 @@ from operator_board.ui.theme import COLORS, STYLESHEET
 from operator_board.ui.widgets import scroll
 
 PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, LEDProcessorsPage, DLSSPage, AnalyticsPage, SurfacesPage,
-         SyncPage, SavedSettingsPage, LEDSetupPage, StagePage, DevicesPage, SettingsPage]
+         SyncPage, SavedSettingsPage, LEDSetupPage, StagePage, DevicesPage, CustomPagesPage, SettingsPage]
 # The sidebar: ungrouped pages at the top and bottom, collapsible groups in between (open by default).
+# The operator's custom pages go above all of these, in a "Custom" group.
 NAV = ["Operate", "Takes", "Cameras & Levels",
        ("Advanced", ["Remote Objects", "LED Processors", "DLSS", "Analytics", "Control Surfaces", "File Sync",
                      "Saved Settings"]),
-       ("Setup", ["LED Processor Setup", "Switchboard Configs", "Devices"]),
+       ("Setup", ["LED Processor Setup", "Switchboard Configs", "Devices", "Custom Pages"]),
        "Settings"]
 
 # Stage hotkeys work from any page.
@@ -81,8 +84,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.pages.append(page)
             # Pages scroll instead of forcing the window taller than a laptop screen.
             self.stack.addWidget(scroll(page))
-        self.nav.build(NAV, [p.title for p in self.pages])
+        # The built-in pages come first in the stack (and in ``pages``), the custom pages after them,
+        # so a built-in page keeps its index however many custom pages there are.
+        self.builtin_pages = list(self.pages)
+        self.custom_views = []
+        ctx.custom_pages.reserved = [p.title for p in self.builtin_pages]
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        self.rebuild_custom_pages()
         self.nav.setCurrentRow(0)
 
         self.status_label = QtWidgets.QLabel("Ready")
@@ -123,6 +131,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tick()
         if ctx.store.load_error:
             self.notify(ctx.store.load_error, False)
+        if ctx.custom_pages.load_error:
+            self.notify(ctx.custom_pages.load_error, False)
         for message in getattr(ctx.devices, "port_changes", []):
             self.notify(message, False)
 
@@ -132,6 +142,43 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.ctx.switchboard_config:
             title += f"  [Switchboard: {os.path.splitext(os.path.basename(self.ctx.switchboard_config))[0]}]"
         self.setWindowTitle(title)
+
+    # ---- custom pages ------------------------------------------------------------------
+    def rebuild_custom_pages(self) -> None:
+        """Make the custom pages' views again and put them at the top of the side menu."""
+        current = self.current_page()
+        keep = current.title if current is not None else ""
+        if getattr(current, "is_custom", False):
+            keep = next((p.name for p in self.ctx.custom_pages.pages if p is current.page_), "")
+        for view in self.custom_views:
+            view.teardown()
+            self.stack.removeWidget(view)
+            view.setParent(None)
+            view.deleteLater()
+        self.custom_views = [CustomPageView(self.ctx, self, page) for page in self.ctx.custom_pages.pages]
+        for view in self.custom_views:
+            self.stack.addWidget(view)
+        self.pages = self.builtin_pages + self.custom_views
+        titles = [p.title for p in self.pages]
+        self.nav.blockSignals(True)
+        # Their own group at the top of the side menu, there only while a custom page exists.
+        custom = [("Custom", [v.title for v in self.custom_views])] if self.custom_views else []
+        self.nav.build(custom + NAV, titles)
+        self.nav.blockSignals(False)
+        index = titles.index(keep) if keep in titles else 0
+        self.nav.setCurrentRow(index)
+        self.stack.setCurrentIndex(index)
+
+    def page_class(self, title: str):
+        """The class of the built-in page with this title (custom pages show its panels)."""
+        return next((type(p) for p in self.builtin_pages if p.title == title and p.in_catalogue), None)
+
+    def panel_catalogue(self):
+        """(page title, is a setup page, [(panel key, label)], [(card, control key, label)]) for every
+        page a custom page can draw on."""
+        return [(p.title, p.setup_page, [(key, label) for key, label, _widget in p.panels()],
+                 [(card, key, label) for key, label, _widget, card in p.controls()])
+                for p in self.builtin_pages if p.in_catalogue]
 
     def show_page(self, title: str, tab: str = "") -> None:
         """Switch to the page with this title (and, on a page with tabs, to ``tab``)."""
@@ -203,6 +250,13 @@ class MainWindow(QtWidgets.QMainWindow):
             for p in self.pages:
                 if p is not self.current_page() and hasattr(p, "EDITOR_EVENTS"):
                     p.on_event(topic, payload)
+        if topic == "custom_pages.changed":
+            if payload.get("error"):
+                self.notify(payload["error"], False)
+            if not payload.get("layout_only"):
+                self.rebuild_custom_pages()
+        if topic == "custom_pages.show":
+            self.show_page(payload.get("name", ""))
         if topic == "action.invoked" and not payload.get("ok"):
             self.notify(payload.get("message", ""), False)
         page = self.current_page()
@@ -212,8 +266,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _tick(self) -> None:
         self.clock.setText(time.strftime("%H:%M:%S  "))
         page = self.current_page()
-        if isinstance(page, OperatePage):
+        if page is not None and page.refresh_every_second:
             page.refresh()
+        elif getattr(page, "is_custom", False):
+            page.tick()
 
     def _check_listener_soon(self) -> None:
         """After a project or Switchboard config opens: is this PC's listener from the right engine?"""

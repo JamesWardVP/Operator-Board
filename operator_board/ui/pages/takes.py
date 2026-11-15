@@ -13,6 +13,12 @@ RATINGS = [("", ""), ("Good", "good"), ("Circle", "circle"), ("NG", "ng")]
 class TakesPage(BasePage):
     title = "Takes"
     refresh_topics = ("takes.",)
+    control_labels = {
+        "slate": "Scene / slate (text box)", "take": "Take number (text box)", "desc": "Take description (text box)",
+        "big": "Scene and take (large readout)", "timer_label": "Recording timer (readout)",
+        "rec": "RECORD / STOP (big button)", "table": "Take log (table)", "rating": "Rating (drop-down)",
+        "notes": "Take notes (text box)",
+    }
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)

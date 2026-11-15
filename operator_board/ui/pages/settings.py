@@ -14,6 +14,7 @@ from operator_board.ui.widgets import Card, hbox, muted, scroll
 
 class SettingsPage(BasePage):
     title = "Settings"
+    setup_page = True
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)

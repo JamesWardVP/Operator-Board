@@ -89,6 +89,7 @@ class NewConfigDialog(QtWidgets.QDialog):
 
 class StagePage(BasePage):
     title = "Switchboard Configs"
+    setup_page = True
     refresh_topics = ("stage.", "config.")
 
     def __init__(self, ctx, window) -> None:
