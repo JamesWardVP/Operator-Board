@@ -10,7 +10,8 @@ from typing import Any, Dict, List, Optional
 from operator_board.analytics.metrics import MetricStore
 from operator_board.core.actions import ActionParam, ActionRegistry, ActionResult
 from operator_board.core.changelog import COLUMNS, ChangeLog, ChangeRecord, export_workbook, show
-from operator_board.core.config import AppConfig
+from operator_board.core.config import AppConfig, app_home
+from operator_board.core.custom_pages import FILE_NAME as CUSTOM_PAGES_FILE, CustomPageStore
 from operator_board.core.events import EventBus
 from operator_board.core.stage import ConfigStore, copy_into
 from operator_board.devices.manager import DeviceManager
@@ -88,6 +89,9 @@ class AppContext:
         self.bus.subscribe("action.invoked", lambda _t, p: self._log_action(p))
         self.bus.subscribe("multiuser.session_renamed", lambda _t, _p: self._save_quietly())
         self.bus.subscribe("device.metrics", lambda _t, p: self.metrics.add_raw(p["name"], p.get("metrics") or {}))
+        # Custom pages are the project's own, whichever Switchboard config is open.
+        pages_dir = project_dir or (os.path.dirname(os.path.abspath(config_path)) if config_path else app_home())
+        self.custom_pages = CustomPageStore(os.path.join(pages_dir, CUSTOM_PAGES_FILE), self.bus)
         self._register_actions()
 
     # ---- lifecycle ------------------------------------------------------------
@@ -336,7 +340,7 @@ class AppContext:
 
     # Not settings, so not in the change log: control surface page turns, LED wall / group states
     # (freeze, blackout, test pattern, normal) and connecting, starting or stopping instances.
-    NOT_LOGGED = ("surface.", "led.", "devices.", "group.")
+    NOT_LOGGED = ("surface.", "led.", "devices.", "group.", "custom_page.")
     LOGGED_ANYWAY = ("led.brightness",)  # a setting, not a state
 
     def _log_action(self, payload: Dict[str, Any]) -> None:
@@ -864,6 +868,17 @@ class AppContext:
               lambda steps=None: self.run_steps(steps or []),
               description="Run several actions one after another, with optional delays between them",
               params=[ActionParam("steps", "Steps", "steps")])
+
+        # Custom pages: the window shows the page (nothing happens without a window)
+        def show_custom_page(page=""):
+            found = self.custom_pages.get(page)
+            if found is None:
+                return ActionResult(False, f"No custom page called '{page}'")
+            self.bus.publish("custom_pages.show", name=found.name)
+            return ActionResult(True, f"Showing {found.name}")
+        a.add("custom_page.show", "Show custom page", "Custom Pages", show_custom_page,
+              description="Switch Operator Board's window to one of your custom pages",
+              params=[ActionParam("page", "Custom page", "choice", choices_provider=self.custom_pages.names)])
 
         # Surface navigation (handled by SurfaceController; registered so they appear in pickers)
         for nav_id, label in (("surface.next_page", "Next surface page"), ("surface.prev_page", "Previous surface page"),

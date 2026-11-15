@@ -47,6 +47,14 @@ If no LED processor is set up, or none can be reached, the LED Wall section is g
 
 ![Operate page with the WALL FROZEN banner and the Freeze button lit](docs/images/operate_frozen.png)
 
+### Custom Pages: your own pages
+Build your own pages from the controls of all the others. They sit in a **Custom** group at the top of the side menu, above Operate (the group is only there once you have made a page), and are saved with the project.
+
+- **Edit layout** unlocks a page. **+ Add item** adds a **button** for any action (set up like a control surface key: label, colours, text size, lit while its state is on) a **panel** from another page (one card such as LED Wall, Take, Take log, Camera Positions or the Analytics graph, one tab, or the whole page), or an **individual control** from inside a panel: just the FREEZE, BLACKOUT or WALL NORMAL button, the test pattern row, the Record button, the timecode readout, Start all, a level drop-down and so on. Setup pages' panels are there too, under their own heading.
+- Items sit on a **snapping grid**: drag one to move it and drag its bottom-right corner to resize it. An item can span any number of cells, items never overlap, and a panel bigger than its space gets scroll bars. **Done** locks the page again, so nothing moves mid-take.
+- A panel is the page's own panel, not a copy of it: it shows the same live state and does the same things.
+- The **Custom Pages** page (under Setup) makes, renames, reorders, duplicates and deletes pages, and imports and exports them as files. Project exports, templates and new projects made from another's setup carry them, a saved settings preset can hold them, and the **Show custom page** action opens one from a control surface key.
+
 ### Projects: one per shoot
 Operator Board opens on a start screen listing your projects. Each project keeps everything specific to a shoot or an Unreal project: its takes, camera positions, saved settings presets, change log, Unreal instances and nDisplay setup, LED processors and groups, Remote Control settings and the Switchboard config it uses. A new project starts clean, so there is nothing to wipe between shoots. Control surfaces and interface settings belong to the computer and are the same in every project.
 
@@ -141,7 +149,7 @@ On Windows, quit the Elgato Stream Deck app first, because only one program can 
 - **DLSS:** DLSS Super Resolution mode, Frame Generation, Ray Reconstruction, Reflex and Screen Percentage, applied to the editor, the nodes or all instances, with plugin detection. The controls are defined in `dlss.json`, so a change in the plugin's API only needs a JSON edit.
 
 ### Saved Settings: presets and the change log
-- **Presets** hold several kinds of settings and apply them in one go: the level, sub-levels, data layers, Remote Objects values, camera positions, LED processor modes, the scene and take, and control surfaces. Add the current setting of each with **+ Add current…**, or from a file (a preset, an exported setting, a Remote Objects export, a control surfaces export or a camera positions CSV). Presets are saved with the stage and import and export as files.
+- **Presets** hold several kinds of settings and apply them in one go: the level, sub-levels, data layers, Remote Objects values, camera positions, LED processor modes, the scene and take, control surfaces and custom pages. Add the current setting of each with **+ Add current…**, or from a file (a preset, an exported setting, a Remote Objects export, a control surfaces export or a camera positions CSV). Presets are saved with the stage and import and export as files.
 - **Applying** runs the settings in a fixed, safe order (the level first and only once the editor has opened it, then its sub-levels and data layers, the actors, camera positions, LED processors, the take and control surfaces). Each step is checked before the next starts. If a step fails or its data is missing (a sub-level that is not in the level, a processor that has gone), Operator Board asks whether to **retry** it, **skip** it or **cancel** there, and shows each step's result.
 - **Change log:** every setting changed from Operator Board (buttons, keys, surfaces, the API, Remote Objects, sub-levels, presets) is recorded with the date and time, scene (slate), take and timecode it was changed at, the new and the previous value, and the project and level. LED wall and group states (freeze, blackout, test pattern, normal) and connecting, starting or stopping Unreal instances are not settings, so they are not recorded. Export it as **CSV**, or as a **spreadsheet (.xlsx)** with sheets for the change log, takes, camera positions, LED processors, Unreal instances and a summary, ready for DITs, data wranglers and VFX houses.
 

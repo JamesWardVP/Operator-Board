@@ -16,6 +16,7 @@ STATE_WORDS = {"frozen": "Frozen", "blackout": "Blacked out", "pattern": "Test p
 
 class LEDProcessorsPage(BasePage):
     title = "LED Processors"
+    panels_from_cards = False  # a column per group and processor, rebuilt as they change
     refresh_topics = ("led.",)
 
     def __init__(self, ctx, window) -> None:

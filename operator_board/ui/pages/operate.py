@@ -64,6 +64,7 @@ class DeviceTile(QtWidgets.QFrame):
 
 class OperatePage(BasePage):
     title = "Operate"
+    refresh_every_second = True
     refresh_topics = ("led.", "device.", "devices.", "multiuser.", "takes.", "levels.", "project.", "cameras.",
                       "config.")
 
@@ -86,7 +87,9 @@ class OperatePage(BasePage):
         self.freeze_btn.clicked.connect(lambda: self.invoke("led.freeze"))
         self.blackout_btn.clicked.connect(lambda: self.invoke("led.blackout"))
         self.normal_btn.clicked.connect(lambda: self.invoke("led.restore"))
-        wall.add_layout(hbox(self.freeze_btn, self.blackout_btn, self.normal_btn, spacing=12))
+        # Rows are widgets of their own, so a custom page can show one without the rest of the card.
+        self.wall_buttons = self._row(hbox(self.freeze_btn, self.blackout_btn, self.normal_btn, spacing=12))
+        wall.add(self.wall_buttons)
         self.pattern_combo = QtWidgets.QComboBox()
         self.pattern_btn = QtWidgets.QPushButton("Show test pattern")
         self.pattern_off_btn = QtWidgets.QPushButton("Pattern off")
@@ -101,8 +104,10 @@ class OperatePage(BasePage):
             lambda: self.invoke("led.test_pattern_off", target=self.pattern_target.currentData() or "all"))
         # The same drop-down as on LED Processor Setup: each group and processor on its own.
         self.led_advanced = LEDAdvancedButton(self)
-        wall.add_layout(hbox(QtWidgets.QLabel("Test pattern"), self.pattern_combo, QtWidgets.QLabel("on"),
-                             self.pattern_target, self.pattern_btn, self.pattern_off_btn, self.led_advanced, None))
+        self.pattern_row = self._row(hbox(QtWidgets.QLabel("Test pattern"), self.pattern_combo, QtWidgets.QLabel("on"),
+                                          self.pattern_target, self.pattern_btn, self.pattern_off_btn,
+                                          self.led_advanced, None))
+        wall.add(self.pattern_row)
         self.proc_row = QtWidgets.QHBoxLayout()
         wall.add_layout(self.proc_row)
         grid.addWidget(wall, 1, 0, 1, 3)
@@ -287,6 +292,34 @@ class OperatePage(BasePage):
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll(root))
+
+    control_labels = {
+        "wall_buttons": "Freeze, Blackout and Wall normal (the three buttons)",
+        "pattern_row": "Test pattern row (pattern, where, show, off, Advanced)",
+        "normal_btn": "WALL NORMAL (resume)", "pattern_combo": "Test pattern choice (drop-down)",
+        "pattern_target": "Test pattern target: wall, group or processor (drop-down)",
+        "led_advanced": "Advanced: groups and individual control",
+        "mu_btn": "Start / stop multi-user server (big button)", "mu_server": "Multi-user server name (text box)",
+        "mu_session": "Multi-user session name (text box)", "mu_count": "Connected clients (number)",
+        "mu_clients": "Connected client names", "mu_warning": "Multi-user warning",
+        "project_combo": "Unreal project (drop-down)", "level_combo": "Level (drop-down)",
+        "take_label": "Scene and take (large readout)", "rec_btn": "RECORD / STOP (big button)",
+        "save_take_btn": "Save last take", "scene_edit": "Scene name (text box)",
+        "take_edit": "Take number (text box)", "desc_edit": "Take description (text box)",
+        "tc_value": "Timecode (readout)", "tc_rate": "Timecode frame rate", "genlock_value": "Genlock (readout)",
+    }
+    control_skip = ("no_devices",)
+
+    @staticmethod
+    def _row(layout) -> QtWidgets.QWidget:
+        row = QtWidgets.QWidget()
+        row.setObjectName("PlainRow")
+        layout.setContentsMargins(0, 0, 0, 0)
+        row.setLayout(layout)
+        return row
+
+    def extra_panels(self):
+        return [("Wall status bar", "Wall status bar", self.banner)]
 
     # ---- interactions ------------------------------------------------------------
     def _mu_phase(self) -> str:
@@ -479,7 +512,7 @@ class OperatePage(BasePage):
             box.open()
 
     def _update_timing(self) -> None:
-        if not self.isVisible() and self.tc_value.text():
+        if not self.is_live() and self.tc_value.text():
             return
         tc = self.ctx.timing.timecode()
         recording = self.ctx.takes.recording

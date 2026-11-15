@@ -69,6 +69,7 @@ class KeyButton(QtWidgets.QPushButton):
 
 class SurfacesPage(BasePage):
     title = "Control Surfaces"
+    setup_page = True
     refresh_topics = ("surface.", "led.", "takes.", "multiuser.", "action.")
 
     def __init__(self, ctx, window) -> None:

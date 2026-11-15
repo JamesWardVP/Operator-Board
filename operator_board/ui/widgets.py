@@ -13,6 +13,7 @@ class Card(QtWidgets.QFrame):
     def __init__(self, title: str = "", parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("Card")
+        self.title = title  # as first given: custom pages find the card by it
         self.layout_ = QtWidgets.QVBoxLayout(self)
         self.layout_.setContentsMargins(14, 12, 14, 14)
         self.layout_.setSpacing(10)

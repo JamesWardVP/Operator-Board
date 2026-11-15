@@ -23,6 +23,7 @@ LAST = len(HEADERS) - 1
 
 class LEDSetupPage(BasePage):
     title = "LED Processor Setup"
+    setup_page = True
     refresh_topics = ("led.",)
 
     def __init__(self, ctx, window) -> None:

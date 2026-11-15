@@ -33,6 +33,7 @@ ITEM_TYPES: Dict[str, Tuple[str, str]] = {
     "led": ("LED processor modes", "Put each LED processor into its saved mode"),
     "take": ("Take settings", "Set the scene (slate), take number and description"),
     "surfaces": ("Control surfaces", "Add the control surfaces (replacing any of the same name)"),
+    "custom_pages": ("Custom pages", "Add the custom pages (replacing any of the same name) and show the first"),
 }
 ITEM_ORDER = list(ITEM_TYPES)
 LEVEL_WAIT_S = 180.0
@@ -90,6 +91,8 @@ def read_file(path: str) -> Dict[str, Any]:
         return {"name": data.get("name", "Imported preset"), "items": list(data.get("items", []))}
     if fmt == ITEM_FORMAT:
         return {"name": item_label(data), "items": [{"type": data["type"], "data": data.get("data")}]}
+    if fmt == "operator-board-custom-pages":
+        return {"name": "Custom pages", "items": [{"type": "custom_pages", "data": data.get("pages", [])}]}
     if fmt == "operator-board-surfaces":
         return {"name": "Control surfaces", "items": [{"type": "surfaces", "data": data.get("surfaces", [])}]}
     raise ValueError("not an Operator Board settings preset, settings item, control surfaces file or camera CSV")
@@ -124,6 +127,10 @@ def capture(ctx, kind: str) -> Dict[str, Any]:
         return {"type": kind, "data": {"slate": t.slate, "take": t.take, "description": t.description}}
     if kind == "surfaces":
         return {"type": kind, "data": copy.deepcopy(ctx.config.surfaces.devices)}
+    if kind == "custom_pages":
+        if not ctx.custom_pages.pages:
+            raise PresetProblem("There are no custom pages yet: make one on the Custom Pages page")
+        return {"type": kind, "data": ctx.custom_pages.as_dicts()}
     raise PresetProblem(f"Unknown kind of setting '{kind}'")
 
 
@@ -287,8 +294,18 @@ def _apply_surfaces(ctx, data) -> str:
     return f"{len(layouts)} surface{'s' if len(layouts) != 1 else ''}"
 
 
+def _apply_custom_pages(ctx, data) -> str:
+    from operator_board.core.custom_pages import CustomPage
+    from operator_board.core.serde import from_dict
+    pages = [from_dict(CustomPage, d) for d in _need(data, "custom pages")]
+    added = ctx.custom_pages.add_pages(pages, replace=True)
+    ctx.bus.publish("custom_pages.show", name=added[0].name)
+    ctx.changes.record("Custom Pages", "Custom pages", "Loaded", [p.name for p in added], source="Preset")
+    return f"{len(added)} page{'s' if len(added) != 1 else ''}"
+
+
 _APPLY: Dict[str, Callable[[Any, Any], str]] = {
     "level": _apply_level, "sublevels": _apply_sublevels, "data_layers": _apply_data_layers,
     "object_settings": _apply_object_settings, "cameras": _apply_cameras, "led": _apply_led,
-    "take": _apply_take, "surfaces": _apply_surfaces,
+    "take": _apply_take, "surfaces": _apply_surfaces, "custom_pages": _apply_custom_pages,
 }

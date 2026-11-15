@@ -11,6 +11,7 @@ from operator_board.ui.widgets import Card, hbox, make_table, muted, set_row
 
 class DevicesPage(BasePage):
     title = "Devices"
+    setup_page = True
     refresh_topics = ("device.", "devices.", "config.")
 
     def __init__(self, ctx, window) -> None:

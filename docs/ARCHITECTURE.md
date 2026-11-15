@@ -12,6 +12,7 @@ operator_board/
     serde.py             dataclass <-> dict (tolerant of unknown/missing keys)
     actions.py           ActionRegistry: id -> handler (+ params, toggle state)
     events.py            thread-safe pub/sub EventBus
+    custom_pages.py      the operator's own pages: items on a grid, kept in the project's custom_pages.json
     ue_versions.py       UE 5.2-5.8 table, Build.version detection
     switchboard_import.py  compatibility re-export of switchboard_config
   listener/              SwitchboardListener protocol: messages, TCP + QUIC clients, shared credential store
@@ -23,7 +24,8 @@ operator_board/
   analytics/             MetricStore (time series from listener sync status)
   surfaces/              surface layouts (JSON), SurfaceManager (several surfaces at once), controller, label fitting,
                          Stream Deck / MIDI / OSC backends, web panel, HTTP API for Companion
-  ui/                    main window, theme, widgets, generic dataclass forms, one module per page
+  ui/                    main window, theme, widgets, generic dataclass forms, one module per page;
+                         custom_grid.py + pages/custom.py show a custom page, button_dialog.py its buttons
 ```
 
 ## Packaging

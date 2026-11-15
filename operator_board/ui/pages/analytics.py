@@ -61,7 +61,7 @@ class AnalyticsPage(BasePage):
         self._timer.start(1000)
 
     def _tick(self) -> None:
-        if self.isVisible():
+        if self.is_live():
             self.refresh()
 
     def _fill_metrics(self, source: str) -> None:
