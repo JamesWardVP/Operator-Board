@@ -23,9 +23,9 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 10. Future ideas live in `docs/ROADMAP.md`, never the README. The **README lists only shipped features and the supported UE versions (5.2 → 5.8)**.
 11. GitHub: `JamesWardVP/Operator-Board`.
 
-**Custom Pages and button pictures are built** (on `Development`, not yet released; see "Custom pages" and "Button pictures" below). **Next priorities, chosen by the owner and not started:** a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
+**Custom Pages and button pictures shipped in 0.8.2** (see "Custom pages" and "Button pictures" below). **Next priorities, chosen by the owner and not started:** a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
 
-## Current state (v0.8.0)
+## Current state (v0.8.2)
 Every brief item has a first implementation. See:
 - README.md for features;
 - docs/ARCHITECTURE.md for structure;
