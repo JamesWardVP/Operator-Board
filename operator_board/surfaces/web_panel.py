@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from operator_board.surfaces import pictures
 from operator_board.surfaces.controller import SurfaceController
 from operator_board.surfaces.render import css_weight
 
@@ -21,7 +22,11 @@ def surface_state(controller: SurfaceController) -> Dict[str, Any]:
         binding = controller.binding(index)
         assigned = bool(binding and binding.action)
         active = controller.is_active(index) if assigned else False
-        keys.append({"label": (binding.label or binding.action) if assigned else "",
+        keys.append({"label": pictures.label_text(binding) if assigned else "",
+                     # the picture is fetched once from /api/surface/key-image/<n>, not sent every second
+                     "image": pictures.picture_id(binding.image) if assigned else "",
+                     "image_color": binding.image_color if assigned else "",
+                     "image_layout": pictures.layout_of(binding) if assigned else "",
                      "color": (binding.active_color if active else binding.color) if assigned else "#1b1e23",
                      "active": active, "assigned": assigned,
                      "text_color": binding.text_color if assigned else "#ffffff",
@@ -54,7 +59,12 @@ PANEL_HTML = r"""<!doctype html>
   .key { border: 2px solid #30353d; border-radius: 12px; color: #fff; font-weight: 700; font-size: 15px;
          display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px;
          overflow: hidden; overflow-wrap: anywhere; word-break: normal; line-height: 1.15;
-         white-space: pre-line; touch-action: manipulation; }
+         white-space: pre-line; touch-action: manipulation; position: relative; flex-direction: column; gap: 4px; }
+  .key .pic { flex: 1; width: 100%; min-height: 0; background: center / contain no-repeat;
+              -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+  .key .pic.fill { position: absolute; inset: 0; background-size: cover; -webkit-mask-size: cover; mask-size: cover;
+                   border-radius: 10px; }
+  .key .txt { position: relative; max-width: 100%; }
   .key.nowrap { white-space: pre; overflow-wrap: normal; }
   .key.active { border-color: #fff; }
   .key.empty { opacity: .35; }
@@ -100,7 +110,21 @@ function draw(s) {
     b.style.background = k.color;
     b.style.color = k.text_color;
     b.style.fontWeight = k.font_weight;
-    b.textContent = k.label;
+    if (k.image) {
+      const pic = document.createElement("div"), url = "url(" + JSON.stringify(
+        "/api/surface/key-image/" + i + (q ? q + "&" : "?") + "v=" + k.image) + ")";
+      pic.className = "pic" + (k.image_layout === "fill" ? " fill" : "");
+      if (k.image_color) {  // a recoloured picture: its shape, filled with the colour
+        pic.style.backgroundColor = k.image_color;
+        pic.style.webkitMaskImage = url; pic.style.maskImage = url;
+      } else pic.style.backgroundImage = url;
+      b.appendChild(pic);
+    }
+    if (k.label) {
+      const text = document.createElement("span");
+      text.className = "txt"; text.textContent = k.label;
+      b.appendChild(text);
+    }
     b.style.fontSize = (k.font_size ? Math.max(6, Math.round(k.font_size * (width + 12) / 72)) : auto) + "px";
     if (k.assigned) b.addEventListener("click", () => call("/api/surface/press/" + i));
     grid.appendChild(b);

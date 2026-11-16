@@ -137,6 +137,13 @@ New surfaces get the default buttons, spread over as many pages as the surface n
 
 Each key has its action, label, colour and active colour, plus **text colour**, **font size** (or Auto, as large as fits), **font weight** and **word wrap** (on by default), so long labels break onto more lines instead of running off the key. Every colour has a **colour picker** as well as a hex box. The on-screen deck shows the keys as the Stream Deck will.
 
+**Pictures on keys.** A key can also carry a picture, chosen in the same editor:
+- **Icon:** a built-in library of over 5,000 line icons (camera, record, snowflake, light, arrows, numbers…). Search by word or browse a group; "Suggested for stage work" comes first.
+- **Emoji:** any emoji your PC can draw, in full colour.
+- **Custom picture:** choose this and press **Upload…** to use your own file (PNG, JPG, SVG and more), such as a show logo or a photo of a set.
+
+Icons and single-colour logos can be **recoloured** to any colour. Each key chooses how the picture sits: **above the label**, **picture only**, or **filling the key with the label on top**. Pictures show on the Stream Deck, the on-screen deck, the phone and tablet web panel and on custom page buttons. They are saved inside the key, so surface exports, custom page files and project exports carry them to another machine with nothing extra to copy.
+
 Surfaces are saved on this computer and stay the same whichever stage is open. **Export selected…** or **Export all…** saves them to a file for backup or another machine, and **Import…** adds surfaces from a file without replacing any you have. **Bitfocus Companion** (Generic HTTP module), or anything else that can send HTTP, can call any action through the local HTTP API, with an optional token.
 
 ![Control Surfaces page with the Stream Deck layout editor](docs/images/control_surfaces.png)

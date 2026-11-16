@@ -13,6 +13,7 @@ import secrets
 from operator_board.qt import QtGui, QtWidgets, Qt
 from operator_board.surfaces.layout import (FONT_WEIGHTS, KINDS, MODELS, ButtonBinding, SurfacePage, fit_to_model,
                                             new_surface)
+from operator_board.surfaces import pictures
 from operator_board.surfaces.render import fit_label
 from operator_board.ui.action_editors import MACRO_ACTION, OSC_ACTION, OscEditor, StepsEditor
 from operator_board.ui.pages.base import BasePage
@@ -48,20 +49,32 @@ class KeyButton(QtWidgets.QPushButton):
     def __init__(self, size: int, parent=None) -> None:
         super().__init__(parent)
         self.setFixedSize(size, size)
+        self.picture_label = None  # made when the key first shows a picture
         self.text_label = QtWidgets.QLabel(self)
         self.text_label.setAlignment(Qt.AlignCenter)
         self.text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.text_label.setGeometry(4, 4, size - 8, size - 8)
 
-    def show_label(self, text: str, color: str, size: int, weight: str, wrap: bool) -> None:
+    def show_binding(self, b: ButtonBinding) -> None:
+        """Show a key as the Stream Deck draws it: its picture, and its label where there is one."""
+        from operator_board.ui.pictures import new_picture_label, show_on
+
+        if self.picture_label is None:
+            self.picture_label = new_picture_label(self)
         pad = max(3, self.width() // 14)
-        area = self.width() - 2 * pad
+        area = show_on(self, self.picture_label, self.text_label, b, pad)
+        if area:
+            self.show_label(pictures.label_text(b), b.text_color, b.font_size, b.font_weight, b.word_wrap, area)
+
+    def show_label(self, text: str, color: str, size: int, weight: str, wrap: bool, area=None) -> None:
+        pad = max(3, self.width() // 14)
+        width, height = area or (self.width() - 2 * pad, self.width() - 2 * pad)
 
         def measure(line: str, px: int):
             metrics = QtGui.QFontMetrics(qt_font(weight, px))
             return metrics.horizontalAdvance(line or " "), metrics.height()
 
-        lines, px = fit_label(text, area, area, measure, size, wrap, key_px=self.width())
+        lines, px = fit_label(text, width, height, measure, size, wrap, key_px=self.width())
         self.text_label.setFont(qt_font(weight, px))
         self.text_label.setStyleSheet(f"color: {color}; background: transparent;")
         self.text_label.setText("\n".join(lines))
@@ -259,8 +272,12 @@ class SurfacesPage(BasePage):
             self.font_weight.addItem(WEIGHT_LABELS[name], name)
         self.word_wrap = QtWidgets.QCheckBox("Word wrap (long text continues on the next line)")
         self.word_wrap.setChecked(True)
+        from operator_board.ui.pictures import PictureField
+
+        self.picture = PictureField()
         form.addRow("Action", self.action)
         form.addRow("Label", self.label)
+        form.addRow("Picture", self.picture)
         form.addRow(self.params_box)
         form.addRow(self.osc_editor)
         form.addRow(self.steps_editor)
@@ -545,6 +562,7 @@ class SurfacesPage(BasePage):
         self.font_size.setCurrentText(str(b.font_size) if b.font_size else FONT_SIZES[0])
         self.font_weight.setCurrentIndex(max(0, self.font_weight.findData(b.font_weight)))
         self.word_wrap.setChecked(b.word_wrap)
+        self.picture.set_binding(b)
 
     def _action_changed(self) -> None:
         action_id = self.action.currentData() or ""
@@ -587,13 +605,19 @@ class SurfacesPage(BasePage):
             if value.text() and not QtGui.QColor(value.text()).isValid():
                 self.notify(f"{field} is not a colour: use #rrggbb or the colour picker", False)
                 return
+        try:
+            picture = self.picture.values()
+        except ValueError as exc:
+            self.notify(str(exc), False)
+            return
         action = self.ctx.actions.get(action_id)
         self._page().buttons[str(self.selected)] = ButtonBinding(
             action=action_id, label=self.label.toPlainText() or (action.label if action else ""), params=params,
             color=self.color.text() or "#2b2f36", active_color=self.active_color.text() or "#d9480f",
             text_color=self.text_color.text() or "#ffffff",
             font_size=int(size_text) if size_text.isdigit() else 0,
-            font_weight=self.font_weight.currentData() or "bold", word_wrap=self.word_wrap.isChecked())
+            font_weight=self.font_weight.currentData() or "bold", word_wrap=self.word_wrap.isChecked(),
+            **picture)
         self._changed()
         self.refresh()
 
@@ -724,7 +748,7 @@ class SurfacesPage(BasePage):
             active = self.current.is_active(i)
             btn = KeyButton(key)
             if b and b.action:
-                btn.show_label(b.label or b.action, b.text_color, b.font_size, b.font_weight, b.word_wrap)
+                btn.show_binding(b)
             bg = (b.active_color if active else b.color) if b and b.action else "#16181c"
             border = "#ffffff" if i == self.selected else "#30353d"
             btn.setStyleSheet(f"QPushButton {{ background: {bg}; border: 2px solid {border}; border-radius: 10px; }}")

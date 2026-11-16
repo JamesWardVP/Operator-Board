@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, Optional
 
 from operator_board.core.actions import ActionRegistry
+from operator_board.surfaces import pictures
 from operator_board.surfaces.web_panel import PANEL_HTML, surface_state
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,14 @@ class ApiServer:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _send_bytes(self, body: bytes, content_type: str) -> None:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Cache-Control", "private, max-age=86400")  # the address changes with the picture
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
             def _send_html(self, html: str) -> None:
                 body = html.encode("utf-8")
                 self.send_response(200)
@@ -96,6 +105,12 @@ class ApiServer:
                     return self._send(404, {"ok": False, "message": "no control surface"})
                 if parts == ["api", "surface"]:
                     return self._send(200, surface_state(surface))
+                if len(parts) == 4 and parts[:3] == ["api", "surface", "key-image"] and parts[3].isdigit():
+                    binding = surface.binding(int(parts[3]))
+                    data = pictures.decode(binding.image) if binding else b""
+                    if not data:
+                        return self._send(404, {"ok": False, "message": "no picture on that key"})
+                    return self._send_bytes(data, pictures.mime_type(data))
                 if len(parts) == 4 and parts[:3] == ["api", "surface", "press"] and parts[3].isdigit():
                     result = surface.press(int(parts[3]))
                     return self._send(200 if result.ok else 400, {"ok": result.ok, "message": result.message})

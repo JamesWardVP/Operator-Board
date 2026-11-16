@@ -23,7 +23,7 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 10. Future ideas live in `docs/ROADMAP.md`, never the README. The **README lists only shipped features and the supported UE versions (5.2 → 5.8)**.
 11. GitHub: `JamesWardVP/Operator-Board`.
 
-**Custom Pages is built** (on `Development`, not yet released; see "Custom pages" below). **Next priorities, chosen by the owner and not started:** custom pictures on control surface buttons, a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
+**Custom Pages and button pictures are built** (on `Development`, not yet released; see "Custom pages" and "Button pictures" below). **Next priorities, chosen by the owner and not started:** a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
 
 ## Current state (v0.8.0)
 Every brief item has a first implementation. See:
@@ -272,6 +272,13 @@ Older packages are removed. Always build into `dist/`, never side folders.
   - `word_wrap`.
 
   `surfaces/render.fit_label` is shared by the Stream Deck (Pillow, Segoe UI by weight) and the on-screen deck, and shrinks the text before breaking a word.
+- **Button pictures** (`surfaces/pictures.py`, `ui/pictures.py`):
+  - whatever the source, a picture is turned into a small image when chosen (`ui.pictures.store`: at most 256 px, PNG with see-through parts, else JPEG) and kept in the button as base64 (`ButtonBinding.image`). So it travels in every export with no extra plumbing, and the Stream Deck and web panel need neither the icon library nor the emoji font;
+  - `image_source` remembers where it came from (`icon:<name>`, `emoji:<char>`, `file:<name>`), `image_color` repaints a single-colour picture (every drawn pixel takes the colour, transparency kept), `image_layout` is `above`, `only` or `fill`;
+  - `pictures.areas` and `pictures.place` decide where the picture and label go, shared by the Stream Deck (`streamdeck.draw_key`, Pillow), the on-screen keys and custom page buttons (`ui.pictures.show_on`) so they match; the web panel does the same in CSS (recolour = CSS mask);
+  - the web panel's one-second poll carries only a short picture id; the picture itself comes once from `/api/surface/key-image/<n>`;
+  - **icons** are Tabler Icons (MIT) in `ui/icon_library.json`, built by `packaging/make_icon_library.py` from the npm package; the Brand category (company logos) is left out. **Emojis** are drawn with the PC's Segoe UI Emoji font, so none are bundled; the list is whatever that font has;
+  - the owner chose: Tabler rather than hand-drawn icons, a layout choice per button, and no separate "stickers" set (emojis cover it).
 - **Web panel** (`/panel` on the HTTP API, `surfaces/web_panel.py`):
   - polls `/api/surface` and presses `/api/surface/press/<n>`;
   - "Allow phones and tablets" binds 0.0.0.0 and creates a token;
@@ -287,7 +294,7 @@ Older packages are removed. Always build into `dist/`, never side folders.
 **Custom pages** (`core/custom_pages.py`, `ui/custom_grid.py`, `ui/pages/custom.py`, `ui/pages/custom_pages.py`, `ui/button_dialog.py`)
 - **Storage:** `custom_pages.json` in the project folder (not in `AppConfig`, so the pages are the same whichever Switchboard config is open). It travels in `.opproject` exports and templates, and `projects.create(setup_from=...)` copies it. Own file format `operator-board-custom-pages`.
 - **Grid:** 24 columns that stretch with the window, 44-px rows; an item is `(col, row, w, h)` and items never overlap (`CustomPage.fits`). `GridCanvas.place` is the one way to move or resize.
-- **Items:** a button is a `surfaces.layout.ButtonBinding` (the same fields as a surface key, so button pictures will apply to both). A panel is `source` (a page title) + `panel` (a card title, `tab:<name>`, `*` for the whole page, or `ctl:<...>` for one control).
+- **Items:** a button is a `surfaces.layout.ButtonBinding` (the same fields as a surface key, pictures included). A panel is `source` (a page title) + `panel` (a card title, `tab:<name>`, `*` for the whole page, or `ctl:<...>` for one control).
 - **Panels are not copies.** `BasePage.panels()` lists a page's tabs, titled `Card`s and `extra_panels()`. A custom page makes a hidden instance of that page (a "controller", `page.host` = the custom page) and re-parents the real card into its grid. Panels of one page share a controller; a tab or whole page gets its own. So:
   - a new titled `Card` on any page is offered automatically;
   - **individual controls** come from `BasePage.controls()`: every widget a page keeps as an attribute inside a card (key `ctl:<attribute>`, so renaming an attribute breaks saved pages) and every other button with unique text (key `ctl:<card>/<text>`). `control_labels` gives them plain names, `control_skip` hides ones that are not controls. A row must be a widget, not a bare layout, to be offered (`OperatePage._row`);
