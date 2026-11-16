@@ -10,10 +10,12 @@ from typing import Optional
 
 from operator_board.core.serde import from_dict, to_dict
 from operator_board.qt import QtGui, QtWidgets, Qt, exec_
+from operator_board.surfaces import pictures
 from operator_board.surfaces.layout import FONT_WEIGHTS, ButtonBinding
 from operator_board.surfaces.render import fit_label
 from operator_board.ui.action_editors import MACRO_ACTION, OSC_ACTION, OscEditor, StepsEditor
 from operator_board.ui.pages.surfaces import FONT_SIZES, WEIGHT_LABELS, qt_font
+from operator_board.ui.pictures import PictureField, new_picture_label, show_on
 from operator_board.ui.widgets import ColorField, make_searchable, muted
 
 DEFAULTS = ButtonBinding()
@@ -66,8 +68,10 @@ class ButtonDialog(QtWidgets.QDialog):
         for name in FONT_WEIGHTS:
             self.font_weight.addItem(WEIGHT_LABELS[name], name)
         self.word_wrap = QtWidgets.QCheckBox("Word wrap (long text continues on the next line)")
+        self.picture = PictureField()
         form.addRow("Action", self.action)
         form.addRow("Label", self.label)
+        form.addRow("Picture", self.picture)
         form.addRow(self.params_box)
         form.addRow(self.osc_editor)
         form.addRow(self.steps_editor)
@@ -102,6 +106,7 @@ class ButtonDialog(QtWidgets.QDialog):
         self.font_size.setCurrentText(str(b.font_size) if b.font_size else self.font_size.itemText(0))
         self.font_weight.setCurrentIndex(max(0, self.font_weight.findData(b.font_weight)))
         self.word_wrap.setChecked(b.word_wrap)
+        self.picture.set_binding(b)
         self._action_changed()
 
     def _action_changed(self) -> None:
@@ -150,7 +155,8 @@ class ButtonDialog(QtWidgets.QDialog):
             color=self.color.text() or DEFAULTS.color, active_color=self.active_color.text() or DEFAULTS.active_color,
             text_color=self.text_color.text() or DEFAULTS.text_color,
             font_size=int(size_text) if size_text.isdigit() else 0,
-            font_weight=self.font_weight.currentData() or "bold", word_wrap=self.word_wrap.isChecked())
+            font_weight=self.font_weight.currentData() or "bold", word_wrap=self.word_wrap.isChecked(),
+            **self.picture.values())
 
     def _accept(self) -> None:
         try:
@@ -177,6 +183,7 @@ class ActionButton(QtWidgets.QPushButton):
         self.binding = binding
         self.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
         self.setMinimumSize(20, 20)
+        self.picture_label = new_picture_label(self)
         self.text_label = QtWidgets.QLabel(self)
         self.text_label.setAlignment(Qt.AlignCenter)
         self.text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -200,7 +207,7 @@ class ActionButton(QtWidgets.QPushButton):
         b = self.binding
         active = self.is_active()
         look = (active, b.color, b.active_color, b.label, b.text_color, b.font_size, b.font_weight, b.word_wrap,
-                self.width(), self.height())
+                pictures.picture_id(b.image), b.image_color, b.image_layout, self.width(), self.height())
         if look == self._shown:
             return
         self._shown = look
@@ -211,9 +218,10 @@ class ActionButton(QtWidgets.QPushButton):
                            "QPushButton:pressed { border-color: #ffffff; }")
         action = self.page.ctx.actions.get(b.action)
         self.setToolTip(f"{action.category} › {action.label}" if action else "No action")
-        pad = 8
-        width, height = max(1, self.width() - 2 * pad), max(1, self.height() - 2 * pad)
-        self.text_label.setGeometry(pad, pad, width, height)
+        area = show_on(self, self.picture_label, self.text_label, b, pad=8)
+        if not area:
+            return
+        width, height = area
 
         def measure(line: str, px: int):
             metrics = QtGui.QFontMetrics(qt_font(b.font_weight, px))
@@ -221,7 +229,7 @@ class ActionButton(QtWidgets.QPushButton):
 
         # A fixed size is in real pixels here; Auto grows with the button, up to a readable limit.
         key_px = 72 if b.font_size else max(72, min(160, min(self.width(), self.height() * 2)))
-        lines, px = fit_label(b.label, width, height, measure, b.font_size, b.word_wrap, key_px=key_px)
+        lines, px = fit_label(pictures.label_text(b), width, height, measure, b.font_size, b.word_wrap, key_px=key_px)
         self.text_label.setFont(qt_font(b.font_weight, px))
         self.text_label.setStyleSheet(f"color: {b.text_color}; background: transparent;")
         self.text_label.setText("\n".join(lines))

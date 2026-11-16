@@ -80,6 +80,13 @@ class ButtonBinding:
     font_size: int = 0  # pixels on a 72-pixel key (scaled to the real key); 0 = as large as fits
     font_weight: str = "bold"  # a FONT_WEIGHTS name
     word_wrap: bool = True  # break long labels onto more lines instead of running off the key
+    # The picture (see surfaces/pictures.py): the image itself as base64 text, where it came from
+    # (icon:<name>, emoji:<character>, file:<name>), a colour to repaint a single-colour picture in
+    # (empty = as it is) and how it sits with the label (above, only, fill).
+    image: str = ""
+    image_source: str = ""
+    image_color: str = ""
+    image_layout: str = "above"
 
 
 @dataclass

@@ -21,6 +21,7 @@ folder), so they can be replaced with other compatible builds.
 | python-elgato-streamdeck | Stream Deck hardware | MIT | https://github.com/abcminiuser/python-elgato-streamdeck |
 | HIDAPI (`hidapi.dll`) | Stream Deck USB access | BSD-3-Clause (one of its three license options) | https://github.com/libusb/hidapi |
 | mido | MIDI controller support | MIT | https://github.com/mido/mido |
+| Tabler Icons | The built-in icon library for button pictures (`icon_library.json`; company logos left out) | MIT | https://github.com/tabler/tabler-icons |
 | openpyxl | Spreadsheet (.xlsx) exports | MIT | https://foss.heptapod.net/openpyxl/openpyxl |
 | et_xmlfile (used by openpyxl) | Spreadsheet (.xlsx) exports | MIT | https://foss.heptapod.net/openpyxl/et_xmlfile |
 | python-rtmidi (with RtMidi) | MIDI input/output for mido | MIT (RtMidi: MIT-style) | https://github.com/SpotlightKid/python-rtmidi |

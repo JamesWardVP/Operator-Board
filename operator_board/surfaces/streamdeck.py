@@ -12,6 +12,7 @@ calls it when Windows reports a device change, and from the Refresh devices butt
 """
 from __future__ import annotations
 
+import io
 import logging
 import os
 import threading
@@ -19,6 +20,7 @@ from typing import Dict, List, Optional
 
 from operator_board.core.events import EventBus
 from operator_board.surfaces.controller import SurfaceController
+from operator_board.surfaces import pictures
 from operator_board.surfaces.layout import MODELS
 from operator_board.surfaces.render import fit_label, LINE_SPACING
 
@@ -27,7 +29,7 @@ log = logging.getLogger(__name__)
 try:  # optional dependency
     from StreamDeck.DeviceManager import DeviceManager as _SDManager
     from StreamDeck.ImageHelpers import PILHelper
-    from PIL import ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont
     AVAILABLE = True
 except Exception:  # pragma: no cover - depends on optional packages / hidapi
     AVAILABLE = False
@@ -36,6 +38,7 @@ except Exception:  # pragma: no cover - depends on optional packages / hidapi
 _FONT_FILES = {"light": "segoeuil.ttf", "normal": "segoeui.ttf", "semibold": "seguisb.ttf", "bold": "segoeuib.ttf",
                "black": "seguibl.ttf"}
 _fonts: Dict[tuple, object] = {}
+_pictures: Dict[tuple, object] = {}  # (picture id, colour, width, height, cover) -> the picture at that size
 
 
 def _hex_to_rgb(color: str, fallback=(40, 40, 40)):
@@ -58,6 +61,48 @@ def _font(weight: str, size: int):
             except TypeError:  # Pillow older than 10.1
                 _fonts[key] = ImageFont.load_default()
     return _fonts[key]
+
+
+def key_picture(binding, box, cover: bool = False):
+    """(Pillow image, x, y) of a button's picture scaled into ``box``, recoloured if asked; None
+    when it has no picture or the picture cannot be read."""
+    key = (pictures.picture_id(binding.image), binding.image_color, box[2], box[3], cover)
+    if key not in _pictures:
+        if len(_pictures) > 400:
+            _pictures.clear()
+        try:
+            picture = Image.open(io.BytesIO(pictures.decode(binding.image))).convert("RGBA")
+        except Exception:  # noqa: BLE001 - a damaged picture leaves the key without one
+            _pictures[key] = None
+            return None
+        if binding.image_color:
+            solid = Image.new("RGBA", picture.size, _hex_to_rgb(binding.image_color, (255, 255, 255)) + (255,))
+            solid.putalpha(picture.getchannel("A"))
+            picture = solid
+        x, y, w, h = pictures.place(picture.width, picture.height, (0, 0, box[2], box[3]), cover)
+        picture = picture.resize((w, h), getattr(Image, "LANCZOS", 1))
+        if cover:  # keep the middle, the size of the box
+            picture = picture.crop((-x, -y, -x + box[2], -y + box[3]))
+            x = y = 0
+        _pictures[key] = (picture, x, y)
+    found = _pictures[key]
+    return (found[0], box[0] + found[1], box[1] + found[2]) if found else None
+
+
+def draw_key(image, binding, active: bool) -> None:
+    """Draw an assigned button on a key image: colour, picture, label."""
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, image.width, image.height), fill=_hex_to_rgb(binding.active_color if active
+                                                                        else binding.color))
+    pad = max(3, image.width // 14)
+    picture_box, label_box = pictures.areas(image.width, image.height, pad, binding)
+    if picture_box:
+        found = key_picture(binding, picture_box, cover=pictures.layout_of(binding) == pictures.LAYOUT_FILL)
+        if found:
+            image.paste(found[0], (found[1], found[2]), found[0])
+    if label_box:
+        StreamDeckBackend._draw_text(draw, image, pictures.label_text(binding), binding.text_color,
+                                     binding.font_size, binding.font_weight, binding.word_wrap, label_box)
 
 
 def model_for(key_count: int, deck_type: str = "") -> str:
@@ -215,16 +260,13 @@ class StreamDeckBackend:
             return
         binding = surface.binding(key)
         if binding and binding.action:
-            color = binding.active_color if surface.is_active(key) else binding.color
-            draw.rectangle((0, 0, image.width, image.height), fill=_hex_to_rgb(color))
-            self._draw_text(draw, image, binding.label or binding.action, binding.text_color, binding.font_size,
-                            binding.font_weight, binding.word_wrap)
+            draw_key(image, binding, surface.is_active(key))
         device.set_key_image(key, PILHelper.to_native_key_format(device, image))
 
     @staticmethod
-    def _draw_text(draw, image, text: str, color: str, size: int, weight: str, wrap: bool) -> None:
+    def _draw_text(draw, image, text: str, color: str, size: int, weight: str, wrap: bool, box=None) -> None:
         pad = max(3, image.width // 14)
-        width, height = image.width - 2 * pad, image.height - 2 * pad
+        left, top_edge, width, height = box or (pad, pad, image.width - 2 * pad, image.height - 2 * pad)
 
         def measure(line: str, px: int):
             box = draw.textbbox((0, 0), line or " ", font=_font(weight, px))
@@ -233,7 +275,7 @@ class StreamDeckBackend:
         lines, px = fit_label(text, width, height, measure, size, wrap, key_px=image.width)
         font = _font(weight, px)
         step = font.size * LINE_SPACING
-        top = image.height / 2 - step * (len(lines) - 1) / 2
+        top = top_edge + height / 2 - step * (len(lines) - 1) / 2
         for n, line in enumerate(lines):
-            draw.text((image.width / 2, top + n * step), line, font=font, anchor="mm",
+            draw.text((left + width / 2, top + n * step), line, font=font, anchor="mm",
                       fill=_hex_to_rgb(color, (255, 255, 255)))

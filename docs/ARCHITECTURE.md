@@ -23,9 +23,11 @@ operator_board/
   sync/                  sync providers (FreeFileSync/P4/Git/Robocopy/custom) + manager
   analytics/             MetricStore (time series from listener sync status)
   surfaces/              surface layouts (JSON), SurfaceManager (several surfaces at once), controller, label fitting,
-                         Stream Deck / MIDI / OSC backends, web panel, HTTP API for Companion
+                         button pictures (pictures.py: storage and placing), Stream Deck / MIDI / OSC backends,
+                         web panel, HTTP API for Companion
   ui/                    main window, theme, widgets, generic dataclass forms, one module per page;
-                         custom_grid.py + pages/custom.py show a custom page, button_dialog.py its buttons
+                         custom_grid.py + pages/custom.py show a custom page, button_dialog.py its buttons;
+                         pictures.py is the icon and emoji library, the picker and the Picture editor row
 ```
 
 ## Packaging
