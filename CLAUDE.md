@@ -353,7 +353,11 @@ Older packages are removed. Always build into `dist/`, never side folders.
 3. Python in a real editor: the sub-level visibility getter, and an actual Take Recorder recording (`start_recording`).
 4. Concert log patterns for the multi-user client count.
 5. Opening an Operator Board config in the Switchboard UI itself on 5.2–5.7. 5.8 was checked through Switchboard's own loader, not its window.
-6. Colour grading on 5.2–5.5. Only Epic's Python API pages were checked; every property the app uses is listed there. The read, write, bypass, look and undo paths are verified live on 5.6, 5.7 and 5.8, on the editor and on a `-dc_cluster` node, for all five target kinds. On 5.8 they were also checked through multi-user, where direct node sends do not fight multi-user. On screen, only the nDisplay cluster and viewport grades were confirmed. ICVFX, Post Process Volume and Colour Correct Region grades read back correctly on the node, but their effect on the picture was not confirmed.
+6. Colour grading:
+   - **5.2–5.5:** only Epic's Python API pages were checked. Every property the app uses is listed there.
+   - **What passed live on 5.6, 5.7 and 5.8:** read, write, bypass, look and undo, on the editor and on a `-dc_cluster` node, for five target kinds: the nDisplay cluster, an nDisplay per-viewport entry, an ICVFX camera on all nodes, a Post Process Volume, and a Colour Correct Region sphere. On 5.8 the same checks also passed through multi-user, where direct node sends do not fight multi-user. The checks read values back with the app's own scripts, not the Details panel.
+   - **Not tested:** ICVFX per-node entries (`icvfx_node`) and Colour Correct Windows.
+   - **On screen:** the node picture changed for the nDisplay cluster and per-viewport grades. For an ICVFX camera and a Post Process Volume, a strong red Gain left the node capture's average colour exactly the same. The capture may have missed it, or the grade may not reach the picture. Check this on a real wall before relying on those two kinds. The Colour Correct Region capture changed only slightly.
 
 ## Conventions
 - Keep Python 3.9 compatible: no `match`, no runtime `X | Y` unions, no walrus.
