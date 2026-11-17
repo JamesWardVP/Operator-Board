@@ -554,17 +554,25 @@ class GradingService:
                 return "Nothing was bypassed"
             self.refresh_targets()
             present = {t["key"] for t in self.targets_list}
-            gone, done = [], 0
+            gone, failed, done = [], [], 0
             for key in keys:
+                label = key.split("|")[1] if "|" in key else key
                 if key in present:
-                    self.set_bypass(key, False)
-                    done += 1
+                    try:
+                        self.set_bypass(key, False)
+                        done += 1
+                    except GradingProblem as exc:  # keep going: restore every target that can be
+                        failed.append(f"{label}: {exc}")
                 else:
                     self.bypass.set(key, False)
-                    gone.append(key.split("|")[1] if "|" in key else key)
-            if gone:
-                raise GradingProblem(f"Restored the grade on {done} target{'s' if done != 1 else ''}; "
-                                     f"{GONE}: {', '.join(gone)}")
+                    gone.append(label)
+            if gone or failed:
+                parts = [f"Restored the grade on {done} target{'s' if done != 1 else ''}"]
+                if failed:
+                    parts.append("not restored: " + "; ".join(failed))
+                if gone:
+                    parts.append(f"{GONE}: {', '.join(gone)}")
+                raise GradingProblem("; ".join(parts))
             return f"Restored the grade on {done} target{'s' if done != 1 else ''}"
         return self._guard(run)
 

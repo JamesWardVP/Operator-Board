@@ -233,3 +233,15 @@ def test_bypass_entries_are_not_remote_objects_settings(ctx):
     ctx.changes.record("Colour Grading", "Stage PPV", "Bypass", value="on", previous="off",
                        result="ok", kind="grade_switch", ref={"key": "ppv|Stage PPV"})
     assert ctx.changed_settings() == []
+
+
+def test_nudge_action_with_text_amount_is_a_plain_failure(ctx):
+    result = ctx.actions.invoke("grading.nudge", control="gain", amount="abc")
+    assert not result.ok
+    assert result.message == "The nudge amount must be a number"
+
+
+def test_broken_look_in_preset_is_a_preset_problem(ctx):
+    item = {"type": "grading_look", "data": ["not", "a", "look"]}
+    with pytest.raises(presets.PresetProblem):
+        presets.steps(ctx, {"items": [item]})[0][1]()

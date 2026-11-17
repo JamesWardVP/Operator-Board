@@ -692,7 +692,10 @@ class AppContext:
             found = GRADE_CONTROLS.get(control or "")
             if found is None:
                 return ActionResult(False, f"Unknown grading control '{control}'")
-            step = found.nudge if amount in (None, "") else float(amount)
+            try:
+                step = found.nudge if amount in (None, "") else float(amount)
+            except (TypeError, ValueError):
+                return ActionResult(False, "The nudge amount must be a number")
             return result(self.grading.nudge(found.id, float(step), target or "", channel or "y"))
 
         a.add("grading.look", "Recall colour grading look", CATEGORY_GRADING, look,

@@ -57,6 +57,8 @@ def item_summary(item: Dict[str, Any]) -> str:
         d = data or {}
         return f"{d.get('slate', '')} take {d.get('take', '')}" + (f" · {d['description']}" if d.get("description") else "")
     if kind == "grading_look":
+        if data and not isinstance(data, dict):
+            return "(damaged look)"
         return (data or {}).get("name", "") or "(unnamed look)"
     if kind == "led":
         return ", ".join(f"{n}: {v.get('mode')}" for n, v in (data or {}).items()) or "(none)"
@@ -316,7 +318,10 @@ def _apply_custom_pages(ctx, data) -> str:
 def _apply_grading_look(ctx, data) -> str:
     from operator_board.core.looks import Look
     from operator_board.remote.grading import GradingProblem
-    look = Look.from_dict(_need(data, "colour grading look"))
+    try:
+        look = Look.from_dict(_need(data, "colour grading look"))
+    except (TypeError, ValueError, KeyError, AttributeError):
+        raise PresetProblem("The colour grading look in this preset is damaged")
     try:
         warnings = ctx.grading.apply_look(look)
     except GradingProblem as exc:

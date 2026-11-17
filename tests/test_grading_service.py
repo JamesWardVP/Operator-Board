@@ -572,3 +572,18 @@ def test_failed_bypass_is_logged_as_failed():
         svc.set_bypass(PPV, True)
     switches = [c[1] for c in rec.calls if c[1].get("kind") == "grade_switch"]
     assert switches and switches[-1]["result"].startswith("failed")
+
+
+def test_restore_bypassed_tries_every_target(tmp_path):
+    svc, ed, ns, *_ = make(tmp_path=tmp_path)
+    svc.set_bypass(PPV, True)
+    svc.set_bypass(CLUSTER, True)
+
+    def root_fails(script):
+        if '"Root"' in script and "set_enabled(" in script:
+            raise RemoteControlError("Python error: the nDisplay root could not be read")
+    for c in [ed] + ns:
+        c.on_call = root_fails
+    ok, msg = svc.restore_bypassed()
+    assert not ok and "Root" in msg
+    assert not svc.is_bypassed(PPV)
