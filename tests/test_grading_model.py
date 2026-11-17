@@ -98,3 +98,44 @@ def test_nudge_defaults_and_clamp():
 def test_nudge_unknown_control():
     with pytest.raises(KeyError):
         nudge(Grade.neutral(), "sharpness", 1)
+
+
+def test_hex_on_offset_wheels_uses_zero_neutral():
+    assert tint_hex((0.0, 0.0, 0.0), neutral=0.0) == "#FFFFFF"
+    warm = tint_hex((0.02, 0.0, 0.0), neutral=0.0)
+    cool = tint_hex((-0.02, 0.0, 0.0), neutral=0.0)
+    assert warm.startswith("#FF") and warm != "#FFFFFF" and warm != "#FF0000"
+    assert cool != "#FFFFFF" and cool[1:3] < cool[3:5]  # less red than green
+    r, g, b, y = hex_to_tint("#FFFFFF", 0.0, neutral=0.0)
+    assert (r, g, b) == (0.0, 0.0, 0.0)
+
+
+def test_hex_round_trip_keeps_colour():
+    for neutral, rgb in ((1.0, (1.1, 1.0, 0.9)), (0.0, (0.05, -0.02, 0.0))):
+        text = tint_hex(rgb, neutral=neutral)
+        assert tint_hex(hex_to_tint(text, 1.0, neutral=neutral)[:3], neutral=neutral) == text
+
+
+def test_from_dict_drops_bad_entries():
+    g = Grade.from_dict({"values": {"global.gain": 5, "global.gamma": ["x"], "global.offset": [1, 2],
+                                    "global.contrast": [1.1, 1, 1, 1]},
+                         "temp": None, "tint": "warm", "overrides": "global.gain", "limits": []})
+    assert g.get("global.gain") == (1, 1, 1, 1) and g.get("global.offset") == (0, 0, 0, 0)
+    assert g.get("global.contrast") == (1.1, 1, 1, 1)
+    assert (g.temp, g.tint) == (6500.0, 0.0)
+    assert Grade.from_dict([]) == Grade.neutral()
+
+
+def test_set_requires_four_numbers():
+    with pytest.raises(ValueError):
+        Grade.neutral().set("global.gain", (1, 2))
+
+
+def test_nudge_rejects_unknown_channel():
+    for bad in ("", "gb", "x"):
+        with pytest.raises(ValueError):
+            nudge(Grade.neutral(), "gain", 0.02, channel=bad)
+
+
+def test_wheel_nudge_clamps_channel():
+    assert nudge(Grade.neutral(), "gain", +5).get("global.gain")[3] == 2.0

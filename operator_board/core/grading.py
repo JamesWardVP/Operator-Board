@@ -12,6 +12,7 @@ Grades are treated as values: ``set``, ``reset`` and ``nudge`` return a new one.
 from __future__ import annotations
 
 import copy
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -49,6 +50,11 @@ class Control:
     def key(self) -> str:
         """The Grade key this control edits."""
         return self.part if not self.range else f"{self.range}.{self.part}"
+
+    @property
+    def neutral(self) -> float:
+        """The untouched level of each colour channel (0 for offsets, 1 otherwise)."""
+        return 0.0 if self.part == "offset" else 1.0
 
 
 def _wheel(cid: str, title: str, rng: str, part: str, nudge_by: float) -> Control:
@@ -121,7 +127,10 @@ class Grade:
         elif key == "tint":
             g.tint = float(value)
         else:
-            g.values[key] = tuple(float(v) for v in value)  # type: ignore[assignment]
+            vec = tuple(float(v) for v in value)
+            if len(vec) != 4:
+                raise ValueError(f"{key} needs four numbers (r, g, b, brightness), not {len(vec)}")
+            g.values[key] = vec  # type: ignore[assignment]
         g.overrides.add(key)
         return g
 
@@ -138,37 +147,63 @@ class Grade:
                 "overrides": sorted(self.overrides), "limits": dict(self.limits)}
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "Grade":
+    def from_dict(cls, d: Any) -> "Grade":
+        """A grade from saved data; anything malformed is left neutral rather than refused."""
         g = cls.neutral()
-        for k, v in (d.get("values") or {}).items():
-            if k in VECTOR_KEYS:
-                g.values[k] = tuple(float(x) for x in v)  # type: ignore[assignment]
-        g.temp = float(d.get("temp", NEUTRAL_TEMP))
-        g.tint = float(d.get("tint", NEUTRAL_TINT))
-        g.overrides = {k for k in d.get("overrides") or () if k in ALL_KEYS}
-        g.limits = {k: float(v) for k, v in (d.get("limits") or {}).items() if k in LIMIT_KEYS}
+        if not isinstance(d, dict):
+            return g
+        values = d.get("values")
+        for k, v in (values.items() if isinstance(values, dict) else ()):
+            vec = _vec4(v)
+            if k in VECTOR_KEYS and vec is not None:
+                g.values[k] = vec
+        g.temp = _num(d.get("temp"), NEUTRAL_TEMP)
+        g.tint = _num(d.get("tint"), NEUTRAL_TINT)
+        overrides = d.get("overrides")
+        g.overrides = {k for k in overrides if k in ALL_KEYS} if isinstance(overrides, list) else set()
+        limits = d.get("limits")
+        for k, v in (limits.items() if isinstance(limits, dict) else ()):
+            if k in LIMIT_KEYS and _num(v, None) is not None:
+                g.limits[k] = float(v)
         return g
+
+
+def _num(value: Any, default: Any) -> Any:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return f if math.isfinite(f) else default
+
+
+def _vec4(value: Any) -> Optional[Vec4]:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    nums = [_num(v, None) for v in value]
+    return None if any(n is None for n in nums) else tuple(nums)  # type: ignore[return-value]
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
-def tint_hex(rgb: Tuple[float, float, float]) -> str:
-    """The colour of a wheel's tint as #RRGGBB, brightness left out (the largest channel is FF)."""
-    r, g, b = (max(0.0, float(c)) for c in rgb[:3])
-    top = max(r, g, b)
+def tint_hex(rgb: Tuple[float, float, float], neutral: float = 1.0) -> str:
+    """The colour of a wheel's tint as #RRGGBB, brightness left out. ``neutral`` is the wheel's
+    untouched channel level (0 for offsets): the channels are measured from white at that level,
+    then scaled so the largest is FF."""
+    shifted = [_num(c, neutral) - neutral + 1.0 for c in rgb[:3]]
+    top = max(shifted)
     if top <= 0:
         return "#FFFFFF"
-    return "#" + "".join(f"{int(round(c / top * 255)):02X}" for c in (r, g, b))
+    return "#" + "".join(f"{int(round(max(0.0, c) / top * 255)):02X}" for c in shifted)
 
 
 _HEX = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
 
-def hex_to_tint(text: str, y: float) -> Vec4:
-    """The (r, g, b, y) for a typed #RRGGBB tint, keeping the brightness ``y``. The colour is scaled
-    so its largest channel is 1 (the same convention ``tint_hex`` reads back)."""
+def hex_to_tint(text: str, y: float, neutral: float = 1.0) -> Vec4:
+    """The (r, g, b, y) for a typed #RRGGBB tint, keeping the brightness ``y``: the reverse of
+    ``tint_hex`` (largest channel at the neutral level, the others below it)."""
     m = _HEX.match((text or "").strip())
     if not m:
         raise ValueError(f"'{text}' is not a colour like #FFE8DD")
@@ -177,7 +212,7 @@ def hex_to_tint(text: str, y: float) -> Vec4:
     top = max(r, g, b)
     if top <= 0:
         raise ValueError("Black has no tint colour")
-    return (r / top, g / top, b / top, float(y))
+    return (r / top - 1.0 + neutral, g / top - 1.0 + neutral, b / top - 1.0 + neutral, float(y))
 
 
 def nudge(grade: Grade, control_id: str, amount: float, channel: str = "y") -> Grade:
@@ -186,6 +221,8 @@ def nudge(grade: Grade, control_id: str, amount: float, channel: str = "y") -> G
     c = CONTROLS[control_id]
     if c.kind == "slider":
         return grade.set(c.key, _clamp(grade.get(c.key) + amount, c.lo, c.hi))
+    if channel not in ("r", "g", "b", "y"):
+        raise ValueError(f"Channel must be r, g, b or y, not '{channel}'")
     idx = "rgby".index(channel)
     vec = list(grade.get(c.key))
     vec[idx] = _clamp(vec[idx] + amount, c.lo, c.hi)
