@@ -130,6 +130,7 @@ class NudgeEditor(QtWidgets.QWidget):
             self.channel.addItem(label, key)
         self.target = QtWidgets.QComboBox()
         self.target.setEditable(True)
+        self.target.setInsertPolicy(QtWidgets.QComboBox.NoInsert)  # Enter keeps the typed target as typed
         form.addRow("Control", self.control)
         form.addRow("Amount", self.amount)
         form.addRow("Colour channel", self.channel)

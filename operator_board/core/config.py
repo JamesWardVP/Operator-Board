@@ -193,6 +193,7 @@ class UIConfig:
 @dataclass
 class GradingConfig:
     selected: str = ""  # the Colour Grading target chosen last (core.looks.target_key)
+    active_look: str = ""  # the look last recalled, until the grade is changed by hand (recorded on takes)
 
 
 @dataclass

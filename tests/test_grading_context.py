@@ -55,6 +55,9 @@ class FakeGrading:
     def apply(self, key, grade_dict):
         self.calls.append(("apply", key, grade_dict))
 
+    def stop(self):
+        self.calls.append(("stop",))
+
 
 @pytest.fixture
 def ctx(tmp_path):
@@ -180,3 +183,47 @@ def test_nudge_editor_round_trips_params():
     ed.amount.setText("abc")
     with pytest.raises(ValueError):
         ed.params()
+
+
+def test_grade_changes_are_not_remote_objects_settings(ctx):
+    ctx.changes.record("Colour Grading", "Stage PPV", "Nudge Gain +0.02", value={"temp": 1}, previous=None,
+                       result="ok", kind="grade", ref={"key": "ppv|Stage PPV"})
+    assert ctx.changed_settings() == []
+
+
+def test_editor_ready_loads_grading_targets(tmp_path):
+    cfg = AppConfig()
+    cfg.surfaces.api_port = 0
+    c = AppContext(cfg, project_dir=str(tmp_path))
+    try:
+        calls = []
+        c.grading.refresh_targets = lambda: calls.append(1) or []
+        c.bus.publish("editor.ready")
+        c.bus.publish("editor.level_changed")
+        import time as _t
+        end = _t.time() + 2
+        while len(calls) < 2 and _t.time() < end:
+            _t.sleep(0.01)
+        assert len(calls) == 2
+    finally:
+        c.shutdown()
+
+
+def test_shutdown_stops_grading(tmp_path):
+    cfg = AppConfig()
+    cfg.surfaces.api_port = 0
+    c = AppContext(cfg, project_dir=str(tmp_path))
+    c.shutdown()
+    assert c.grading.stopped
+
+
+def test_nudge_editor_typed_target_survives_enter():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from operator_board import qt
+    from operator_board.ui.action_editors import NudgeEditor
+    qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    ed = NudgeEditor(targets=lambda: [])
+    ed.target.setEditText("ccr|Typed CCR")
+    ed.target.lineEdit().returnPressed.emit()
+    assert ed.params()["target"] == "ccr|Typed CCR"

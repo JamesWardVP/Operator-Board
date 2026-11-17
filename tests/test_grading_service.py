@@ -424,3 +424,30 @@ def test_editor_lost_mid_drag_release_goes_to_nodes_in_a_transaction():
     ed.down = True
     svc.end_gesture(PPV, "Tint")
     assert all(any("), True)" in w for w in n.writes()) for n in ns)
+
+
+def test_saved_selection_loads_targets_when_none_are_loaded():
+    svc, ed, *_ = make()
+    svc.select(PPV)
+    svc.targets_list = []  # fresh start: nothing loaded yet
+    ok, _ = svc.nudge("gain", 0.02)
+    assert ok and ed.writes()
+
+
+def test_hand_change_clears_active_look_and_look_is_saved():
+    svc, ed, *_ = make()
+    svc.looks.save(Look("Warm", {PPV: Grade.neutral().set("temp", 5600)}))
+    svc.recall_look("Warm")
+    assert svc.active_look == "Warm" and svc.config.grading.active_look == "Warm"
+    svc.nudge("gain", 0.02, PPV)
+    assert svc.active_look == ""
+
+
+def test_stop_ends_retries():
+    svc, ed, ns, *_ = make()
+    ns[1].down = True
+    svc.nudge("tint", 0.05, PPV)
+    svc.stop()
+    ns[1].down = False
+    time.sleep(0.3)
+    assert not ns[1].writes() and svc.stopped

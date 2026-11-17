@@ -247,7 +247,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if topic == "multiuser.sessions_archived":
             self.notify("Archived the previous multi-user session(s): " + ", ".join(payload.get("names", [])))
         if topic == "editor.ready":
-            self._offer_grading_restore()
+            # Ask after this event has reached every page, so their lists are not held up by the question.
+            QtCore.QTimer.singleShot(0, self._offer_grading_restore)
         if topic.startswith("editor."):  # let every page fill its lists, not only the one on screen
             for p in self.pages:
                 if p is not self.current_page() and hasattr(p, "EDITOR_EVENTS"):
@@ -327,7 +328,7 @@ class MainWindow(QtWidgets.QMainWindow):
         box.addButton("Leave bypassed", QtWidgets.QMessageBox.RejectRole)
         box.setDefaultButton(restore)
         exec_(box)
-        if box.clickedButton() is not restore:
+        if self._closing or box.clickedButton() is not restore:
             return
         run_async(self.ctx.grading.restore_bypassed, lambda r: self.notify(r[1], r[0]),
                   lambda exc: self.notify(f"Could not restore the grade: {exc}", False))

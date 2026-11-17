@@ -72,8 +72,28 @@ class GradingService:
         # (client name, key, "grade" | "switch") -> (client, script_for, stamp): changes to send again
         self._missed: Dict[Tuple[str, str, str], Tuple[Any, Callable[[bool], str], int]] = {}
         self._stamp = 0
-        self.active_look = ""  # the look last recalled ("" once the grade is changed by hand)
+        self.stopped = False
         self._retrier: Optional[threading.Thread] = None
+
+    # ---- lifecycle ----------------------------------------------------------------------------
+    def stop(self) -> None:
+        """Stop sending (the app is closing or switching project): nothing queued is sent again."""
+        with self._lock:
+            self.stopped = True
+            self._missed.clear()
+            self._pending.clear()
+            self._wake.notify_all()
+
+    @property
+    def active_look(self) -> str:
+        """The look last recalled, until the grade is changed by hand ("" then). Kept in the config."""
+        return self.config.grading.active_look
+
+    @active_look.setter
+    def active_look(self, name: str) -> None:
+        if name != self.config.grading.active_look:
+            self.config.grading.active_look = name
+            self.bus.publish("grading.look", name=name)
 
     # ---- targets and selection ---------------------------------------------------------------
     @property
@@ -115,11 +135,9 @@ class GradingService:
         return found
 
     def _key(self, key: str) -> str:
+        if not self.targets_list:
+            self.refresh_targets()  # nothing loaded yet (a Stream Deck press straight after start-up)
         key = key or self.selected
-        if not key:
-            if not self.targets_list:
-                self.refresh_targets()
-            key = self.selected
         if not key:
             raise GradingProblem("There is nothing to grade in the open level")
         return key
@@ -228,7 +246,7 @@ class GradingService:
             time.sleep(self.retry_s)
             with self._lock:
                 items = list(self._missed.items())
-                if not items:
+                if not items or self.stopped:
                     self._retrier = None
                     return
             for entry, (client, script_for, stamp) in items:
@@ -286,7 +304,8 @@ class GradingService:
     def _send_worker(self) -> None:
         while True:
             with self._lock:
-                if not self._pending:
+                if not self._pending or self.stopped:
+                    self._pending.clear()
                     self._sender = None
                     self._wake.notify_all()
                     return
@@ -329,11 +348,13 @@ class GradingService:
         except GradingProblem as exc:
             result = f"failed: {exc}"
             self.bus.publish("grading.problem", message=str(exc))
+        self.active_look = ""
         self._log(key, label, previous, result)
         self.bus.publish("grading.changed", key=key, grade=self.current.get(key))
 
     # ---- one-shot changes ---------------------------------------------------------------------
-    def _change(self, key: str, label: str, values: Dict[str, Any], previous: Optional[Grade] = None) -> None:
+    def _change(self, key: str, label: str, values: Dict[str, Any], previous: Optional[Grade] = None,
+                look: bool = False) -> None:
         if previous is None:
             previous = self.read(key)
         self._end_bypass(key)
@@ -343,6 +364,8 @@ class GradingService:
         with self._lock:
             self.current[key] = grade
         self._deliver(key, self._write_script(key, values), transact=True)
+        if not look:
+            self.active_look = ""
         self._log(key, label, previous, "ok")
         self.bus.publish("grading.changed", key=key, grade=grade)
 
@@ -491,7 +514,7 @@ class GradingService:
                 continue
             try:
                 self._change(key, f"Look {look.name}",
-                             {k: (grade.get(k) if k in grade.overrides else None) for k in ALL_KEYS})
+                             {k: (grade.get(k) if k in grade.overrides else None) for k in ALL_KEYS}, look=True)
                 applied += 1
             except GradingProblem as exc:
                 warnings.append(str(exc))

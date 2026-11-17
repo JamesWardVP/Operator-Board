@@ -101,6 +101,11 @@ class AppContext:
         self.grading = GradingService(self.config, self.targets, self.bus, self.looks,
                                       BypassState(os.path.join(pages_dir, BYPASS_FILE)), record=self.changes.record)
         self.bus.subscribe("grading.selected", lambda _t, _p: self._save_quietly())
+        self.bus.subscribe("grading.look", lambda _t, _p: self._save_quietly())
+        # Load the grading targets whenever Unreal has a level open, so a Stream Deck press, the HTTP
+        # API or a preset works without the Colour Grading page having been opened.
+        self.bus.subscribe("editor.ready", lambda _t, _p: self._refresh_grading_soon())
+        self.bus.subscribe("editor.level_changed", lambda _t, _p: self._refresh_grading_soon())
         self.takes.look_provider = lambda: self.grading.active_look or "unsaved grade"
         self._register_actions()
 
@@ -231,6 +236,7 @@ class AppContext:
         self.stop_surface_backends()
         self.timing.stop()
         self.editor.stop()
+        self.grading.stop()
         if self.api:
             self.api.stop()
         if self.streamdeck:
@@ -391,7 +397,7 @@ class AppContext:
         (what "Export changes" and a preset's Remote Objects item hold)."""
         latest: Dict[tuple, ChangeRecord] = {}
         for rec in self.session_changes():
-            if rec.kind and rec.result == "ok":
+            if rec.kind and rec.kind != "grade" and rec.result == "ok":  # grades travel as looks
                 latest[rec.key] = rec
         return [{"kind": r.kind, "ref": r.ref, "item": r.item, "setting": r.setting, "value": r.value}
                 for r in latest.values()]
@@ -481,6 +487,14 @@ class AppContext:
     def save(self) -> str:
         self.surfaces.store()
         return self.store.save(self.config)
+
+    def _refresh_grading_soon(self) -> None:
+        def work():
+            try:
+                self.grading.refresh_targets()
+            except Exception as exc:  # noqa: BLE001 - the page and the next action try again
+                log.info("Could not load the colour grading targets: %s", exc)
+        threading.Thread(target=work, daemon=True, name="grading-targets").start()
 
     def _save_quietly(self) -> None:
         """Keep a setting changed by Operator Board itself (the next session name) across restarts."""
