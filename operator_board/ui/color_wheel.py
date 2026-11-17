@@ -297,6 +297,13 @@ class ColorWheel(QtWidgets.QWidget):
         self.gesture.finish()
         super().hideEvent(event)
 
+    def changeEvent(self, event) -> None:
+        if event.type() == QtCore.QEvent.EnabledChange and not self.isEnabled():
+            self._dragging = False  # greyed mid-drag: its release will never arrive
+            self._last = None
+            self.gesture.finish()
+        super().changeEvent(event)
+
     # ---- painting -----------------------------------------------------------------------------------
     def _ring_image(self, size: int) -> QtGui.QImage:
         """The hue disc at low strength, fading to the panel grey at the centre (cached per size)."""
@@ -548,6 +555,11 @@ class WheelControl(QtWidgets.QWidget):
         self.gesture.finish()
         super().hideEvent(event)
 
+    def changeEvent(self, event) -> None:
+        if event.type() == QtCore.QEvent.EnabledChange and not self.isEnabled():
+            self.gesture.finish()
+        super().changeEvent(event)
+
 
 class GradeSlider(QtWidgets.QWidget):
     """Temperature or Tint: title, Unreal's name in italics, a slider and a typed value.
@@ -657,3 +669,8 @@ class GradeSlider(QtWidgets.QWidget):
     def hideEvent(self, event) -> None:
         self.gesture.finish()
         super().hideEvent(event)
+
+    def changeEvent(self, event) -> None:
+        if event.type() == QtCore.QEvent.EnabledChange and not self.isEnabled():
+            self.gesture.finish()
+        super().changeEvent(event)

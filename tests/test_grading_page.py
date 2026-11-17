@@ -507,3 +507,22 @@ def test_coming_back_to_the_page_reads_again_before_a_drag_can_start(opened):
     QtWidgets.QApplication.processEvents()
     assert not page.gain.isEnabled()                 # greyed until Unreal's grade is read
     assert wait_until(lambda: page.gain.isEnabled() and page.gain.value() == (0.8, 0.8, 0.8, 0.8))
+
+
+def test_reset_waits_for_a_value_still_being_sent(opened):
+    _app, _ctx, _window, page, fake = opened
+    pick(page, PPV)
+    assert wait_until(lambda: page.temperature.isEnabled() and page.temperature.value() == 5600.0)
+    original = fake.send
+
+    def slow_send(key, values):
+        time.sleep(0.3)
+        original(key, values)
+    fake.send = slow_send
+    page.temperature.field.setText("6000")
+    page.temperature.field.setModified(True)
+    page.temperature.field.editingFinished.emit()
+    page.reset_button.click()
+    assert wait_until(lambda: calls(fake, "reset"), timeout=5)
+    names = [c[0] for c in fake.calls]
+    assert names.index("send") < names.index("reset"), "Reset overtook a value still being sent"

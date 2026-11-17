@@ -609,27 +609,37 @@ class GradingPage(BasePage):
         self._fill_targets()
         self._update_state()
 
+    def _queue(self, fn: Callable[[], Any], done: Optional[Callable[[Any], None]] = None,
+               what: str = "Operation", failed: Optional[Callable[[Exception], None]] = None) -> None:
+        """Run a button's change on the page's in-order worker, behind any drag or typed value still
+        being sent, so a press never overtakes it."""
+        def on_fail(exc: Exception) -> None:
+            self.notify(f"{what}: {exc}", False)
+            if failed is not None:
+                failed(exc)
+        self._shared.put(fn, done, on_fail)
+
     def _bypass_clicked(self) -> None:
         key = self._usable_key()
         if not key:
             self._update_state()
             return
         on = self.bypass_button.isChecked()
-        self.background(lambda: self.ctx.grading.set_bypass(key, on), lambda _now: self._result((True, "")),
+        self._queue(lambda: self.ctx.grading.set_bypass(key, on), lambda _now: self._result((True, "")),
                         "Bypass", failed=lambda _exc: self._result((True, "")))
 
     def _reset(self) -> None:
         key = self._usable_key()
         if key:
-            self.background(lambda: self.ctx.grading.reset(key, None), self._result, "Reset grade")
+            self._queue(lambda: self.ctx.grading.reset(key, None), self._result, "Reset grade")
 
     def _enable(self) -> None:
         key = self._usable_key()
         if key:
-            self.background(lambda: self.ctx.grading.enable(key), self._result, "Enable grading")
+            self._queue(lambda: self.ctx.grading.enable(key), self._result, "Enable grading")
 
     def _restore(self) -> None:
-        self.background(self.ctx.grading.restore_bypassed, self._result, "Restore the grade")
+        self._queue(self.ctx.grading.restore_bypassed, self._result, "Restore the grade")
 
     def _undoable(self) -> list:
         return [r for r in self.ctx.session_changes() if r.kind == "grade" and r.result == "ok"
@@ -659,7 +669,7 @@ class GradingPage(BasePage):
                     self._shared.undone.add(id(made))
             self.notify(f"Undone: {rec.setting} on {rec.item}")
             finished()
-        self.background(lambda: self.ctx.apply_setting("grade", rec.ref, rec.previous), done, "Undo",
+        self._queue(lambda: self.ctx.apply_setting("grade", rec.ref, rec.previous), done, "Undo",
                         failed=lambda _exc: finished())
 
     # ---- looks -------------------------------------------------------------------------------------
@@ -687,7 +697,7 @@ class GradingPage(BasePage):
             else:
                 self.notify(f"Look '{name}' recalled")
             self._fill_looks()
-        self.background(lambda: self.ctx.grading.recall_look(name), done, f"Recall look '{name}'",
+        self._queue(lambda: self.ctx.grading.recall_look(name), done, f"Recall look '{name}'",
                         failed=lambda _exc: self._fill_looks())
 
     def _ask_save_look(self) -> None:
@@ -709,7 +719,7 @@ class GradingPage(BasePage):
             self.ctx.grading.active_look = name
             self.notify(f"Saved look '{name}'")
             self._fill_looks()
-        self.background(lambda: self.ctx.grading.save_look(name, keys), done, f"Save look '{name}'")
+        self._queue(lambda: self.ctx.grading.save_look(name, keys), done, f"Save look '{name}'")
 
     def _delete_look(self, name: str, confirm: bool = True) -> None:
         if confirm and QtWidgets.QMessageBox.question(

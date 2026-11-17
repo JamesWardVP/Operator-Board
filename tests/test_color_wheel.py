@@ -441,3 +441,20 @@ def test_channel_directions_are_a_third_of_a_turn_apart():
     angles = [math.atan2(*reversed(channel_direction(c))) for c in "rgb"]
     diffs = sorted((a - b) % (2 * math.pi) for a, b in zip(angles, angles[1:] + angles[:1]))
     assert diffs == pytest.approx([2 * math.pi / 3] * 3)
+
+
+def test_disabling_a_wheel_mid_drag_ends_the_gesture():
+    group = WheelControl(CONTROLS["gain"])
+    group.resize(260, 360)
+    group.show()
+    QtWidgets.QApplication.processEvents()
+    finished = []
+    group.gestureFinished.connect(lambda: finished.append(1))
+    w = group.wheel
+    c = (w.width() / 2, w.height() / 2)
+    mouse(w, "press", c)
+    mouse(w, "move", (c[0] + 15, c[1]))
+    assert group.busy()
+    group.setEnabled(False)                       # the target changed from a custom page copy
+    QtWidgets.QApplication.processEvents()
+    assert finished == [1] and not group.busy()
