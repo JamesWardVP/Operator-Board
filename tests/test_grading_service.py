@@ -524,3 +524,20 @@ def test_known_down_node_is_skipped_on_one_off_changes():
     assert time.time() - start < 0.15, "a node already known to be down cost another timeout"
     ns[0].down = False
     assert wait_for(lambda: ns[0].writes())       # the retrier catches it up
+
+
+def test_failed_change_is_not_delivered_later():
+    svc, ed, ns, *_ = make()
+
+    def editor_write_fails(script):
+        if "_g_run(lambda: _g_write(t" in script:
+            raise RemoteControlError("script error")
+    ed.on_call = editor_write_fails
+    for n in ns:
+        n.down = True
+    ok, _msg = svc.nudge("gain", 0.02, PPV)
+    assert not ok
+    for n in ns:
+        n.down = False
+    time.sleep(0.3)                                # several retry rounds (retry_s is 0.05)
+    assert not any(n.writes() for n in ns), "a change reported as failed reached a node later"

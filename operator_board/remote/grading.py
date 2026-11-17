@@ -194,6 +194,7 @@ class GradingService:
                 editor = None
         with self._lock:
             down = {name for name, _k, _w in self._missed}
+            waiting = {e: v for e, v in self._missed.items() if e[1] == key and e[2] == what}
         node_list, skipped = [], []
         for client in self.targets.resolve(TARGET_NDISPLAY):
             (skipped if _client_name(client) in down else node_list).append(client)
@@ -223,7 +224,13 @@ class GradingService:
                     missed.append(client)
                 else:
                     errors.append(f"{_client_name(client)}: {exc}")
-        if missed or skipped:
+        if not took:
+            # Nothing took it, so it failed: no node may get it later. Earlier changes still waiting
+            # for a node (a partial success before this) are kept as they were.
+            with self._lock:
+                self._missed = {e: v for e, v in self._missed.items() if not (e[1] == key and e[2] == what)}
+                self._missed.update(waiting)
+        elif missed or skipped:
             self._remember_missed(key, missed + skipped, what, script_for, quiet=not missed)
         if editor_error:
             if took:
