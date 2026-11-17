@@ -98,3 +98,10 @@ def test_camera_scripts_compile():
                    scripts.write_grade("ndisplay_viewport", "Root", ["VP'1"], {"global.gain": [1, 1, 1, 1]}, True),
                    scripts.set_grading_enabled("ccr", "It's", [], False, True)):
         compile(script, "<editor>", "exec")
+
+
+def test_resolver_clients_carry_their_device_name():
+    from operator_board.core.config import ROLE_NDISPLAY
+    cfg = AppConfig(devices=[DeviceConfig(name="Node_A", role=ROLE_NDISPLAY, address="10.0.0.12", rc_port=30010)])
+    client = TargetResolver(cfg).client_for("Node_A")
+    assert client.device_name == "Node_A"

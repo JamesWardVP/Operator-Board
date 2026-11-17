@@ -541,3 +541,13 @@ def test_failed_change_is_not_delivered_later():
         n.down = False
     time.sleep(0.3)                                # several retry rounds (retry_s is 0.05)
     assert not any(n.writes() for n in ns), "a change reported as failed reached a node later"
+
+
+def test_missed_node_warning_names_the_device():
+    svc, ed, ns, _rec, events = make()
+    ns[0].device_name = "render-node-2"
+    ns[0].down = True
+    svc.nudge("gain", 0.02, PPV)
+    messages = [p.get("message", "") for t, p in events if t == "grading.problem"]
+    assert any("render-node-2" in m for m in messages)
+    assert not any("node0:30010" in m for m in messages)

@@ -50,6 +50,10 @@ def _unreachable(exc: Exception) -> bool:
 
 
 def _client_name(client) -> str:
+    """The device's name as the Devices page shows it, else its address."""
+    name = getattr(client, "device_name", "")
+    if name:
+        return name
     return f"{getattr(client, 'host', '?')}:{getattr(client, 'port', '')}".rstrip(":")
 
 

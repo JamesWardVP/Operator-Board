@@ -54,6 +54,7 @@ class TargetResolver:
             client = RemoteControlClient(dev.address, dev.rc_port, self.config.remote_control.timeout_s)
             self._clients[key] = client
         client.timeout = self.config.remote_control.timeout_s
+        client.device_name = dev.name
         return client
 
     def primary_name(self) -> Optional[str]:
