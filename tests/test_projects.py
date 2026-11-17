@@ -79,6 +79,21 @@ def test_duplicate_rename_and_details():
     assert projects.read_info(a.id).director == "Sam"
 
 
+def test_new_project_from_setup_brings_looks_not_bypass(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPERATOR_BOARD_HOME", str(tmp_path))
+    src = projects.create(ProjectInfo(name="Stage A"))
+    root = projects.project_dir(src.id)
+    with open(os.path.join(root, "looks.json"), "w", encoding="utf-8") as fh:
+        fh.write('{"format": "operator-board-looks", "looks": []}')
+    with open(os.path.join(root, "grading_bypass.json"), "w", encoding="utf-8") as fh:
+        fh.write('{"bypassed": ["ppv|X"]}')
+    new = projects.create(ProjectInfo(name="Stage B"), setup_from=src.id)
+    target = projects.project_dir(new.id)
+    assert os.path.exists(os.path.join(target, "looks.json"))
+    assert not os.path.exists(os.path.join(target, "grading_bypass.json"))
+    assert "grading_bypass.json" in projects.SHOOT_FILES
+
+
 def test_export_import_and_templates(tmp_path):
     a = projects.create(ProjectInfo(name="Studio template", client="Studio"))
     ctx = _open(a.id)

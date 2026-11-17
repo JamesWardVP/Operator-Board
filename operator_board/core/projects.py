@@ -10,6 +10,8 @@ takes or camera positions) and an old one comes back exactly as it was:
                             Switchboard config it uses
         stages/<config>.opboard   its settings for each Switchboard config it has opened
         custom_pages.json   its custom pages (core/custom_pages.py)
+        looks.json          its colour grading looks (core/looks.py)
+        grading_bypass.json targets left bypassed (shoot data)
         take_log.json       its recorded takes
         change_log.jsonl    its change log
 
@@ -33,11 +35,12 @@ from typing import Dict, List, Optional
 
 from operator_board.core.config import app_home, atomic_write, default_config_path
 from operator_board.core.custom_pages import FILE_NAME as CUSTOM_PAGES_FILE
+from operator_board.core.looks import BYPASS_FILE, FILE_NAME as LOOKS_FILE
 
 PROJECT_FILE = "project.json"
 PROJECT_FORMAT = "operator-board-project"
 EXPORT_SUFFIX = ".opproject"
-SHOOT_FILES = ("take_log.json", "change_log.jsonl")  # left out of templates
+SHOOT_FILES = ("take_log.json", "change_log.jsonl", BYPASS_FILE)  # left out of templates
 
 
 @dataclass
@@ -175,9 +178,9 @@ def create(info: ProjectInfo, setup_from: str = "") -> ProjectInfo:
                 data = _clear_shoot_data(json.load(fh))
             os.makedirs(os.path.dirname(os.path.join(target, dst)), exist_ok=True)
             atomic_write(os.path.join(target, dst), json.dumps(data, indent=2))
-        pages = os.path.join(source, CUSTOM_PAGES_FILE)  # custom pages are part of the setup
-        if os.path.exists(pages):
-            shutil.copy2(pages, os.path.join(target, CUSTOM_PAGES_FILE))
+        for name in (CUSTOM_PAGES_FILE, LOOKS_FILE):  # custom pages and grading looks are part of the setup
+            if os.path.exists(os.path.join(source, name)):
+                shutil.copy2(os.path.join(source, name), os.path.join(target, name))
     write_info(info)
     return info
 
