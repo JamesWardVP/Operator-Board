@@ -22,6 +22,7 @@ import copy
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from operator_board.core.grading import ALL_KEYS, CONTROLS, Grade, nudge as nudge_grade
@@ -63,6 +64,8 @@ class GradingService:
         self.record = record
         self.retry_s = retry_s
         self.min_interval_s = min_interval_s
+        # Sends to the editor and every node at once (up to 16 at a time).
+        self._pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="grading-send")
         self.targets_list: List[Dict[str, Any]] = []
         self.missing: Dict[str, str] = {}
         self.current: Dict[str, Grade] = {}
@@ -88,6 +91,7 @@ class GradingService:
             self._missed.clear()
             self._pending.clear()
             self._wake.notify_all()
+        self._pool.shutdown(wait=False)
 
     @property
     def active_look(self) -> str:
@@ -164,41 +168,58 @@ class GradingService:
     # ---- delivery -----------------------------------------------------------------------------
     def _deliver(self, key: str, script_for: Callable[[bool], str], transact: bool, nodes: bool = True,
                  what: str = "grade", live: bool = False) -> None:
-        """Run a change on the editor (``transact``) and on every running node. Raises GradingProblem
-        when nobody took it, the target is gone, or the editor answered with an error (the nodes still
-        get the change). ``what`` is "grade" or "switch" (bypass / enable), so a node that could not be
-        reached is later sent the same kind of change. ``live``: part of a drag, so nodes already known
-        to be unreachable are left to the retrier instead of costing a timeout on every step."""
-        editor = None
+        """Run a change on the editor (``transact``) and on every running node, all at the same time,
+        and wait for every answer. Raises GradingProblem when nobody took it or the target is gone,
+        and GradingPartial when the editor answered with an error but nodes took it. ``what`` is
+        "grade" or "switch" (bypass / enable), so a node that could not be reached is later sent the
+        same kind of change. Nodes already known to be unreachable are left to the retrier instead
+        of costing a timeout on every change. ``nodes`` False (a release): the editor only, with the
+        nodes as a fallback when the editor can't take it. ``live`` is kept for callers; every change
+        now skips known-down nodes."""
+        if self.stopped:
+            raise GradingProblem("Operator Board is closing, so the grade was not changed")
         try:
             editor = self.targets.primary()
         except LookupError:
             editor = None
         took = 0
         editor_error = ""
-        if editor is not None:
+        if editor is not None and not nodes:
             try:
                 editor.run_python(script_for(transact))
-                took += 1
+                return
             except RemoteControlError as exc:
                 if not _unreachable(exc):
                     editor_error = str(exc)
                 editor = None
-        if not nodes and editor is not None:
-            return
-        missed, skipped, errors = [], [], []
+        with self._lock:
+            down = {name for name, _k, _w in self._missed}
+        node_list, skipped = [], []
         for client in self.targets.resolve(TARGET_NDISPLAY):
-            entry = (_client_name(client), key, what)
-            if live and entry in self._missed:
-                skipped.append(client)
-                continue
+            (skipped if _client_name(client) in down else node_list).append(client)
+        node_tx = transact and editor is None and not editor_error
+
+        def run(client, tx):
+            client.run_python(script_for(tx))
+
+        jobs = []
+        if editor is not None:
+            jobs.append((None, self._pool.submit(run, editor, transact)))
+        for client in node_list:
+            jobs.append((client, self._pool.submit(run, client, node_tx)))
+        missed, errors = [], []
+        for client, job in jobs:
             try:
-                client.run_python(script_for(transact and editor is None))
+                job.result()
                 took += 1
-                with self._lock:
-                    self._missed.pop(entry, None)
+                if client is not None:
+                    with self._lock:
+                        self._missed.pop((_client_name(client), key, what), None)
             except RemoteControlError as exc:
-                if _unreachable(exc):
+                if client is None:
+                    if not _unreachable(exc):
+                        editor_error = str(exc)
+                elif _unreachable(exc):
                     missed.append(client)
                 else:
                     errors.append(f"{_client_name(client)}: {exc}")

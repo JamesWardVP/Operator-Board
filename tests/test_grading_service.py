@@ -493,3 +493,34 @@ def test_release_transaction_records_the_change_from_the_gesture_start():
     tail = [w for w in ed.writes()][-2:]
     assert "_g_write(t, {\"tint\": None}), False)" in tail[0]
     assert "_g_write(t, {\"tint\": 0.1}), True)" in tail[1]
+
+
+def _slow_writes(client, seconds):
+    def slow(script):
+        if "_g_run(lambda: _g_write(t" in script:
+            time.sleep(seconds)
+    client.on_call = slow
+
+
+def test_one_off_change_reaches_nodes_at_the_same_time():
+    svc, ed, ns, *_ = make()
+    for n in ns:
+        _slow_writes(n, 0.3)
+    start = time.time()
+    ok, _msg = svc.reset(PPV, "gain")
+    took = time.time() - start
+    assert ok and all(n.writes() for n in ns)
+    assert took < 0.55, f"the nodes were sent to one after another ({took:.2f} s)"
+
+
+def test_known_down_node_is_skipped_on_one_off_changes():
+    svc, ed, ns, *_ = make()
+    ns[0].down, ns[0].delay = True, 0.3
+    start = time.time()
+    svc.nudge("gain", 0.02, PPV)
+    assert time.time() - start >= 0.3             # the first miss costs one timeout
+    start = time.time()
+    svc.nudge("gain", 0.02, PPV)
+    assert time.time() - start < 0.15, "a node already known to be down cost another timeout"
+    ns[0].down = False
+    assert wait_for(lambda: ns[0].writes())       # the retrier catches it up
