@@ -48,3 +48,17 @@ Make colour grading behave well on a real stage with several nDisplay nodes:
 ## Left to the builder
 - The pool's size (up to 16), and its lifetime (made once, closed by `stop()`).
 - The exact wording of the root-skipped note.
+
+## Decisions made while building
+These are the builder's calls, made while the fixes were built and reviewed. Each one says why it was made and what it costs if it turns out wrong.
+- **A release stays editor-first, with the nodes as the fallback.** Only the fallback needs the editor's answer, and a release goes to one instance. Cost if wrong: none known.
+- **A node with any missed entry counts as down for every target and kind.** A machine that is down is down for everything. Cost if wrong: a node that missed one target's change is skipped for other targets until the retrier reaches it.
+- **A change attempted while the app is closing** gives the plain message "Operator Board is closing, so the grade was not changed", not the sending pool's internal error.
+- **When nothing took a change, the retry queue for that target is put back as it was**, rather than emptied, so an earlier partial change still catches its node up. Cost if wrong: none known. A logged minor in phase 5 of `FUTURE_UPDATES.md` covers one gap: the restored queue can bring back an entry that was already delivered.
+- **A Bypass refused because grading is already off is not logged.** Nothing was changed or sent.
+- **A damaged look in a saved settings preset** shows "(damaged look)" in the preset's step list. Without it, the whole preset failed to list.
+- **Delete look does not run on the in-order worker.** It changes only the local look store and never talks to Unreal.
+- **Stream Deck grading actions are not ordered with drags on the page.** They are one-off presses from another surface, and they rarely come mid-drag. Cost if wrong: a nudge that lands mid-drag is overwritten by the drag's next send.
+- **Two devices sharing one Remote Control client keep one device name.** The resolver makes one client per device, so this happens only with a duplicated device. Cost if wrong: a warning can name the wrong one of the two.
+- **With more than 15 nodes down, a change costs two timeouts.** The pool has 16 threads, and a stage with that many nodes down is not one anyone can shoot on. Cost if wrong: a slow press on a badly broken large stage.
+- **Buttons end any open gesture before they run, and Undo picks its record on the worker.** A burst of scrolls, keys or groove clicks stays open until the input pauses, so without this a button pressed in that pause overtook the gesture's end, and Undo picked an older change. These two came from the final review and are fixed.
