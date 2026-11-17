@@ -77,7 +77,7 @@
         },
         "10": {
           "action": "level.prev",
-          "label": "◀ LEVEL",
+          "label": "\u25c0 LEVEL",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"
@@ -91,21 +91,21 @@
         },
         "12": {
           "action": "level.next",
-          "label": "LEVEL ▶",
+          "label": "LEVEL \u25b6",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"
         },
         "13": {
           "action": "surface.prev_page",
-          "label": "◀ PAGE",
+          "label": "\u25c0 PAGE",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"
         },
         "14": {
           "action": "surface.next_page",
-          "label": "PAGE ▶",
+          "label": "PAGE \u25b6",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"
@@ -214,14 +214,14 @@
         },
         "13": {
           "action": "surface.prev_page",
-          "label": "◀ PAGE",
+          "label": "\u25c0 PAGE",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"
         },
         "14": {
           "action": "surface.next_page",
-          "label": "PAGE ▶",
+          "label": "PAGE \u25b6",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"
@@ -289,14 +289,154 @@
         },
         "13": {
           "action": "surface.prev_page",
-          "label": "◀ PAGE",
+          "label": "\u25c0 PAGE",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"
         },
         "14": {
           "action": "surface.next_page",
-          "label": "PAGE ▶",
+          "label": "PAGE \u25b6",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        }
+      }
+    },
+    {
+      "name": "Grading",
+      "buttons": {
+        "0": {
+          "action": "grading.bypass",
+          "label": "BYPASS",
+          "params": {},
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "1": {
+          "action": "grading.reset",
+          "label": "RESET GRADE",
+          "params": {},
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "2": {
+          "action": "grading.look",
+          "label": "LOOK 1",
+          "params": {},
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "3": {
+          "action": "grading.nudge",
+          "label": "TEMP -",
+          "params": {
+            "control": "temperature",
+            "amount": -100
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "4": {
+          "action": "grading.nudge",
+          "label": "TEMP +",
+          "params": {
+            "control": "temperature",
+            "amount": 100
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "5": {
+          "action": "grading.nudge",
+          "label": "TINT -",
+          "params": {
+            "control": "tint",
+            "amount": -0.05
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "6": {
+          "action": "grading.nudge",
+          "label": "TINT +",
+          "params": {
+            "control": "tint",
+            "amount": 0.05
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "7": {
+          "action": "grading.nudge",
+          "label": "GAIN -",
+          "params": {
+            "control": "gain",
+            "amount": -0.02
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "8": {
+          "action": "grading.nudge",
+          "label": "GAIN +",
+          "params": {
+            "control": "gain",
+            "amount": 0.02
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "9": {
+          "action": "grading.nudge",
+          "label": "SAT -",
+          "params": {
+            "control": "saturation",
+            "amount": -0.05
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "10": {
+          "action": "grading.nudge",
+          "label": "SAT +",
+          "params": {
+            "control": "saturation",
+            "amount": 0.05
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "11": {
+          "action": "grading.nudge",
+          "label": "CON -",
+          "params": {
+            "control": "contrast",
+            "amount": -0.05
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "12": {
+          "action": "grading.nudge",
+          "label": "CON +",
+          "params": {
+            "control": "contrast",
+            "amount": 0.05
+          },
+          "color": "#2b2440",
+          "active_color": "#d9480f"
+        },
+        "13": {
+          "action": "surface.prev_page",
+          "label": "\u25c0 PAGE",
+          "params": {},
+          "color": "#2b2f36",
+          "active_color": "#d9480f"
+        },
+        "14": {
+          "action": "surface.next_page",
+          "label": "PAGE \u25b6",
           "params": {},
           "color": "#2b2f36",
           "active_color": "#d9480f"

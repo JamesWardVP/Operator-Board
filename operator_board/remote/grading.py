@@ -382,6 +382,29 @@ class GradingService:
             return "Grading enabled"
         return self._guard(run)
 
+    def restore_bypassed(self) -> Tuple[bool, str]:
+        """End every bypass Operator Board left on when it last closed (the start-up prompt's
+        "Restore"). Targets no longer in the level are forgotten and named."""
+        def run():
+            keys = self.bypass.bypassed()
+            if not keys:
+                return "Nothing was bypassed"
+            self.refresh_targets()
+            present = {t["key"] for t in self.targets_list}
+            gone, done = [], 0
+            for key in keys:
+                if key in present:
+                    self.set_bypass(key, False)
+                    done += 1
+                else:
+                    self.bypass.set(key, False)
+                    gone.append(key.split("|")[1] if "|" in key else key)
+            if gone:
+                raise GradingProblem(f"Restored the grade on {done} target{'s' if done != 1 else ''}; "
+                                     f"{GONE}: {', '.join(gone)}")
+            return f"Restored the grade on {done} target{'s' if done != 1 else ''}"
+        return self._guard(run)
+
     # ---- looks ------------------------------------------------------------------------------------
     def save_look(self, name: str, keys: List[str]) -> Look:
         look = Look(name.strip() or "Look", {k: self.read(k) for k in keys})
@@ -394,6 +417,11 @@ class GradingService:
         look = self.looks.get(name)
         if look is None:
             raise GradingProblem(f"There is no look called '{name}'")
+        return self.apply_look(look)
+
+    def apply_look(self, look: Look) -> List[str]:
+        """Apply a look (from the store, or embedded in a settings preset); returns warnings for the
+        targets it could not apply."""
         warnings = []
         keys = {t["key"] for t in self.targets_list}
         for key, grade in look.grades.items():

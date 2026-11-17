@@ -6,7 +6,7 @@ import sys
 import time
 
 from operator_board import __version__
-from operator_board.qt import QShortcut, QtCore, QtGui, QtWidgets, Qt
+from operator_board.qt import QShortcut, QtCore, QtGui, QtWidgets, Qt, exec_
 from operator_board.ui.bridge import EventBridge, run_async
 from operator_board.ui.listener_login import ListenerLogin
 from operator_board.ui.nav import NavTree
@@ -246,6 +246,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._offer_listener(payload)
         if topic == "multiuser.sessions_archived":
             self.notify("Archived the previous multi-user session(s): " + ", ".join(payload.get("names", [])))
+        if topic == "editor.ready":
+            self._offer_grading_restore()
         if topic.startswith("editor."):  # let every page fill its lists, not only the one on screen
             for p in self.pages:
                 if p is not self.current_page() and hasattr(p, "EDITOR_EVENTS"):
@@ -308,6 +310,27 @@ class MainWindow(QtWidgets.QMainWindow):
         run_async(self.ctx.check_local_listener, done, lambda exc: None)
 
     LISTENER_ASK_AGAIN_S = 120.0
+
+    def _offer_grading_restore(self) -> None:
+        """Once per run, when Unreal first answers: grading Operator Board bypassed last time is still off."""
+        if getattr(self, "_grading_restore_asked", False) or self._closing:
+            return
+        self._grading_restore_asked = True
+        count = len(self.ctx.grading.bypass.bypassed())
+        if not count:
+            return
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Colour grading")
+        box.setText(f"Grading was bypassed on {count} target{'s' if count != 1 else ''} when Operator Board closed. "
+                    "Restore the grade?")
+        restore = box.addButton("Restore", QtWidgets.QMessageBox.AcceptRole)
+        box.addButton("Leave bypassed", QtWidgets.QMessageBox.RejectRole)
+        box.setDefaultButton(restore)
+        exec_(box)
+        if box.clickedButton() is not restore:
+            return
+        run_async(self.ctx.grading.restore_bypassed, lambda r: self.notify(r[1], r[0]),
+                  lambda exc: self.notify(f"Could not restore the grade: {exc}", False))
 
     def _offer_listener(self, payload: dict) -> None:
         """No SwitchboardListener answered for a device on this PC: offer to start one."""

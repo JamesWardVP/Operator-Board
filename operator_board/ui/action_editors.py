@@ -1,9 +1,9 @@
-"""Editors for button actions that need more than a line of JSON: an OSC message, and a list of
-steps (several actions in a row, with delays)."""
+"""Editors for button actions that need more than a line of JSON: an OSC message, a list of
+steps (several actions in a row, with delays), and a colour grading nudge."""
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from operator_board.qt import QtCore, QtGui, QtWidgets, Qt
 from operator_board.surfaces.osc_send import OSC_TYPES, osc_args
@@ -11,6 +11,8 @@ from operator_board.ui.widgets import hbox, muted
 
 OSC_ACTION = "osc.send"
 MACRO_ACTION = "macro.run"
+NUDGE_ACTION = "grading.nudge"
+SELECTED_TARGET = "Selected on the Colour Grading page"
 NAV_ACTIONS = ("surface.next_page", "surface.prev_page", "surface.goto_page")
 DELAY = "__delay__"
 
@@ -103,6 +105,81 @@ class OscEditor(QtWidgets.QWidget):
             self.bool_value.setCurrentIndex(0 if value in (True, "true", "True", 1) else 1)
         elif kind in self.values:
             self.values[kind].setText(str(value))
+
+
+class NudgeEditor(QtWidgets.QWidget):
+    """A colour grading nudge: which control, by how much, which colour channel and which target."""
+    changed = QtCore.Signal()
+
+    def __init__(self, targets: Callable[[], List[str]] = lambda: [], parent=None) -> None:
+        super().__init__(parent)
+        from operator_board.core.grading import CONTROLS
+        self._controls = CONTROLS
+        self._targets = targets
+        self.setObjectName("PlainRow")
+        form = QtWidgets.QFormLayout(self)
+        form.setContentsMargins(0, 0, 0, 0)
+        self.control = QtWidgets.QComboBox()
+        for c in CONTROLS.values():
+            self.control.addItem(f"{c.title} ({c.subtitle})" if c.subtitle else c.title, c.id)
+        self.control.currentIndexChanged.connect(self._control_changed)
+        self.amount = QtWidgets.QLineEdit()
+        self.amount.setToolTip("How far one press moves the control. Use a negative number to lower it.")
+        self.channel = QtWidgets.QComboBox()
+        for key, label in (("y", "Brightness"), ("r", "Red"), ("g", "Green"), ("b", "Blue")):
+            self.channel.addItem(label, key)
+        self.target = QtWidgets.QComboBox()
+        self.target.setEditable(True)
+        form.addRow("Control", self.control)
+        form.addRow("Amount", self.amount)
+        form.addRow("Colour channel", self.channel)
+        form.addRow("Target", self.target)
+        self._fill_targets("")
+        self.control.setCurrentIndex(max(0, self.control.findData("gain")))
+        self._control_changed()
+
+    def _fill_targets(self, current: str) -> None:
+        self.target.clear()
+        self.target.addItem(SELECTED_TARGET, "")
+        try:
+            keys = list(self._targets())
+        except Exception:  # noqa: BLE001 - Unreal may not be running
+            keys = []
+        if current and current not in keys:
+            keys.append(current)
+        for key in keys:
+            self.target.addItem(key, key)
+        self.target.setCurrentIndex(max(0, self.target.findData(current)))
+
+    def _control_changed(self) -> None:
+        c = self._controls.get(self.control.currentData() or "")
+        if c is not None:
+            self.amount.setText(f"{c.nudge:g}")
+            self.channel.setEnabled(c.kind == "wheel")
+        self.changed.emit()
+
+    def params(self) -> Dict[str, Any]:
+        """The action's parameters (raises ValueError with what is wrong)."""
+        try:
+            amount = float(self.amount.text().strip())
+        except ValueError:
+            raise ValueError("the amount must be a number, for example 0.02 or -100")
+        index = self.target.currentIndex()
+        text = self.target.currentText().strip()
+        if index >= 0 and self.target.itemText(index) == text:
+            target = self.target.itemData(index) or ""
+        else:
+            target = "" if text == SELECTED_TARGET else text
+        return {"control": self.control.currentData(), "amount": amount,
+                "channel": self.channel.currentData() if self.channel.isEnabled() else "y", "target": target}
+
+    def set_params(self, params: Dict[str, Any]) -> None:
+        self.control.setCurrentIndex(max(0, self.control.findData(params.get("control") or "gain")))
+        self._control_changed()
+        if params.get("amount") not in (None, ""):
+            self.amount.setText(f"{float(params['amount']):g}")
+        self.channel.setCurrentIndex(max(0, self.channel.findData(params.get("channel") or "y")))
+        self._fill_targets(str(params.get("target") or ""))
 
 
 def osc_summary(params: Dict[str, Any]) -> str:

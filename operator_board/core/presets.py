@@ -29,6 +29,7 @@ ITEM_TYPES: Dict[str, Tuple[str, str]] = {
     "sublevels": ("Sub-levels", "Show or hide each sub-level"),
     "data_layers": ("Data layers", "Show or hide each data layer"),
     "object_settings": ("Remote Objects settings", "Set each light, camera or property value"),
+    "grading_look": ("Colour grading look", "Recall the saved look on every target it holds"),
     "cameras": ("Camera positions", "Add or update the saved camera positions"),
     "led": ("LED processor modes", "Put each LED processor into its saved mode"),
     "take": ("Take settings", "Set the scene (slate), take number and description"),
@@ -55,6 +56,8 @@ def item_summary(item: Dict[str, Any]) -> str:
     if kind == "take":
         d = data or {}
         return f"{d.get('slate', '')} take {d.get('take', '')}" + (f" · {d['description']}" if d.get("description") else "")
+    if kind == "grading_look":
+        return (data or {}).get("name", "") or "(unnamed look)"
     if kind == "led":
         return ", ".join(f"{n}: {v.get('mode')}" for n, v in (data or {}).items()) or "(none)"
     count = len(data or [])
@@ -117,6 +120,12 @@ def capture(ctx, kind: str) -> Dict[str, Any]:
         if not settings:
             raise PresetProblem("No Remote Objects settings have been changed from Operator Board yet")
         return {"type": kind, "data": settings}
+    if kind == "grading_look":
+        name = ctx.grading.active_look
+        look = ctx.looks.get(name) if name else None
+        if look is None:
+            raise PresetProblem("No look is active: save or recall a look on the Colour Grading page first")
+        return {"type": kind, "data": look.to_dict()}
     if kind == "cameras":
         return {"type": kind, "data": [asdict(c) for c in ctx.config.cameras]}
     if kind == "led":
@@ -304,8 +313,22 @@ def _apply_custom_pages(ctx, data) -> str:
     return f"{len(added)} page{'s' if len(added) != 1 else ''}"
 
 
+def _apply_grading_look(ctx, data) -> str:
+    from operator_board.core.looks import Look
+    from operator_board.remote.grading import GradingProblem
+    look = Look.from_dict(_need(data, "colour grading look"))
+    try:
+        warnings = ctx.grading.apply_look(look)
+    except GradingProblem as exc:
+        raise PresetProblem(str(exc))
+    if warnings:
+        raise PresetProblem("; ".join(warnings))
+    return look.name
+
+
 _APPLY: Dict[str, Callable[[Any, Any], str]] = {
     "level": _apply_level, "sublevels": _apply_sublevels, "data_layers": _apply_data_layers,
-    "object_settings": _apply_object_settings, "cameras": _apply_cameras, "led": _apply_led,
+    "object_settings": _apply_object_settings, "grading_look": _apply_grading_look, "cameras": _apply_cameras,
+    "led": _apply_led,
     "take": _apply_take, "surfaces": _apply_surfaces, "custom_pages": _apply_custom_pages,
 }

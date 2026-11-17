@@ -275,3 +275,13 @@ def test_duplicate_entries_get_distinct_keys():
     assert keys[-2] != keys[-1] and keys[-1].endswith("#2")
     svc.nudge("tint", 0.05, keys[-1])
     assert "}, False, nth=" not in ed.writes()[-1] and ", 1)" in ed.writes()[-1]
+
+
+def test_restore_bypassed_ends_bypass_and_forgets_gone_targets(tmp_path):
+    svc, ed, *_ = make(tmp_path=tmp_path)
+    svc.bypass.set(PPV, True)
+    svc.bypass.set("ppv|Deleted PPV", True)
+    ok, msg = svc.restore_bypassed()
+    assert "t.set_enabled(True, False)" in ed.scripts[-1]
+    assert svc.bypass.bypassed() == []
+    assert not ok and "Deleted PPV" in msg

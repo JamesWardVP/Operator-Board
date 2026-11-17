@@ -40,6 +40,7 @@ These are ideas, not commitments. The README lists only what is available today.
 ## Control surfaces
 - Companion module (native) published to the Bitfocus store, with feedback and variables.
 - X-keys, Loupedeck, and Stream Deck + dials (brightness, exposure); testing on real MIDI hardware.
+- Colour grading on MIDI knobs and faders (and Stream Deck + dials): turn a knob to move Lift, Gamma, Gain, Offset, Temperature or Tint continuously, as a colourist's panel does. The first grading release has step buttons (nudges) only.
 - Per-key feedback states beyond on/off. (Pictures on keys are a next priority, in `FUTURE_UPDATES.md` beside the repo.)
 
 ## File sync & revision control
