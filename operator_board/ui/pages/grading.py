@@ -384,6 +384,15 @@ class GradingPage(BasePage):
     def _grade_widgets(self) -> List[QtWidgets.QWidget]:
         return [getattr(self, _attr(c)) for c in PRIMARIES + ADVANCED]
 
+    def _end_gestures(self) -> None:
+        """End any gesture still open (a burst of scrolls, keys or groove clicks waits for a pause),
+        so its end is queued before the button's change."""
+        for widget in self._grade_widgets():
+            wheel = getattr(widget, "wheel", None)
+            if wheel is not None:
+                wheel.gesture.finish()
+            widget.gesture.finish()
+
     # ---- the selected target ------------------------------------------------------------------------
     def _target(self, key: str) -> Optional[Dict[str, Any]]:
         return next((t for t in self.ctx.grading.targets_list if t["key"] == key), None)
@@ -617,6 +626,7 @@ class GradingPage(BasePage):
             self.notify(f"{what}: {exc}", False)
             if failed is not None:
                 failed(exc)
+        self._end_gestures()
         self._shared.put(fn, done, on_fail)
 
     def _bypass_clicked(self) -> None:
@@ -649,28 +659,37 @@ class GradingPage(BasePage):
         self.undo_button.setEnabled(not self._undoing and bool(self._undoable()))
 
     def _undo(self) -> None:
-        records = self._undoable()
-        if not records:
+        if not self._undoable():
             return
-        rec = records[-1]
-        before = len(self.ctx.changes.records)
         self._undoing = True
         self._update_undo()
+        picked: Dict[str, Any] = {}
 
         def finished() -> None:
             self._undoing = False
             self._update_undo()
 
-        def done(_result) -> None:
-            # The undo is logged as a "Set grade" of the same target; that is not a change to undo next.
-            self._shared.undone.add(id(rec))
-            for made in self.ctx.changes.records[before:]:
-                if made.kind == "grade" and made.ref.get("key") == rec.ref.get("key") and made.setting == "Set grade":
-                    self._shared.undone.add(id(made))
-            self.notify(f"Undone: {rec.setting} on {rec.item}")
+        def run():
+            # Picked on the worker, after any gesture queued before the press has logged its change.
+            records = self._undoable()
+            if not records:
+                return None
+            rec = records[-1]
+            picked["before"] = len(self.ctx.changes.records)
+            self.ctx.apply_setting("grade", rec.ref, rec.previous)
+            return rec
+
+        def done(rec) -> None:
+            if rec is not None:
+                # The undo is logged as a "Set grade" of the same target; that is not a change to undo next.
+                self._shared.undone.add(id(rec))
+                for made in self.ctx.changes.records[picked["before"]:]:
+                    if made.kind == "grade" and made.ref.get("key") == rec.ref.get("key") and made.setting == "Set grade":
+                        self._shared.undone.add(id(made))
+                self.notify(f"Undone: {rec.setting} on {rec.item}")
             finished()
-        self._queue(lambda: self.ctx.apply_setting("grade", rec.ref, rec.previous), done, "Undo",
-                        failed=lambda _exc: finished())
+
+        self._queue(run, done, "Undo", failed=lambda _exc: finished())
 
     # ---- looks -------------------------------------------------------------------------------------
     def _fill_looks(self) -> None:

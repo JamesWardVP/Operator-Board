@@ -526,3 +526,41 @@ def test_reset_waits_for_a_value_still_being_sent(opened):
     assert wait_until(lambda: calls(fake, "reset"), timeout=5)
     names = [c[0] for c in fake.calls]
     assert names.index("send") < names.index("reset"), "Reset overtook a value still being sent"
+
+
+def _key(widget, key):
+    ev = QtGui.QKeyEvent(QtCore.QEvent.KeyPress, key, Qt.NoModifier)
+    QtWidgets.QApplication.sendEvent(widget, ev)
+
+
+def test_button_pressed_during_a_key_burst_comes_after_its_end(opened):
+    # Arrow keys on a wheel stay one gesture until they pause; Reset pressed in that pause must not
+    # land between the gesture's send and its end.
+    _app, _ctx, _window, page, fake = opened
+    pick(page, PPV)
+    assert wait_until(lambda: page.gain.isEnabled() and page.gain.value() == (1.2, 1.0, 0.8, 1.1))
+    _key(page.gain.wheel, Qt.Key_Right)
+    page.reset_button.click()
+    assert wait_until(lambda: calls(fake, "reset") and calls(fake, "end"), timeout=5)
+    names = [c[0] for c in fake.calls]
+    assert names.index("end") < names.index("reset")
+
+
+def test_undo_during_a_key_burst_undoes_that_change(opened):
+    _app, ctx, _window, page, fake = opened
+    pick(page, PPV)
+    assert wait_until(lambda: page.gain.isEnabled())
+    ctx.changes.record("Colour Grading", "Stage PPV", "Gain", value={"m": 1}, previous={"m": "before-1"},
+                       result="ok", kind="grade", ref={"key": PPV})
+    original_end = fake.end_gesture
+
+    def end(key, label):
+        original_end(key, label)
+        ctx.changes.record("Colour Grading", "Stage PPV", label, value={"m": 2}, previous={"m": "before-2"},
+                           result="ok", kind="grade", ref={"key": key})
+    fake.end_gesture = end
+    _key(page.gain.wheel, Qt.Key_Right)
+    page._update_undo()
+    page.undo_button.click()
+    assert wait_until(lambda: calls(fake, "apply"), timeout=5)
+    assert calls(fake, "apply")[-1][2] == {"m": "before-2"}
