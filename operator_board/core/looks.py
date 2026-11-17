@@ -50,7 +50,10 @@ def _read(path: str) -> List[Look]:
         data = json.load(fh)
     if not isinstance(data, dict) or data.get("format") != FILE_FORMAT:
         raise ValueError("This is not an Operator Board looks file")
-    return [Look.from_dict(d) for d in data.get("looks") or [] if isinstance(d, dict)]
+    looks = data.get("looks") or []
+    if not isinstance(looks, list):
+        raise ValueError("The looks file is damaged (its looks are not a list)")
+    return [Look.from_dict(d) for d in looks if isinstance(d, dict)]
 
 
 def _write(path: str, looks: List[Look]) -> None:
@@ -74,11 +77,15 @@ class LookStore:
             return
         try:
             self.looks = _read(self.path)
-        except (OSError, ValueError, TypeError) as exc:
+        except (OSError, ValueError, TypeError, RecursionError) as exc:
             self.load_error = f"Could not read the looks ({self.path}): {exc}"
 
     def _changed(self) -> None:
         if self.path:
+            if self.load_error and os.path.exists(self.path):
+                # Keep the unreadable file rather than writing over the looks it may still hold.
+                os.replace(self.path, self.path + ".bad")
+                self.load_error = ""
             _write(self.path, self.looks)
         if self.bus:
             self.bus.publish("grading.looks_changed")
@@ -92,6 +99,7 @@ class LookStore:
 
     def save(self, look: Look) -> None:
         """Add ``look``, replacing one of the same name (any case)."""
+        look.name = look.name.strip() or "Look"
         old = self.get(look.name)
         if old is not None:
             self.looks[self.looks.index(old)] = look
@@ -131,8 +139,9 @@ class BypassState:
             try:
                 with open(path, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
-                self._keys = [str(k) for k in data.get("bypassed") or []] if isinstance(data, dict) else []
-            except (OSError, ValueError):
+                keys = data.get("bypassed") if isinstance(data, dict) else None
+                self._keys = [k for k in keys if isinstance(k, str)] if isinstance(keys, list) else []
+            except (OSError, ValueError, RecursionError):
                 self._keys = []
 
     def _save(self) -> None:

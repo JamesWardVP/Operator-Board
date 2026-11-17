@@ -85,3 +85,33 @@ def test_bypass_state_survives_reload(tmp_path):
     assert BypassState(path).bypassed() == ["ndisplay_cluster|Root"]
     BypassState(path).clear()
     assert BypassState(path).bypassed() == []
+
+
+def test_bad_bypass_file_does_not_stop_start(tmp_path):
+    path = tmp_path / "grading_bypass.json"
+    for content in ('{"bypassed": 5}', '{"bypassed": "ab"}', '[1]', '{"bypassed": [1, "ppv|X"]}'):
+        path.write_text(content, encoding="utf-8")
+        assert BypassState(str(path)).bypassed() in ([], ["ppv|X"])
+
+
+def test_import_odd_file_is_value_error(tmp_path):
+    odd = tmp_path / "odd.json"
+    odd.write_text('{"format": "operator-board-looks", "looks": 5}', encoding="utf-8")
+    with pytest.raises(ValueError):
+        LookStore(str(tmp_path / "looks.json")).import_file(str(odd))
+
+
+def test_unreadable_looks_file_is_kept_aside_not_overwritten(tmp_path):
+    path = tmp_path / "looks.json"
+    path.write_text("{not json", encoding="utf-8")
+    store = LookStore(str(path))
+    store.save(Look("New", {}))
+    assert (tmp_path / "looks.json.bad").read_text(encoding="utf-8") == "{not json"
+    assert LookStore(str(path)).names() == ["New"]
+
+
+def test_look_names_are_trimmed(tmp_path):
+    store = LookStore(str(tmp_path / "looks.json"))
+    store.save(Look(" Night ", {}))
+    store.save(Look("Night", {}))
+    assert store.names() == ["Night"]
