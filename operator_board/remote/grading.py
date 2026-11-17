@@ -432,6 +432,15 @@ class GradingService:
                     previous=previous.to_dict() if previous else None, result=result, kind="grade",
                     ref={"key": key})
 
+    def _log_switch(self, key: str, setting: str, on: bool, result: str) -> None:
+        """A bypass or enable change in the change log (kind ``grade_switch``: the page's Undo and
+        "Export changes" leave it out)."""
+        if self.record is None:
+            return
+        name = next((t["name"] for t in self.targets_list if t["key"] == key), key)
+        self.record(CATEGORY, name, setting, value="on" if on else "off", previous="off" if on else "on",
+                    result=result, kind="grade_switch", ref={"key": key})
+
     def _guard(self, fn: Callable[[], Any]) -> Tuple[bool, str]:
         try:
             msg = fn()
@@ -495,6 +504,10 @@ class GradingService:
                                             nth=t["nth"])), transact=True, what="switch")
         except GradingPartial as exc:
             partial = exc
+        except GradingProblem as exc:
+            self._log_switch(key, "Bypass", on, f"failed: {exc}")
+            raise
+        self._log_switch(key, "Bypass", on, f"partial: {partial}" if partial else "ok")
         self.bypass.set(key, on)
         with self._lock:
             self.enabled[key] = not on
@@ -519,6 +532,10 @@ class GradingService:
                                                 nth=t["nth"])), transact=True, what="switch")
             except GradingPartial as exc:
                 partial = exc
+            except GradingProblem as exc:
+                self._log_switch(k, "Enable grading", True, f"failed: {exc}")
+                raise
+            self._log_switch(k, "Enable grading", True, f"partial: {partial}" if partial else "ok")
             self.bypass.set(k, False)
             with self._lock:
                 self.enabled[k] = True

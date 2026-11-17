@@ -551,3 +551,24 @@ def test_missed_node_warning_names_the_device():
     messages = [p.get("message", "") for t, p in events if t == "grading.problem"]
     assert any("render-node-2" in m for m in messages)
     assert not any("node0:30010" in m for m in messages)
+
+
+def test_bypass_and_enable_are_logged():
+    svc, _ed, _ns, rec, _ = make()
+    svc.set_bypass(PPV, True)
+    svc.set_bypass(PPV, False)
+    svc.enable(PPV)
+    switches = [c[1] for c in rec.calls if c[1].get("kind") == "grade_switch"]
+    assert [c[0][2] for c in rec.calls if c[1].get("kind") == "grade_switch"] == ["Bypass", "Bypass", "Enable grading"]
+    assert [s["value"] for s in switches] == ["on", "off", "on"]
+    assert all(s["result"] == "ok" and s["ref"] == {"key": PPV} for s in switches)
+
+
+def test_failed_bypass_is_logged_as_failed():
+    svc, ed, ns, rec, _ = make()
+    for c in [ed] + ns:
+        c.down = True
+    with pytest.raises(GradingProblem):
+        svc.set_bypass(PPV, True)
+    switches = [c[1] for c in rec.calls if c[1].get("kind") == "grade_switch"]
+    assert switches and switches[-1]["result"].startswith("failed")

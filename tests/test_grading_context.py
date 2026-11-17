@@ -227,3 +227,9 @@ def test_nudge_editor_typed_target_survives_enter():
     ed.target.setEditText("ccr|Typed CCR")
     ed.target.lineEdit().returnPressed.emit()
     assert ed.params()["target"] == "ccr|Typed CCR"
+
+
+def test_bypass_entries_are_not_remote_objects_settings(ctx):
+    ctx.changes.record("Colour Grading", "Stage PPV", "Bypass", value="on", previous="off",
+                       result="ok", kind="grade_switch", ref={"key": "ppv|Stage PPV"})
+    assert ctx.changed_settings() == []

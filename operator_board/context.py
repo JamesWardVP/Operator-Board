@@ -397,7 +397,8 @@ class AppContext:
         (what "Export changes" and a preset's Remote Objects item hold)."""
         latest: Dict[tuple, ChangeRecord] = {}
         for rec in self.session_changes():
-            if rec.kind and rec.kind != "grade" and rec.result == "ok":  # grades travel as looks
+            # grades travel as looks; bypass and enable switches are not settings to re-apply
+            if rec.kind and rec.kind not in ("grade", "grade_switch") and rec.result == "ok":
                 latest[rec.key] = rec
         return [{"kind": r.kind, "ref": r.ref, "item": r.item, "setting": r.setting, "value": r.value}
                 for r in latest.values()]
