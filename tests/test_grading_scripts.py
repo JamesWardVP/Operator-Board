@@ -205,3 +205,12 @@ def test_icvfx_reference_without_camera_is_plain_error(ue):
 
 def test_scripts_are_ascii():
     assert scripts.list_grading_targets().isascii()
+
+
+def test_one_broken_root_keeps_the_other_targets():
+    mod = fu.build_module()
+    level = fu.stage()
+    level.root.current_config_data = None
+    out = run(mod, scripts.list_grading_targets())
+    assert [t["kind"] for t in out["targets"]] == ["ppv", "ppv", "ccr"]
+    assert "nDisplay Root" in out["missing"]["ndisplay"]

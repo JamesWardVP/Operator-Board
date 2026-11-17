@@ -1004,19 +1004,29 @@ missing = {'ndisplay': '', 'ccr': ''}
 roots = _g_roots()
 if not roots:
     missing['ndisplay'] = 'There is no nDisplay root actor in the open level'
+broken, readable = [], []
 for root in roots:
     rl = _label(root)
-    stage = root.get_editor_property('current_config_data').get_editor_property('stage_settings')
-    on = bool(stage.get_editor_property('enable_color_grading'))
-    ecg = stage.get_editor_property('entire_cluster_color_grading')
-    targets.append({'kind': 'ndisplay_cluster', 'actor': rl, 'applies_to': [], 'nth': 0,
-                    'name': rl + _G_DOT + 'Entire cluster',
-                    'enabled': on and bool(ecg.get_editor_property('enable_entire_cluster_color_grading'))})
-    for e, names, nth, label in _g_entries(stage.get_editor_property('per_viewport_color_grading'), 'Viewports'):
-        targets.append({'kind': 'ndisplay_viewport', 'actor': rl, 'applies_to': names, 'nth': nth,
-                        'name': rl + _G_DOT + label, 'enabled': on and bool(e.get_editor_property('is_enabled'))})
+    try:  # one root that can't be read must not hide every other target
+        found = []
+        stage = root.get_editor_property('current_config_data').get_editor_property('stage_settings')
+        on = bool(stage.get_editor_property('enable_color_grading'))
+        ecg = stage.get_editor_property('entire_cluster_color_grading')
+        found.append({'kind': 'ndisplay_cluster', 'actor': rl, 'applies_to': [], 'nth': 0,
+                      'name': rl + _G_DOT + 'Entire cluster',
+                      'enabled': on and bool(ecg.get_editor_property('enable_entire_cluster_color_grading'))})
+        for e, names, nth, label in _g_entries(stage.get_editor_property('per_viewport_color_grading'), 'Viewports'):
+            found.append({'kind': 'ndisplay_viewport', 'actor': rl, 'applies_to': names, 'nth': nth,
+                          'name': rl + _G_DOT + label, 'enabled': on and bool(e.get_editor_property('is_enabled'))})
+    except Exception as _e:
+        broken.append(rl + ' could not be read: ' + str(_e))
+        continue
+    targets.extend(found)
+    readable.append(root)
+if broken:
+    missing['ndisplay'] = '; '.join(broken)
 cams = []
-for root in roots:
+for root in readable:
     for cam in _g_cams(root):
         cams.append((root, cam))
 for root, cam in cams:
