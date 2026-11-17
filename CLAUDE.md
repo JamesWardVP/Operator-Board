@@ -35,6 +35,7 @@ Every brief item has a first implementation. See:
 **Basics:**
 - **Stack:** Python + Qt (PySide6, PySide2 fallback via `operator_board/qt.py`), so it also runs in Switchboard's own Python venv.
 - **Run:** `python -m operator_board` (`--headless`, `--no-hardware`, `--config path`, `--switchboard-config path`, `--project`).
+- **Owner's launcher:** `../Launch latest Operator Board.bat`, beside the repo, starts the app from this repo's current code (the checked-out branch) using `.venv`. It makes the venv on first run, and reinstalls `.[ui,streamdeck,midi]` when `pyproject.toml` changes, judged against `.venv/pyproject.installed`. It never pulls or switches branch. Keep it working when the start-up or the dependencies change.
 - **Tests:** `python -m pytest`. The suite has:
   - fake SwitchboardListener and HTTP servers;
   - an offscreen Qt smoke test (`QT_QPA_PLATFORM=offscreen` on headless Linux).
