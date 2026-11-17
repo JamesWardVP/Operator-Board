@@ -41,6 +41,8 @@ QPushButton#CardLink { padding: 0; font-size: 15px; font-weight: 700; color: %(m
 QPushButton#CardLink:hover { color: %(text)s; }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit {
   background: %(panel2)s; border: 1px solid %(border)s; border-radius: 6px; padding: 4px 6px; min-height: 24px; }
+QPushButton:focus, QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus,
+QPlainTextEdit:focus, QTextEdit:focus { border-color: %(accent)s; }
 QTableWidget, QTreeWidget, QListWidget { background: %(panel)s; border: 1px solid %(border)s; gridline-color: %(border)s;
   alternate-background-color: %(panel2)s; selection-background-color: %(accent)s; selection-color: white; }
 QHeaderView::section { background: %(panel2)s; border: none; padding: 6px; font-weight: 600; }

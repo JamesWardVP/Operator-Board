@@ -753,3 +753,351 @@ result = {'timecode': [tc.hours, tc.minutes, tc.seconds, tc.frames], 'drop_frame
           'time_step': ts.get_class().get_name().replace('CustomTimeStep', '') if ts is not None else '',
           'time_step_fps': (ts_fr.numerator / ts_fr.denominator) if ts_fr is not None and ts_fr.denominator else 0}
 """
+
+
+# ---- colour grading ------------------------------------------------------------------------
+# One shape for every target (see CLAUDE.md "Colour grading in Unreal"): a target is opened as a
+# _GT that reads its grading struct, writes it back up its owner chain (structs read from Unreal
+# must be written back with set_editor_property) and reads / sets its own on-off switch.
+GRADING_COMMON = LEVEL_ACTORS + """
+_G_PARTS = ('saturation', 'contrast', 'gamma', 'gain', 'offset')
+_G_RANGES = (('global', 'global_'), ('shadows', 'shadows'), ('midtones', 'midtones'), ('highlights', 'highlights'))
+_G_NEUTRAL = {'saturation': 1.0, 'contrast': 1.0, 'gamma': 1.0, 'gain': 1.0, 'offset': 0.0}
+_G_LIMITS_ND = (('shadows_max', 'color_correction_shadows_max'), ('highlights_min', 'color_correction_highlights_min'),
+                ('highlights_max', 'color_correction_highlights_max'))
+_G_LIMITS_CCR = (('shadows_max', 'shadows_max'), ('highlights_min', 'highlights_min'), ('highlights_max', 'highlights_max'))
+_g_transact = [False]
+_G_DOT = ' \\u00b7 '
+
+def _g_entries(lst, what):
+    seen = {}
+    for e in lst:
+        names = _g_names(e)
+        nth = seen.get(tuple(names), 0)
+        seen[tuple(names)] = nth + 1
+        label = str(e.get_editor_property('name') or '')
+        if not label:
+            label = what + ' ' + ', '.join(names) if names else what + ' (none chosen)'
+        yield e, names, nth, label + (' #' + str(nth + 1) if nth else '')
+
+def _g_v4(v):
+    return [v.x, v.y, v.z, v.w]
+
+def _g_gone(what):
+    raise RuntimeError('Target no longer in the level: ' + what)
+
+def _g_touch(obj):
+    if _g_transact[0]:
+        try:
+            obj.modify()
+        except Exception:
+            pass
+
+def _g_names(entry):
+    return sorted(str(n) for n in entry.get_editor_property('apply_post_process_to_objects'))
+
+def _g_roots():
+    actors, _kind = _level_actors()
+    return [a for a in actors if isinstance(a, unreal.DisplayClusterRootActor)]
+
+def _g_root(label):
+    root = next((r for r in _g_roots() if _label(r) == label), None)
+    if root is None:
+        _g_gone(label)
+    return root
+
+def _g_cams(root):
+    return list(root.get_components_by_class(unreal.DisplayClusterICVFXCameraComponent))
+
+class _GT:
+    def __init__(self, style, actor=None, entry=None, flag='', commit=None, master=None):
+        self.style, self.actor, self.entry, self.flag, self.commit, self.master = style, actor, entry, flag, commit, master
+
+    def data(self):
+        if self.style == 'nd':
+            return self.entry.get_editor_property('color_grading_settings')
+        return self.actor.get_editor_property('settings' if self.style == 'ppv' else 'color_grading_settings')
+
+    def save(self, d):
+        if self.style == 'nd':
+            self.entry.set_editor_property('color_grading_settings', d)
+            self.commit(self.entry)
+        else:
+            _g_touch(self.actor)
+            self.actor.set_editor_property('settings' if self.style == 'ppv' else 'color_grading_settings', d)
+
+    def entry_enabled(self):
+        if self.style == 'nd':
+            return bool(self.entry.get_editor_property(self.flag))
+        return bool(self.actor.get_editor_property('enabled'))
+
+    def master_enabled(self):
+        return True if self.master is None else bool(self.master[0]())
+
+    def enabled(self):
+        return self.entry_enabled() and self.master_enabled()
+
+    def set_enabled(self, on, master=False):
+        if self.style == 'nd':
+            self.entry.set_editor_property(self.flag, bool(on))
+            if on and master and self.master is not None:
+                self.master[1](True)
+            self.commit(self.entry)
+        else:
+            _g_touch(self.actor)
+            self.actor.set_editor_property('enabled', bool(on))
+
+def _g_entry(lst, want, nth):
+    found = [i for i, e in enumerate(lst) if _g_names(e) == want]
+    return found[nth] if 0 <= nth < len(found) else None
+
+def _g_open(kind, actor, applies, nth=0):
+    want = sorted(str(a) for a in applies)
+    if kind in ('ndisplay_cluster', 'ndisplay_viewport'):
+        cfg = _g_root(actor).get_editor_property('current_config_data')
+        stage = cfg.get_editor_property('stage_settings')
+        master = (lambda: stage.get_editor_property('enable_color_grading'),
+                  lambda v: stage.set_editor_property('enable_color_grading', v))
+        def write_stage():
+            _g_touch(cfg)
+            cfg.set_editor_property('stage_settings', stage)
+        if kind == 'ndisplay_cluster':
+            def commit(e):
+                stage.set_editor_property('entire_cluster_color_grading', e)
+                write_stage()
+            return _GT('nd', entry=stage.get_editor_property('entire_cluster_color_grading'),
+                       flag='enable_entire_cluster_color_grading', commit=commit, master=master)
+        lst = list(stage.get_editor_property('per_viewport_color_grading'))
+        idx = _g_entry(lst, want, nth)
+        if idx is None:
+            _g_gone(actor + ' (viewports ' + ', '.join(want) + ')')
+        def commit(e):
+            lst[idx] = e
+            stage.set_editor_property('per_viewport_color_grading', lst)
+            write_stage()
+        return _GT('nd', entry=lst[idx], flag='is_enabled', commit=commit, master=master)
+    if kind in ('icvfx_all_nodes', 'icvfx_node'):
+        if '/' not in actor:
+            _g_gone(actor)
+        root_label, cam_name = actor.rsplit('/', 1)
+        cam = next((c for c in _g_cams(_g_root(root_label)) if c.get_name() == cam_name), None)
+        if cam is None:
+            _g_gone(actor)
+        cs = cam.get_editor_property('camera_settings')
+        master = (lambda: cs.get_editor_property('enable_inner_frustum_color_grading'),
+                  lambda v: cs.set_editor_property('enable_inner_frustum_color_grading', v))
+        def write_cam():
+            _g_touch(cam)
+            cam.set_editor_property('camera_settings', cs)
+        if kind == 'icvfx_all_nodes':
+            def commit(e):
+                cs.set_editor_property('all_nodes_color_grading', e)
+                write_cam()
+            return _GT('nd', entry=cs.get_editor_property('all_nodes_color_grading'),
+                       flag='enable_inner_frustum_all_nodes_color_grading', commit=commit, master=master)
+        lst = list(cs.get_editor_property('per_node_color_grading'))
+        idx = _g_entry(lst, want, nth)
+        if idx is None:
+            _g_gone(actor + ' (nodes ' + ', '.join(want) + ')')
+        def commit(e):
+            lst[idx] = e
+            cs.set_editor_property('per_node_color_grading', lst)
+            write_cam()
+        return _GT('nd', entry=lst[idx], flag='is_enabled', commit=commit, master=master)
+    actors, _kind = _level_actors()
+    if kind == 'ppv':
+        cls = unreal.PostProcessVolume
+    else:
+        cls = getattr(unreal, 'ColorCorrectRegion', None)
+        if cls is None:
+            _g_gone(actor)
+    found = next((a for a in actors if isinstance(a, cls) and _label(a) == actor), None)
+    if found is None:
+        _g_gone(actor)
+    return _GT('ppv' if kind == 'ppv' else 'ccr', actor=found)
+
+def _g_read(t):
+    d = t.data()
+    values, overrides, limits = {}, [], {}
+    for rng, attr in _G_RANGES:
+        suffix = '' if rng == 'global' else '_' + rng
+        r = None if t.style == 'ppv' else d.get_editor_property(attr)
+        for p in _G_PARTS:
+            key = rng + '.' + p
+            if t.style == 'ppv':
+                values[key] = _g_v4(d.get_editor_property('color_' + p + suffix))
+                on = d.get_editor_property('override_color_' + p + suffix)
+            else:
+                values[key] = _g_v4(r.get_editor_property(p))
+                on = r.get_editor_property('override_' + p) if t.style == 'nd' else values[key] != [_G_NEUTRAL[p]] * 4
+            if on:
+                overrides.append(key)
+    if t.style == 'ccr':
+        temp, tint = t.actor.get_editor_property('temperature'), t.actor.get_editor_property('tint')
+        if temp != 6500.0:
+            overrides.append('temp')
+        if tint != 0.0:
+            overrides.append('tint')
+        for key, attr in _G_LIMITS_CCR:
+            limits[key] = d.get_editor_property(attr)
+    else:
+        wb = d if t.style == 'ppv' else d.get_editor_property('white_balance')
+        temp, tint = wb.get_editor_property('white_temp'), wb.get_editor_property('white_tint')
+        if wb.get_editor_property('override_white_temp'):
+            overrides.append('temp')
+        if wb.get_editor_property('override_white_tint'):
+            overrides.append('tint')
+        for key, attr in _G_LIMITS_ND:
+            limits[key] = d.get_editor_property(attr)
+    return {'values': values, 'temp': temp, 'tint': tint, 'overrides': overrides, 'limits': limits}
+
+def _g_write(t, values):
+    d = t.data()
+    actor_scalars = {}
+    for key, val in values.items():
+        on = val is not None
+        if key in ('temp', 'tint'):
+            v = float(val) if on else (6500.0 if key == 'temp' else 0.0)
+            if t.style == 'ccr':
+                actor_scalars['temperature' if key == 'temp' else 'tint'] = v
+                continue
+            wb = d if t.style == 'ppv' else d.get_editor_property('white_balance')
+            wb.set_editor_property('white_' + key, v)
+            wb.set_editor_property('override_white_' + key, on)
+            if t.style != 'ppv':
+                d.set_editor_property('white_balance', wb)
+            continue
+        rng, p = key.split('.')
+        vec = unreal.Vector4(*[float(x) for x in (val if on else [_G_NEUTRAL[p]] * 4)])
+        if t.style == 'ppv':
+            suffix = '' if rng == 'global' else '_' + rng
+            d.set_editor_property('color_' + p + suffix, vec)
+            d.set_editor_property('override_color_' + p + suffix, on)
+            continue
+        attr = dict(_G_RANGES)[rng]
+        r = d.get_editor_property(attr)
+        r.set_editor_property(p, vec)
+        if t.style == 'nd':
+            r.set_editor_property('override_' + p, on)
+        d.set_editor_property(attr, r)
+    t.save(d)
+    for name, v in actor_scalars.items():
+        t.actor.set_editor_property(name, v)
+
+def _g_run(fn, transact):
+    _g_transact[0] = bool(transact) and _level_actors()[1] == 'editor'
+    if _g_transact[0]:
+        with unreal.ScopedEditorTransaction('Operator Board colour grade'):
+            fn()
+    else:
+        fn()
+"""
+
+
+def list_grading_targets() -> str:
+    """Every grading target in the open level, in Live FX priority order: nDisplay entire cluster and
+    per-viewport grades, ICVFX camera all-nodes and per-node grades, Post Process Volumes, Colour
+    Correct Regions. ``missing`` explains a kind the level or project cannot have."""
+    return GRADING_COMMON + """
+targets = []
+missing = {'ndisplay': '', 'ccr': ''}
+roots = _g_roots()
+if not roots:
+    missing['ndisplay'] = 'There is no nDisplay root actor in the open level'
+broken, readable = [], []
+for root in roots:
+    rl = _label(root)
+    try:  # one root that can't be read must not hide every other target
+        found = []
+        stage = root.get_editor_property('current_config_data').get_editor_property('stage_settings')
+        on = bool(stage.get_editor_property('enable_color_grading'))
+        ecg = stage.get_editor_property('entire_cluster_color_grading')
+        found.append({'kind': 'ndisplay_cluster', 'actor': rl, 'applies_to': [], 'nth': 0,
+                      'name': rl + _G_DOT + 'Entire cluster',
+                      'enabled': on and bool(ecg.get_editor_property('enable_entire_cluster_color_grading'))})
+        for e, names, nth, label in _g_entries(stage.get_editor_property('per_viewport_color_grading'), 'Viewports'):
+            found.append({'kind': 'ndisplay_viewport', 'actor': rl, 'applies_to': names, 'nth': nth,
+                          'name': rl + _G_DOT + label, 'enabled': on and bool(e.get_editor_property('is_enabled'))})
+    except Exception as _e:
+        broken.append(rl + ' could not be read: ' + str(_e))
+        continue
+    targets.extend(found)
+    readable.append(root)
+if broken:
+    missing['ndisplay'] = '; '.join(broken)
+cams = []
+for root in readable:
+    for cam in _g_cams(root):
+        cams.append((root, cam))
+for root, cam in cams:
+    ref = _label(root) + '/' + cam.get_name()
+    cs = cam.get_editor_property('camera_settings')
+    on = bool(cs.get_editor_property('enable_inner_frustum_color_grading'))
+    an = cs.get_editor_property('all_nodes_color_grading')
+    cname = cam.get_name() if len(roots) == 1 else _label(root) + _G_DOT + cam.get_name()
+    targets.append({'kind': 'icvfx_all_nodes', 'actor': ref, 'applies_to': [], 'nth': 0,
+                    'name': cname + _G_DOT + 'All nodes',
+                    'enabled': on and bool(an.get_editor_property('enable_inner_frustum_all_nodes_color_grading'))})
+    for e, names, nth, label in _g_entries(cs.get_editor_property('per_node_color_grading'), 'Nodes'):
+        targets.append({'kind': 'icvfx_node', 'actor': ref, 'applies_to': names, 'nth': nth,
+                        'name': cname + _G_DOT + label, 'enabled': on and bool(e.get_editor_property('is_enabled'))})
+actors, _kind = _level_actors()
+for a in actors:
+    if isinstance(a, unreal.PostProcessVolume):
+        where = 'global' if a.get_editor_property('unbound') else 'local'
+        targets.append({'kind': 'ppv', 'actor': _label(a), 'applies_to': [], 'nth': 0, 'name': _label(a) + ' (' + where + ')',
+                        'enabled': bool(a.get_editor_property('enabled'))})
+ccr = getattr(unreal, 'ColorCorrectRegion', None)
+if ccr is None:
+    missing['ccr'] = 'The Colour Correct Regions plugin is not enabled in this project'
+else:
+    for a in actors:
+        if isinstance(a, ccr):
+            window = 'Window' in a.get_class().get_name()
+            try:
+                shape = str(a.get_editor_property('window_type' if window else 'type'))
+                shape = shape.split('.')[-1].split(':')[0].strip('<> ').lower()
+            except Exception:
+                shape = ''
+            if window:
+                what = (shape + ' window') if shape else 'window'
+            else:
+                what = shape or 'region'
+            targets.append({'kind': 'ccr', 'actor': _label(a), 'applies_to': [], 'nth': 0, 'name': _label(a) + ' (' + what + ')',
+                            'enabled': bool(a.get_editor_property('enabled'))})
+result = {'targets': targets, 'missing': missing}
+"""
+
+
+def read_grade(kind: str, actor: str, applies_to, nth: int = 0) -> str:
+    """One target's grade (``core.grading.Grade.to_dict`` shape) and whether its grading is on
+    (``enabled``: its own switch and its cluster's / camera's master switch)."""
+    return GRADING_COMMON + f"""
+t = _g_open({_lit(kind)}, {_lit(actor)}, {_lit(list(applies_to))}, {int(nth)})
+result = {{'grade': _g_read(t), 'enabled': t.enabled(), 'entry_enabled': t.entry_enabled(),
+          'master_enabled': t.master_enabled()}}
+"""
+
+
+def write_grade(kind: str, actor: str, applies_to, values, transact: bool, nth: int = 0) -> str:
+    """Write only the given grade keys (``"<range>.<part>"`` to [r, g, b, y], ``"temp"`` / ``"tint"``
+    to a number, ticking their override; ``None`` resets a key to neutral and unticks it).
+    ``transact``: inside an editor transaction (only when an editor world exists)."""
+    vals = {k: (list(v) if isinstance(v, (list, tuple)) else v) for k, v in values.items()}
+    return GRADING_COMMON + f"""
+t = _g_open({_lit(kind)}, {_lit(actor)}, {_lit(list(applies_to))}, {int(nth)})
+_g_run(lambda: _g_write(t, {_lit(vals)}), {_lit(bool(transact))})
+result = {{'ok': True}}
+"""
+
+
+def set_grading_enabled(kind: str, actor: str, applies_to, enabled: bool, transact: bool, master: bool = False,
+                        nth: int = 0) -> str:
+    """Switch a target's own grading on or off (Bypass leaves the master switch alone, so ending it
+    restores exactly). ``master``: when switching on, also switch on the cluster's or camera's master
+    grading switch ("Enable grading on this target")."""
+    return GRADING_COMMON + f"""
+t = _g_open({_lit(kind)}, {_lit(actor)}, {_lit(list(applies_to))}, {int(nth)})
+_g_run(lambda: t.set_enabled({_lit(bool(enabled))}, {_lit(bool(master))}), {_lit(bool(transact))})
+result = {{'ok': True, 'enabled': t.enabled()}}
+"""

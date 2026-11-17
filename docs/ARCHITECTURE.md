@@ -13,13 +13,16 @@ operator_board/
     actions.py           ActionRegistry: id -> handler (+ params, toggle state)
     events.py            thread-safe pub/sub EventBus
     custom_pages.py      the operator's own pages: items on a grid, kept in the project's custom_pages.json
+    grading.py           colour grading model: Grade (values + overrides), controls, neutral values, hex tints
+    looks.py             LookStore: named grades per project; BypassState: what is bypassed, kept on disk
     ue_versions.py       UE 5.2-5.8 table, Build.version detection
     switchboard_import.py  compatibility re-export of switchboard_config
   listener/              SwitchboardListener protocol: messages, TCP + QUIC clients, shared credential store
   devices/               launch command lines (editor / nDisplay / MU server) + DeviceManager
   multiuser/             MU server (local subprocess or via listener) + log-based client tracking
   led/                   transports (http/tcp/udp/osc), JSON protocol profiles, LEDProcessor, LEDManager
-  remote/                Remote Control API client, targets, levels, cameras, objects, DLSS, takes
+  remote/                Remote Control API client, targets, levels, cameras, objects, DLSS, takes;
+                         grading.py (GradingService: targets, live sender, bypass, looks, nudges)
   sync/                  sync providers (FreeFileSync/P4/Git/Robocopy/custom) + manager
   analytics/             MetricStore (time series from listener sync status)
   surfaces/              surface layouts (JSON), SurfaceManager (several surfaces at once), controller, label fitting,
@@ -84,3 +87,18 @@ attaches the installer and the zip to releases for `v*` tags. When frozen, loggi
 | SwitchboardListener 2980 (QUIC/UDP for UE 5.4+, TCP for 5.2-5.3) | start/kill processes, stdout, `get sync status` metrics, sync jobs on nodes |
 | Remote Control HTTP 30010 | console commands, property get/set, function calls, presets, asset search |
 | Remote Control → `PythonScriptLibrary.ExecutePythonCommandEx` | editor-only operations; results are returned by printing `OPB_RESULT:<json>` |
+
+## Colour grading
+- **Targets** are read with Python on the editor (or the first node that answers when no editor runs):
+  the nDisplay root's entire cluster and per-viewport grades, each ICVFX camera's inner frustum grade,
+  Post Process Volumes and Colour Correct Regions / windows. A target's key is its kind, actor label and the
+  viewport or node names it applies to, so looks match by name and not by index.
+- **Writes** go to the editor inside a transaction and to every running node, so the wall changes without
+  waiting for multi-user. Checked live on 5.8: direct node sends and multi-user end at the same value.
+- **Gestures:** `begin_gesture` reads the target (the change log's previous value), `send` keeps only the latest
+  value and a sender thread delivers about 20 per second, and `end_gesture` flushes and records one change.
+  `send` never blocks the UI; `end_gesture` and `flush` do, so the page runs them on its worker thread.
+- **Bypass** turns only the target's grading switch off; `BypassState` keeps the list on disk so a restart can
+  offer to restore it.
+- **Events:** `grading.targets`, `grading.selected`, `grading.changed`, `grading.bypass`, `grading.problem`,
+  `grading.look`, `grading.looks_changed`. The page re-reads the selected target every 3 s while it is live.

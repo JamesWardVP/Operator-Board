@@ -34,6 +34,7 @@ class RemoteControlClient:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.device_name = ""  # the stage device it belongs to, for messages (set by TargetResolver)
 
     @property
     def base_url(self) -> str:

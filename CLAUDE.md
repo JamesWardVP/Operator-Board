@@ -23,9 +23,9 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 10. Future ideas live in `docs/ROADMAP.md`, never the README. The **README lists only shipped features and the supported UE versions (5.2 → 5.8)**.
 11. GitHub: `JamesWardVP/Operator-Board`.
 
-**Custom Pages and button pictures shipped in 0.8.2** (see "Custom pages" and "Button pictures" below). **Next priorities, chosen by the owner and not started:** a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
+**Custom Pages and button pictures shipped in 0.8.2** (see "Custom pages" and "Button pictures" below). **The Colour Grading page shipped in 0.9.0** (see "Colour grading" below). **Next priorities, chosen by the owner and not started:** an Operator Listener for non-UE content on render nodes, then a health check-up and bug-fixing round. The check-up always stays the last phase, and it lists the minor issues that reviews left unfixed. Both are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so. When a review leaves minors unfixed, add them to that list.
 
-## Current state (v0.8.2)
+## Current state (v0.9.0)
 Every brief item has a first implementation. See:
 - README.md for features;
 - docs/ARCHITECTURE.md for structure;
@@ -35,6 +35,7 @@ Every brief item has a first implementation. See:
 **Basics:**
 - **Stack:** Python + Qt (PySide6, PySide2 fallback via `operator_board/qt.py`), so it also runs in Switchboard's own Python venv.
 - **Run:** `python -m operator_board` (`--headless`, `--no-hardware`, `--config path`, `--switchboard-config path`, `--project`).
+- **Owner's launcher:** `../Launch latest Operator Board.bat`, beside the repo, starts the app from this repo's current code (the checked-out branch) using `.venv`. It makes the venv on first run, and reinstalls `.[ui,streamdeck,midi]` when `pyproject.toml` changes, judged against `.venv/pyproject.installed`. It never pulls or switches branch. Keep it working when the start-up or the dependencies change.
 - **Tests:** `python -m pytest`. The suite has:
   - fake SwitchboardListener and HTTP servers;
   - an offscreen Qt smoke test (`QT_QPA_PLATFORM=offscreen` on headless Linux).
@@ -176,6 +177,15 @@ Older packages are removed. Always build into `dist/`, never side folders.
   - the level step waits until the editor has the level open.
 - **Remote Objects Undo** re-applies a record's previous value through `ctx.apply_setting(kind, ref, value)` (kind quick / property / preset). `ctx.changed_settings()` is the latest value of each setting changed this run.
 
+**Colour grading in Unreal** (probed read/write on a throwaway copy of the nDisplay test project, 5.8.4 editor and `-game`)
+- **nDisplay:** `root.get_editor_property('current_config_data')` (there is no `get_config_data()` in Python) → `stage_settings` → `enable_color_grading`, `entire_cluster_color_grading` (`enable_entire_cluster_color_grading`, `color_grading_settings`), `per_viewport_color_grading[]` (`is_enabled`, `is_entire_cluster_enabled`, `color_grading_settings`, `apply_post_process_to_objects` = viewport names; `name` is empty unless typed in).
+- **ICVFX camera:** `DisplayClusterICVFXCameraComponent` on the root → `camera_settings` → `enable_inner_frustum_color_grading`, `all_nodes_color_grading`, `per_node_color_grading[]`.
+- **`color_grading_settings`** (nDisplay and camera): `white_balance` (`white_temp`, `white_tint`, `override_white_temp`, `override_white_tint`), `global_` (Python adds the underscore), `shadows`, `midtones`, `highlights`, each with `saturation` / `contrast` / `gamma` / `gain` / `offset` (`unreal.Vector4`, x y z w = r g b brightness) and `override_<part>`; plus `color_correction_shadows_max`, `color_correction_highlights_min/max` with their `override_*`.
+- **Post Process Volume:** `settings` → `color_<part>` and `color_<part>_shadows|_midtones|_highlights`, `white_temp`, `white_tint`; overrides are `override_color_gain` etc. (no `b_` prefix in Python); the actor has `enabled` and `unbound`.
+- **Colour Correct Regions:** the placeable classes are `ColorCorrectionRegion` and `ColorCorrectionWindow` (their parents `ColorCorrectRegion` / `ColorCorrectWindow` spawn nothing); `get_all_actors_of_class(world, unreal.ColorCorrectRegion)` finds both. Fields: `type` (`ColorCorrectRegionsType.SPHERE`...), `enabled`, `temperature`, `tint`, `color_grading_settings` (`global_`, `shadows`, `midtones`, `highlights`, `shadows_max`, `highlights_min/max`; **no override flags**). The plugin is optional per project.
+- **Writing:** nested structs read through `get_editor_property` behave like references to the owner's data (changing one changed the actor), so always write the struct chain back with `set_editor_property` on the owner (`cfg.modify()` first inside a `ScopedEditorTransaction`) so the editor sees the change; read back confirmed (Global gain 1.2/1.0/0.8/1.1 with its override).
+- **`-game`:** the same paths and actor labels read fine (UnrealEditor `-game` keeps editor data); a `-game` world is found by `unreal.ObjectIterator(unreal.World)`, as `LEVEL_ACTORS` does.
+
 **Takes** (Take Recorder, 5.8)
 - **A just-opened panel** has no take metadata until the editor ticks, so `take_recorder_start` returns `retry` and `TakeManager` calls again. Verified up to `start_recording`, but not that call itself.
 - **Sources:** it records only the sources in its panel; with none, `start_recording` raises "There are no currently enabled or valid sources", which Operator Board explains.
@@ -305,6 +315,21 @@ Older packages are removed. Always build into `dist/`, never side folders.
 - **Window:** built-in pages keep their place in `MainWindow.pages`; custom views come after them in the stack and first in the side menu, in a "Custom" group that is only there while a custom page exists. `custom_pages.changed` rebuilds them unless `layout_only`; `custom_pages.show` (action `custom_page.show`, preset item `custom_pages`) switches to one.
 - **Tried** in a real window with real mouse drags on the demo stage; not yet on a live stage.
 
+**Colour grading** (`core/grading.py`, `core/looks.py`, `remote/grading.py`, `remote/scripts.py`, `ui/color_wheel.py`, `ui/pages/grading.py`; spec and plan in `docs/superpowers/`)
+- **Targets:** six kinds, listed in this order: `ndisplay_cluster`, `ndisplay_viewport`, `icvfx_all_nodes`, `icvfx_node`, `ppv` and `ccr`. A target's key is `kind|actor label|sorted viewport or node names`, with `#n` added for duplicates. Looks match by key, so they match by name and not by index, and they are not tied to a level. `GradingService.missing` explains a group that is empty, for example a missing plugin.
+- **Writes:** `GradingService` writes to the editor inside a transaction and to every running node. With no editor, it writes to the nodes only. Touching a control ticks that control's override. Reset sets the neutral value and unticks the override. A Colour Correct Region has no overrides, so its reset only sets neutral values. A failed or partial send publishes `grading.problem` naming what missed it. If the editor answers with an error after the nodes took a change (`GradingPartial`), Operator Board keeps its state as if the change was made: the bypass is recorded, and the log entry's result is "partial: …". Then it reports the error. Bypass is refused on a target whose grading is already off. A node that misses a send gets the latest value again once it answers. Every change goes to the editor and every node at the same time, through a pool of up to 16 threads (`_pool`). A release goes editor-first, with the nodes as a fallback. A node with any missed entry counts as down and is skipped on every change, so only its first miss costs a timeout; the retrier catches it up. When nothing took a change, the retry queue for that target is put back as it was, so a failed change never arrives later. Warnings name the device (`RemoteControlClient.device_name`, set by `TargetResolver`). One nDisplay root that can't be read is skipped, and `missing['ndisplay']` says why.
+- **Gestures:**
+  - `begin_gesture(key)` reads the target. That read becomes the change log's previous value, and it never raises.
+  - `send` stores only the latest value, and a sender thread delivers about 20 sends per second. It never blocks.
+  - `end_gesture(key, label)` flushes and records one `grade` change. Undo goes through `ctx.apply_setting("grade", ...)`.
+  - Live sends change the editor outside any transaction. So before the release transaction, `end_gesture` puts the gesture's start values back in the editor, with no transaction. Otherwise the transaction would hold no change, and multi-user and the editor's Undo would miss the drag (verified live on 5.7).
+  - `end_gesture` and `flush` block, so the page runs every gesture call on one in-order worker thread for each app context (`ctx._grading_page_shared`).
+- **Bypass** switches off only the target's grading switch. `BypassState` keeps the list on disk, and the main window offers to restore it at the next start. Touching a bypassed target ends the bypass first. Bypass and Enable grading are logged as `grade_switch` entries. The page's Undo and `changed_settings()` (Export changes, presets) leave them out.
+- **Selected target** is shared app-wide (`GradingService.select`, event `grading.selected`). The page, custom-page copies and Stream Deck nudges all use it.
+- **Page:** a target picker grouped by kind, then Bypass, Reset grade, Undo, Enable grading and Restore all. Under that come Looks (picking a look recalls it at once, and Delete opens a menu), a Primaries tab and an "Advanced: tonal ranges" tab. Wheels reflow into as many columns as fit, so the page fits a 1366-px window. A control set exactly to neutral is sent as a reset. A greyed control is painted at 35 % opacity. The page re-reads the selected target every 3 s while live, and never during a gesture. Every button that talks to Unreal (Bypass, Reset, Undo, Enable, Restore all, look recall and save) runs on the in-order worker (`_queue`), so it never overtakes a value still being sent. A wheel or slider that is greyed mid-drag ends its gesture. Every control is offered to custom pages as `ctl:<attribute>`, so renaming one breaks saved pages.
+- **Actions:** `grading.look`, `grading.bypass`, `grading.reset` and `grading.nudge` (`ui/action_editors.py` has the nudge editor). A preset item `grading_look` is applied after `object_settings`. The take log records the active look. The default Stream Deck layout has a Grading page.
+- **Verified:** see "Not yet verified", item 6.
+
 **LED processors**
 - **Modes:**
   - each processor has one `mode` (`LEDProcessor.mode`): normal, frozen, blackout or pattern; blackout outranks pattern, which outranks frozen;
@@ -344,6 +369,11 @@ Older packages are removed. Always build into `dist/`, never side folders.
 3. Python in a real editor: the sub-level visibility getter, and an actual Take Recorder recording (`start_recording`).
 4. Concert log patterns for the multi-user client count.
 5. Opening an Operator Board config in the Switchboard UI itself on 5.2–5.7. 5.8 was checked through Switchboard's own loader, not its window.
+6. Colour grading:
+   - **5.2–5.5:** only Epic's Python API pages were checked. Every property the app uses is listed there.
+   - **What passed live on 5.6, 5.7 and 5.8:** read, write, bypass, look and undo, on the editor and on a `-dc_cluster` node, for five target kinds: the nDisplay cluster, an nDisplay per-viewport entry, an ICVFX camera on all nodes, a Post Process Volume, and a Colour Correct Region sphere. On 5.8 the same checks also passed through multi-user, where direct node sends do not fight multi-user. The checks read values back with the app's own scripts, not the Details panel.
+   - **Not tested:** ICVFX per-node entries (`icvfx_node`) and Colour Correct Windows.
+   - **On screen:** the node picture changed for the nDisplay cluster and per-viewport grades. For an ICVFX camera and a Post Process Volume, a strong red Gain left the node capture's average colour exactly the same. The capture may have missed it, or the grade may not reach the picture. Check this on a real wall before relying on those two kinds. The Colour Correct Region capture changed only slightly.
 
 ## Conventions
 - Keep Python 3.9 compatible: no `match`, no runtime `X | Y` unions, no walrus.

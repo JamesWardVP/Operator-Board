@@ -13,12 +13,15 @@ from operator_board.core.changelog import COLUMNS, ChangeLog, ChangeRecord, expo
 from operator_board.core.config import AppConfig, app_home
 from operator_board.core.custom_pages import FILE_NAME as CUSTOM_PAGES_FILE, CustomPageStore
 from operator_board.core.events import EventBus
+from operator_board.core.grading import CONTROLS as GRADE_CONTROLS
+from operator_board.core.looks import BYPASS_FILE, FILE_NAME as LOOKS_FILE, BypassState, LookStore
 from operator_board.core.stage import ConfigStore, copy_into
 from operator_board.devices.manager import DeviceManager
 from operator_board.led.manager import LEDManager
 from operator_board.multiuser.server import MultiUserServer
 from operator_board.remote.cameras import CameraService
 from operator_board.remote.dlss import DLSSService
+from operator_board.remote.grading import GradingProblem, GradingService
 from operator_board.remote.levels import LevelInfo, LevelService
 from operator_board.remote.objects import ObjectService
 from operator_board.remote.takes import TakeManager
@@ -30,6 +33,7 @@ from operator_board.surfaces.manager import SurfaceManager
 from operator_board.sync.manager import SyncManager
 
 log = logging.getLogger(__name__)
+CATEGORY_GRADING = "Colour Grading"
 
 MACRO_ACTION = "macro.run"
 
@@ -92,6 +96,17 @@ class AppContext:
         # Custom pages are the project's own, whichever Switchboard config is open.
         pages_dir = project_dir or (os.path.dirname(os.path.abspath(config_path)) if config_path else app_home())
         self.custom_pages = CustomPageStore(os.path.join(pages_dir, CUSTOM_PAGES_FILE), self.bus)
+        # Colour grading: looks and the bypass record are the project's own too.
+        self.looks = LookStore(os.path.join(pages_dir, LOOKS_FILE), self.bus)
+        self.grading = GradingService(self.config, self.targets, self.bus, self.looks,
+                                      BypassState(os.path.join(pages_dir, BYPASS_FILE)), record=self.changes.record)
+        self.bus.subscribe("grading.selected", lambda _t, _p: self._save_quietly())
+        self.bus.subscribe("grading.look", lambda _t, _p: self._save_quietly())
+        # Load the grading targets whenever Unreal has a level open, so a Stream Deck press, the HTTP
+        # API or a preset works without the Colour Grading page having been opened.
+        self.bus.subscribe("editor.ready", lambda _t, _p: self._refresh_grading_soon())
+        self.bus.subscribe("editor.level_changed", lambda _t, _p: self._refresh_grading_soon())
+        self.takes.look_provider = lambda: self.grading.active_look or "unsaved grade"
         self._register_actions()
 
     # ---- lifecycle ------------------------------------------------------------
@@ -221,6 +236,7 @@ class AppContext:
         self.stop_surface_backends()
         self.timing.stop()
         self.editor.stop()
+        self.grading.stop()
         if self.api:
             self.api.stop()
         if self.streamdeck:
@@ -340,7 +356,8 @@ class AppContext:
 
     # Not settings, so not in the change log: control surface page turns, LED wall / group states
     # (freeze, blackout, test pattern, normal) and connecting, starting or stopping instances.
-    NOT_LOGGED = ("surface.", "led.", "devices.", "group.", "custom_page.")
+    # Colour grading changes are logged by the grading service itself (one entry per gesture).
+    NOT_LOGGED = ("surface.", "led.", "devices.", "group.", "custom_page.", "grading.")
     LOGGED_ANYWAY = ("led.brightness",)  # a setting, not a state
 
     def _log_action(self, payload: Dict[str, Any]) -> None:
@@ -367,6 +384,8 @@ class AppContext:
             errors = self.objects.set_preset_value(ref["preset"], ref["label"], value, ref.get("target", "primary"))
             if errors:
                 raise RuntimeError("; ".join(errors))
+        elif kind == "grade":
+            self.grading.apply(ref["key"], value)
         else:
             raise ValueError(f"Cannot apply a '{kind}' setting")
 
@@ -378,7 +397,8 @@ class AppContext:
         (what "Export changes" and a preset's Remote Objects item hold)."""
         latest: Dict[tuple, ChangeRecord] = {}
         for rec in self.session_changes():
-            if rec.kind and rec.result == "ok":
+            # grades travel as looks; bypass and enable switches are not settings to re-apply
+            if rec.kind and rec.kind not in ("grade", "grade_switch") and rec.result == "ok":
                 latest[rec.key] = rec
         return [{"kind": r.kind, "ref": r.ref, "item": r.item, "setting": r.setting, "value": r.value}
                 for r in latest.values()]
@@ -396,7 +416,7 @@ class AppContext:
             takes.append([t.slate, t.take, t.description, t.level, start.strftime("%Y-%m-%d") if start else "",
                           start.strftime("%H:%M:%S") if start else "",
                           datetime.datetime.fromtimestamp(t.stopped).strftime("%H:%M:%S") if t.stopped else "",
-                          round(t.duration_s, 1), t.rating, t.notes, t.sequence, t.saved])
+                          round(t.duration_s, 1), t.rating, t.notes, t.sequence, t.saved, t.look])
         cameras = [[c.name, c.target] + [round(float(v), 4) for v in list(c.location) + list(c.rotation)]
                    for c in self.config.cameras]
         leds = []
@@ -425,7 +445,7 @@ class AppContext:
             ("Summary", ["Field", "Value"], summary),
             ("Change log", [title for _k, title in COLUMNS], changes),
             ("Takes", ["Slate", "Take", "Description", "Level", "Date", "Start", "End", "Duration (s)", "Rating",
-                       "Notes", "Level sequence", "Saved"], takes),
+                       "Notes", "Level sequence", "Saved", "Look"], takes),
             ("Camera positions", ["Name", "Target", "X", "Y", "Z", "Pitch", "Yaw", "Roll"], cameras),
             ("LED processors", ["Name", "Type", "Address", "Enabled", "Mode", "Test pattern", "Groups"], leds),
             ("Unreal instances", ["Name", "Role", "Address", "Remote Control port", "Enabled"], devices),
@@ -468,6 +488,14 @@ class AppContext:
     def save(self) -> str:
         self.surfaces.store()
         return self.store.save(self.config)
+
+    def _refresh_grading_soon(self) -> None:
+        def work():
+            try:
+                self.grading.refresh_targets()
+            except Exception as exc:  # noqa: BLE001 - the page and the next action try again
+                log.info("Could not load the colour grading targets: %s", exc)
+        threading.Thread(target=work, daemon=True, name="grading-targets").start()
 
     def _save_quietly(self) -> None:
         """Keep a setting changed by Operator Board itself (the next session name) across restarts."""
@@ -626,6 +654,71 @@ class AppContext:
         return ActionResult(True, f"Active project: {project}")
 
     # ---- actions ----------------------------------------------------------------------
+    def _register_grading_actions(self) -> None:
+        """Colour grading actions. ``target`` empty = the target selected on the Colour Grading page."""
+        a = self.actions
+
+        def targets():
+            return [""] + [t["key"] for t in self.grading.targets_list]
+
+        def result(ok_msg):
+            ok, msg = ok_msg
+            return ActionResult(ok, msg)
+
+        def look(look=""):
+            name = look or next(iter(self.looks.names()), "")
+            if not name:
+                return ActionResult(False, "No looks saved yet: save one on the Colour Grading page")
+            try:
+                warnings = self.grading.recall_look(name)
+            except GradingProblem as exc:
+                return ActionResult(False, str(exc))
+            return ActionResult(not warnings, f"Look {name}" + (f": {'; '.join(warnings)}" if warnings else ""))
+
+        def bypass(target="", state=None):
+            on = None if state in (None, "", "toggle") else str(state).lower() in ("1", "true", "on", "yes")
+            try:
+                now = self.grading.set_bypass(target or "", on)
+            except GradingProblem as exc:
+                return ActionResult(False, str(exc))
+            return ActionResult(True, "Grading bypassed" if now else "Grading on")
+
+        def reset(target=""):
+            if target == "all":
+                return result(self.grading.reset_all())
+            return result(self.grading.reset(target or "", None))
+
+        def nudge(control="", amount=None, channel="y", target=""):
+            found = GRADE_CONTROLS.get(control or "")
+            if found is None:
+                return ActionResult(False, f"Unknown grading control '{control}'")
+            try:
+                step = found.nudge if amount in (None, "") else float(amount)
+            except (TypeError, ValueError):
+                return ActionResult(False, "The nudge amount must be a number")
+            return result(self.grading.nudge(found.id, float(step), target or "", channel or "y"))
+
+        a.add("grading.look", "Recall colour grading look", CATEGORY_GRADING, look,
+              description="Apply a saved look to every target it holds (empty = the first saved look)",
+              params=[ActionParam("look", "Look", "choice", "", choices_provider=self.looks.names)])
+        a.add("grading.bypass", "Bypass colour grading (toggle)", CATEGORY_GRADING, bypass,
+              state=lambda: self.grading.is_bypassed(self.grading.selected),
+              description="Switch the target's own grading off or back on, keeping its values",
+              params=[ActionParam("target", "Target (empty = selected)", "choice", "", choices_provider=targets),
+                      ActionParam("state", "On, off or toggle", "choice", "toggle",
+                                  choices_provider=lambda: ["toggle", "on", "off"])])
+        a.add("grading.reset", "Reset colour grade", CATEGORY_GRADING, reset,
+              description="Set every grading control on the target back to neutral ('all' = every target)",
+              params=[ActionParam("target", "Target (empty = selected, all = every target)", "choice", "",
+                                  choices_provider=lambda: targets() + ["all"])])
+        a.add("grading.nudge", "Nudge colour grading control", CATEGORY_GRADING, nudge,
+              description="Move one grading control by a step (empty amount = its usual step)",
+              params=[ActionParam("control", "Control", "choice", "gain", choices_provider=lambda: list(GRADE_CONTROLS)),
+                      ActionParam("amount", "Amount (empty = usual step; negative to lower)", "float"),
+                      ActionParam("channel", "Channel (y = brightness, r, g, b)", "choice", "y",
+                                  choices_provider=lambda: ["y", "r", "g", "b"]),
+                      ActionParam("target", "Target (empty = selected)", "choice", "", choices_provider=targets)])
+
     def _register_actions(self) -> None:
         a = self.actions
         led, dev, mu, takes = self.led, self.devices, self.multiuser, self.takes
@@ -879,6 +972,8 @@ class AppContext:
         a.add("custom_page.show", "Show custom page", "Custom Pages", show_custom_page,
               description="Switch Operator Board's window to one of your custom pages",
               params=[ActionParam("page", "Custom page", "choice", choices_provider=self.custom_pages.names)])
+
+        self._register_grading_actions()
 
         # Surface navigation (handled by SurfaceController; registered so they appear in pickers)
         for nav_id, label in (("surface.next_page", "Next surface page"), ("surface.prev_page", "Previous surface page"),

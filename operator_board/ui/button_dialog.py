@@ -13,7 +13,8 @@ from operator_board.qt import QtGui, QtWidgets, Qt, exec_
 from operator_board.surfaces import pictures
 from operator_board.surfaces.layout import FONT_WEIGHTS, ButtonBinding
 from operator_board.surfaces.render import fit_label
-from operator_board.ui.action_editors import MACRO_ACTION, OSC_ACTION, OscEditor, StepsEditor
+from operator_board.ui.action_editors import (MACRO_ACTION, NUDGE_ACTION, OSC_ACTION, NudgeEditor, OscEditor,
+                                              StepsEditor)
 from operator_board.ui.pages.surfaces import FONT_SIZES, WEIGHT_LABELS, qt_font
 from operator_board.ui.pictures import PictureField, new_picture_label, show_on
 from operator_board.ui.widgets import ColorField, make_searchable, muted
@@ -57,6 +58,7 @@ class ButtonDialog(QtWidgets.QDialog):
         params_form.addRow("", self.param_hint)
         self.osc_editor = OscEditor()
         self.steps_editor = StepsEditor(ctx.actions)
+        self.nudge_editor = NudgeEditor(lambda: [t["key"] for t in ctx.grading.targets_list])
         self.color = ColorField("Button colour")
         self.active_color = ColorField("Active button colour")
         self.text_color = ColorField("Text colour")
@@ -75,6 +77,7 @@ class ButtonDialog(QtWidgets.QDialog):
         form.addRow(self.params_box)
         form.addRow(self.osc_editor)
         form.addRow(self.steps_editor)
+        form.addRow(self.nudge_editor)
         form.addRow("Colour", self.color)
         form.addRow("Active colour", self.active_color)
         form.addRow("Text colour", self.text_color)
@@ -100,6 +103,7 @@ class ButtonDialog(QtWidgets.QDialog):
         self.params.setText(json.dumps(b.params) if b.params else "")
         self.osc_editor.set_params(b.params if b.action == OSC_ACTION else {})
         self.steps_editor.set_steps((b.params or {}).get("steps", []) if b.action == MACRO_ACTION else [])
+        self.nudge_editor.set_params(b.params if b.action == NUDGE_ACTION else {})
         self.color.setText(b.color)
         self.active_color.setText(b.active_color)
         self.text_color.setText(b.text_color)
@@ -113,7 +117,8 @@ class ButtonDialog(QtWidgets.QDialog):
         action_id = self.action.currentData() or ""
         self.osc_editor.setVisible(action_id == OSC_ACTION)
         self.steps_editor.setVisible(action_id == MACRO_ACTION)
-        self.params_box.setVisible(action_id not in (OSC_ACTION, MACRO_ACTION))
+        self.nudge_editor.setVisible(action_id == NUDGE_ACTION)
+        self.params_box.setVisible(action_id not in (OSC_ACTION, MACRO_ACTION, NUDGE_ACTION))
         action = self.ctx.actions.get(action_id)
         if action and action.params:
             hints = []
@@ -135,6 +140,8 @@ class ButtonDialog(QtWidgets.QDialog):
             params = {"steps": self.steps_editor.steps()}
             if not params["steps"]:
                 raise ValueError("Add at least one step")
+        elif action_id == NUDGE_ACTION:
+            params = self.nudge_editor.params()
         else:
             try:
                 params = json.loads(self.params.text()) if self.params.text().strip() else {}

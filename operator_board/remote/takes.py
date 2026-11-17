@@ -8,7 +8,7 @@ import threading
 import os
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from operator_board.core.config import AppConfig, app_home, atomic_write
 from operator_board.core.events import EventBus
@@ -37,6 +37,7 @@ class TakeRecord:
     notes: str = ""
     sequence: str = ""  # the Take Recorder level sequence, once known
     saved: str = ""     # "", "saved" or "persisted" (written into the project from a multi-user session)
+    look: str = ""      # the colour grading look active when the take started ("unsaved grade" if none)
 
     @property
     def duration_s(self) -> float:
@@ -58,6 +59,7 @@ class TakeManager:
         self.targets = targets
         self.log = TakeLog()
         self.notice = ""  # what the last start did besides recording, e.g. which camera it added
+        self.look_provider: Callable[[], str] = lambda: ""  # the active colour grading look (set by AppContext)
         self.warning = ""  # a problem Unreal is likely to hit with the take being recorded (long paths)
         self._sync_lock = threading.Lock()
         self._save_lock = threading.Lock()  # the log is also saved from background threads
@@ -180,7 +182,12 @@ class TakeManager:
                 errors.append(f"Take Recorder: {NO_SOURCES_HELP if _NO_SOURCES in str(exc) else exc}")
                 self._publish()
                 return errors
-        self.current = TakeRecord(slate=s.slate, take=s.take, description=s.description, level=level, started=time.time())
+        try:
+            look = self.look_provider() or ""
+        except Exception:  # noqa: BLE001 - the look is a note, never a reason not to record
+            look = ""
+        self.current = TakeRecord(slate=s.slate, take=s.take, description=s.description, level=level,
+                                  started=time.time(), look=look)
         self._run += 1
         if countdown > 0:
             # Take Recorder counts down before it records: follow it, so the operator sees the

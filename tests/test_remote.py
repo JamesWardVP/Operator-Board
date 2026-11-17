@@ -93,5 +93,15 @@ def test_camera_scripts_compile():
     from operator_board.remote import scripts
     for script in (scripts.list_camera_targets(), scripts.get_actor_transform("Cine'Cam"),
                    scripts.set_actor_transform("/Game/M.M:PersistentLevel.Cam", [1, 2, 3], [4, 5, 6]),
-                   scripts.take_recorder_save("", "Scene's", 3)):
+                   scripts.take_recorder_save("", "Scene's", 3), scripts.list_grading_targets(),
+                   scripts.read_grade("ppv", "Cam's PPV", []),
+                   scripts.write_grade("ndisplay_viewport", "Root", ["VP'1"], {"global.gain": [1, 1, 1, 1]}, True),
+                   scripts.set_grading_enabled("ccr", "It's", [], False, True)):
         compile(script, "<editor>", "exec")
+
+
+def test_resolver_clients_carry_their_device_name():
+    from operator_board.core.config import ROLE_NDISPLAY
+    cfg = AppConfig(devices=[DeviceConfig(name="Node_A", role=ROLE_NDISPLAY, address="10.0.0.12", rc_port=30010)])
+    client = TargetResolver(cfg).client_for("Node_A")
+    assert client.device_name == "Node_A"
