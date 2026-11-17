@@ -22,6 +22,7 @@ Running an LED volume means watching many things at once: the wall, the render n
 - **Run the multi-user session** and see who is connected.
 - **Change level**, toggle lighting sub-levels and **recall camera positions**.
 - **Adjust lights and cine cameras** (brightness, colour, focal length, focus) without opening the editor's panels.
+- **Grade the wall and the inner frustum** with colour wheels, save looks and recall them from a key.
 - **Slate and record takes**, with a take log, timecode and genlock status.
 - Drive it all from **Stream Decks**, a **phone or tablet**, **MIDI pad controllers**, **OSC** or **Bitfocus Companion**, several at once.
 
@@ -155,6 +156,17 @@ On Windows, quit the Elgato Stream Deck app first, because only one program can 
 - **Undo and saved changes:** **Undo** (top right of Remote Objects) puts back the last value changed there, to the value before it, whether that was set from Operator Board or read from the editor; press again to go further back. **Export changes…** saves every value changed since Operator Board started as a settings file, to add to a preset.
 - **DLSS:** DLSS Super Resolution mode, Frame Generation, Ray Reconstruction, Reflex and Screen Percentage, applied to the editor, the nodes or all instances, with plugin detection. The controls are defined in `dlss.json`, so a change in the plugin's API only needs a JSON edit.
 
+### Colour Grading
+Grade the live Unreal image from colour wheels laid out like a colourist's grading panel. It sits under **Advanced**, straight after Remote Objects.
+- **Target:** pick what to grade: the nDisplay **entire cluster** or a **per-viewport** grade, an **ICVFX camera's** inner frustum, a **Post Process Volume**, or a **Colour Correct Region** or window. The list shows only what the level has. If a target's grading is switched off, its controls are greyed and **Enable grading on this target** switches it on. Nothing is switched on without asking.
+- **Primaries:** wheels for **Lift, Gamma, Gain, Offset, Saturation and Contrast**, plus **Temperature** and **Tint** sliders. Each control is titled the way a colourist would say it, with the Unreal setting it changes written in small italics underneath. Drag the puck to set the colour. Drag the slider underneath, or scroll on the wheel, to set the brightness. Hold **Shift** for fine control, and **double-click** a wheel to reset it. Under each wheel you can type the RGB values Unreal uses, or switch to a hex tint. The wall changes while you drag.
+- **Advanced: tonal ranges** has the full Shadows, Midtones and Highlights sets, each with Saturation, Contrast, Gamma, Gain and Offset.
+- **Bypass** switches the target's grading off to compare it with the ungraded image. Switching Bypass off restores the grade exactly. **Restore all** ends every bypass. If Operator Board closes while something is bypassed, it offers to restore it at the next start.
+- **Reset grade** puts the whole target back to how Unreal would leave it. **Undo** goes back one change at a time. Each drag or typed value is one entry in the change log, with the value it had before.
+- **Looks:** **Save look…** stores the grade of every target under a name, and you can untick targets to leave out. Looks belong to the project. Pick a look from the list to recall it on every target it holds. Looks can go into saved settings presets, and each take records which look was active.
+- **Keys and custom pages:** control surfaces and custom page buttons can recall a look, bypass, reset and **nudge** any control (for example Temperature +100 K or Gain brightness +0.02). The default Stream Deck layout has a **Grading** page. Every wheel, slider, the target list, the looks list and the buttons can be placed on a custom page one by one.
+- With no editor running, grading goes straight to the nDisplay nodes. Those changes last until the nodes restart, because only the editor saves.
+
 ### Saved Settings: presets and the change log
 - **Presets** hold several kinds of settings and apply them in one go: the level, sub-levels, data layers, Remote Objects values, camera positions, LED processor modes, the scene and take, control surfaces and custom pages. Add the current setting of each with **+ Add current…**, or from a file (a preset, an exported setting, a Remote Objects export, a control surfaces export or a camera positions CSV). Presets are saved with the stage and import and export as files.
 - **Applying** runs the settings in a fixed, safe order (the level first and only once the editor has opened it, then its sub-levels and data layers, the actors, camera positions, LED processors, the take and control surfaces). Each step is checked before the next starts. If a step fails or its data is missing (a sub-level that is not in the level, a processor that has gone), Operator Board asks whether to **retry** it, **skip** it or **cancel** there, and shows each step's result.
@@ -187,6 +199,7 @@ Operator Board detects the engine version from `Engine/Build/Build.version` when
 | Levels, sub-levels, cameras, takes, objects, DLSS | **Remote Control API** plugin (instances are launched with `-RCWebControlEnable`). Unreal's Remote Control blocks remote Python, console commands and (5.8) most function calls by default; Operator Board allows them on the editors and nodes **it starts** (Settings > Remote Control). For an editor started another way, enable them in Project Settings > Plugins > Remote Control > Security. |
 | Level loading, sub-levels, data layers, viewport cameras, Take Recorder | **Python Editor Script Plugin** in the editor |
 | DLSS page | NVIDIA DLSS / Streamline plugins |
+| Colour Grading | **Remote Control API** with remote Python allowed, on the editor and the nodes. Colour Correct Regions need the **Color Correct Regions** plugin |
 
 ## Installation
 

@@ -23,7 +23,7 @@ Operator Board is a Virtual Production, operator-friendly extension to Unreal En
 10. Future ideas live in `docs/ROADMAP.md`, never the README. The **README lists only shipped features and the supported UE versions (5.2 → 5.8)**.
 11. GitHub: `JamesWardVP/Operator-Board`.
 
-**Custom Pages and button pictures shipped in 0.8.2** (see "Custom pages" and "Button pictures" below). **Next priorities, chosen by the owner and not started:** a Colour Grading page (in the style of Assimilate Live FX) and an Operator Listener for non-UE content on render nodes. They are specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start them until the owner says so.
+**Custom Pages and button pictures shipped in 0.8.2** (see "Custom pages" and "Button pictures" below). **The Colour Grading page is built on `Development`, not yet released** (see "Colour grading" below). **Next priority, chosen by the owner and not started:** an Operator Listener for non-UE content on render nodes. It is specified in `../FUTURE_UPDATES.md`, beside the repo rather than in it. Don't start it until the owner says so.
 
 ## Current state (v0.8.2)
 Every brief item has a first implementation. See:
@@ -313,6 +313,20 @@ Older packages are removed. Always build into `dist/`, never side folders.
   - a choice made inside a panel (a selected row, a drop-down) is separate from the same panel on its own page.
 - **Window:** built-in pages keep their place in `MainWindow.pages`; custom views come after them in the stack and first in the side menu, in a "Custom" group that is only there while a custom page exists. `custom_pages.changed` rebuilds them unless `layout_only`; `custom_pages.show` (action `custom_page.show`, preset item `custom_pages`) switches to one.
 - **Tried** in a real window with real mouse drags on the demo stage; not yet on a live stage.
+
+**Colour grading** (`core/grading.py`, `core/looks.py`, `remote/grading.py`, `remote/scripts.py`, `ui/color_wheel.py`, `ui/pages/grading.py`; spec and plan in `docs/superpowers/`)
+- **Targets:** six kinds, listed in this order: `ndisplay_cluster`, `ndisplay_viewport`, `icvfx_all_nodes`, `icvfx_node`, `ppv` and `ccr`. A target's key is `kind|actor label|sorted viewport or node names`, with `#n` added for duplicates. Looks match by key, so they match by name and not by index, and they are not tied to a level. `GradingService.missing` explains a group that is empty, for example a missing plugin.
+- **Writes:** `GradingService` writes to the editor inside a transaction and to every running node. With no editor, it writes to the nodes only. Touching a control ticks that control's override. Reset sets the neutral value and unticks the override. A Colour Correct Region has no overrides, so its reset only sets neutral values. A failed or partial send publishes `grading.problem` naming what missed it. A node that misses a send gets the latest value again once it answers.
+- **Gestures:**
+  - `begin_gesture(key)` reads the target. That read becomes the change log's previous value, and it never raises.
+  - `send` stores only the latest value, and a sender thread delivers about 20 sends per second. It never blocks.
+  - `end_gesture(key, label)` flushes and records one `grade` change. Undo goes through `ctx.apply_setting("grade", ...)`.
+  - `end_gesture` and `flush` block, so the page runs every gesture call on one in-order worker thread for each app context (`ctx._grading_page_shared`).
+- **Bypass** switches off only the target's grading switch. `BypassState` keeps the list on disk, and the main window offers to restore it at the next start. Touching a bypassed target ends the bypass first.
+- **Selected target** is shared app-wide (`GradingService.select`, event `grading.selected`). The page, custom-page copies and Stream Deck nudges all use it.
+- **Page:** a target picker grouped by kind, then Bypass, Reset grade, Undo, Enable grading and Restore all. Under that come Looks (picking a look recalls it at once, and Delete opens a menu), a Primaries tab and an "Advanced: tonal ranges" tab. Wheels reflow into as many columns as fit, so the page fits a 1366-px window. A control set exactly to neutral is sent as a reset. A greyed control is painted at 35 % opacity. The page re-reads the selected target every 3 s while live, and never during a gesture. Every control is offered to custom pages as `ctl:<attribute>`, so renaming one breaks saved pages.
+- **Actions:** `grading.look`, `grading.bypass`, `grading.reset` and `grading.nudge` (`ui/action_editors.py` has the nudge editor). A preset item `grading_look` is applied after `object_settings`. The take log records the active look. The default Stream Deck layout has a Grading page.
+- **Verified:** see "Not yet verified", item 6.
 
 **LED processors**
 - **Modes:**
