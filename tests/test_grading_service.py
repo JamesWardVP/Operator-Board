@@ -451,3 +451,45 @@ def test_stop_ends_retries():
     ns[1].down = False
     time.sleep(0.3)
     assert not ns[1].writes() and svc.stopped
+
+
+def test_editor_error_after_nodes_took_bypass_still_records_it(tmp_path):
+    svc, ed, ns, *_ = make(tmp_path=tmp_path)
+    ed.fail_with = "Python error: no actor labelled Stage PPV"
+    with pytest.raises(GradingProblem):
+        svc.set_bypass(PPV, True)
+    assert all(not n.enabled for n in ns)       # the wall is ungraded...
+    assert svc.is_bypassed(PPV)                 # ...so Operator Board must say so, and offer to restore it
+
+
+def test_editor_error_after_nodes_took_a_change_is_logged_as_partial():
+    svc, ed, ns, rec, _ = make()
+
+    def editor_write_fails(script):
+        if "_g_run(lambda: _g_write(t" in script:
+            raise RemoteControlError("Python error: no actor labelled Stage PPV")
+    ed.on_call = editor_write_fails
+    ok, _msg = svc.nudge("gain", 0.02, PPV)
+    assert not ok and all(n.writes() for n in ns)
+    assert rec.calls and rec.calls[-1][1]["result"].startswith("partial")
+
+
+def test_bypass_refused_when_grading_is_already_off():
+    svc, ed, *_ = make()
+    svc.enabled[PPV] = False
+    with pytest.raises(GradingProblem):
+        svc.set_bypass(PPV)
+    assert not svc.is_bypassed(PPV)
+    assert not any("t.set_enabled(" in s for s in ed.scripts)
+
+
+def test_release_transaction_records_the_change_from_the_gesture_start():
+    # Live sends already put the final values in the editor, outside a transaction. The release must
+    # put the start values back first, so its transaction (multi-user, editor Undo) holds the change.
+    svc, ed, ns, *_ = make()
+    svc.begin_gesture(PPV)
+    svc.send(PPV, {"tint": 0.1})
+    svc.end_gesture(PPV, "Tint")
+    tail = [w for w in ed.writes()][-2:]
+    assert "_g_write(t, {\"tint\": None}), False)" in tail[0]
+    assert "_g_write(t, {\"tint\": 0.1}), True)" in tail[1]

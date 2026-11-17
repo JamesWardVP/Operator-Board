@@ -139,3 +139,12 @@ def test_nudge_rejects_unknown_channel():
 
 def test_wheel_nudge_clamps_channel():
     assert nudge(Grade.neutral(), "gain", +5).get("global.gain")[3] == 2.0
+
+
+def test_nudge_never_pulls_an_out_of_range_value_back_into_range():
+    # Unreal takes typed values beyond the page's range: a "+" nudge must not darken the wall.
+    g = Grade.neutral().set("global.gain", (1.0, 1.0, 1.0, 2.5))
+    assert nudge(g, "gain", 0.02).get("global.gain")[3] == pytest.approx(2.5)
+    assert nudge(g, "gain", -0.02).get("global.gain")[3] == pytest.approx(2.48)
+    hot = Grade.neutral().set("temp", 20000.0)
+    assert nudge(hot, "temperature", -100).temp == pytest.approx(19900.0)

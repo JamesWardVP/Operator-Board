@@ -217,13 +217,18 @@ def hex_to_tint(text: str, y: float, neutral: float = 1.0) -> Vec4:
 
 def nudge(grade: Grade, control_id: str, amount: float, channel: str = "y") -> Grade:
     """``grade`` with one control moved by ``amount`` (``channel`` r/g/b/y for wheels), clamped to
-    the control's range."""
+    the control's range. A value already beyond the range (typed in Unreal) is never pulled back
+    into it, so a "+" press can't lower it."""
     c = CONTROLS[control_id]
+
+    def keep_in(old: float) -> float:
+        return _clamp(old + amount, min(c.lo, old), max(c.hi, old))
+
     if c.kind == "slider":
-        return grade.set(c.key, _clamp(grade.get(c.key) + amount, c.lo, c.hi))
+        return grade.set(c.key, keep_in(grade.get(c.key)))
     if channel not in ("r", "g", "b", "y"):
         raise ValueError(f"Channel must be r, g, b or y, not '{channel}'")
     idx = "rgby".index(channel)
     vec = list(grade.get(c.key))
-    vec[idx] = _clamp(vec[idx] + amount, c.lo, c.hi)
+    vec[idx] = keep_in(vec[idx])
     return grade.set(c.key, tuple(vec))

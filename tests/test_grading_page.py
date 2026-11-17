@@ -491,3 +491,19 @@ def test_undo_walks_back_and_is_shared_by_every_copy_of_the_page(opened):
     assert wait_until(lambda: ("apply", PPV, g0) in fake.calls)
     assert [c for c in calls(fake, "apply")] == [("apply", PPV, g1), ("apply", PPV, g0)]
     other.deleteLater()
+
+
+def test_coming_back_to_the_page_reads_again_before_a_drag_can_start(opened):
+    # A look recalled from a Stream Deck while another page was showing: no events reached this page,
+    # so it must not let the operator drag from the grade it showed before.
+    _app, _ctx, window, page, fake = opened
+    pick(page, PPV)
+    assert wait_until(lambda: page.gain.isEnabled() and page.gain.value() == (1.2, 1.0, 0.8, 1.1))
+    window.show_page("Operate")
+    QtWidgets.QApplication.processEvents()
+    fake.current[PPV] = fake.current[PPV].set("global.gain", (0.8, 0.8, 0.8, 0.8))
+    fake.read_delay[PPV] = 0.3
+    window.show_page("Colour Grading")
+    QtWidgets.QApplication.processEvents()
+    assert not page.gain.isEnabled()                 # greyed until Unreal's grade is read
+    assert wait_until(lambda: page.gain.isEnabled() and page.gain.value() == (0.8, 0.8, 0.8, 0.8))

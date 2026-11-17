@@ -534,7 +534,12 @@ class GradingPage(BasePage):
             self._load_targets()
             return
         key = self._usable_key()
-        if key and key != self._shown_key:
+        if key and not self._busy() and not self._shared.open:
+            # Shown again (or its custom page is): grading events only reach the page on screen, so a
+            # look recalled meanwhile is not shown yet. Grey the controls until Unreal's grade is read,
+            # so a drag never starts from the old values.
+            self._shown_key = ""
+            self._update_state()
             self._read(key)
 
     def on_event(self, topic: str, payload: Dict[str, Any]) -> None:

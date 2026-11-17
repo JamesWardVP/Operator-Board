@@ -39,6 +39,11 @@ class GradingProblem(Exception):
     """A grading change or read that could not be done (the message is for the operator)."""
 
 
+class GradingPartial(GradingProblem):
+    """The change reached some instances (the nDisplay nodes) but the editor answered with an error:
+    the wall has it, so Operator Board keeps its own state as if it was made, then reports this."""
+
+
 def _unreachable(exc: Exception) -> bool:
     return isinstance(exc, RemoteControlError) and "unreachable" in str(exc)
 
@@ -200,7 +205,9 @@ class GradingService:
         if missed or skipped:
             self._remember_missed(key, missed + skipped, what, script_for, quiet=not missed)
         if editor_error:
-            raise GradingProblem(editor_error + (" (the nDisplay nodes got the change)" if took else ""))
+            if took:
+                raise GradingPartial(editor_error + " (the nDisplay nodes got the change)")
+            raise GradingProblem(editor_error)
         if not took:
             raise GradingProblem("; ".join(errors) if errors else
                                  "No editor or nDisplay node answered, so the grade was not changed")
@@ -344,6 +351,15 @@ class GradingService:
             return
         result = "ok"
         try:
+            if previous is not None:
+                # Live sends already left the final values in the editor outside any transaction, so a
+                # transaction now would hold no change (nothing for multi-user or the editor's Undo).
+                # Put the start values back first (editor only, no transaction), then write the final ones.
+                start = {k: (previous.get(k) if k in previous.overrides else None) for k in values}
+                try:
+                    self.targets.primary().run_python(self._write_script(key, start)(False))
+                except (LookupError, RemoteControlError):
+                    pass  # no editor, or it is not answering: the transacted write below says so
             self._deliver(key, self._write_script(key, values), transact=True, nodes=False)
         except GradingProblem as exc:
             result = f"failed: {exc}"
@@ -363,11 +379,17 @@ class GradingService:
             grade = grade.reset(k) if v is None else grade.set(k, v)
         with self._lock:
             self.current[key] = grade
-        self._deliver(key, self._write_script(key, values), transact=True)
+        partial = None
+        try:
+            self._deliver(key, self._write_script(key, values), transact=True)
+        except GradingPartial as exc:
+            partial = exc
         if not look:
             self.active_look = ""
-        self._log(key, label, previous, "ok")
+        self._log(key, label, previous, f"partial: {partial}" if partial else "ok")
         self.bus.publish("grading.changed", key=key, grade=grade)
+        if partial:
+            raise partial
 
     def _log(self, key: str, label: str, previous: Optional[Grade], result: str) -> None:
         if self.record is None:
@@ -432,13 +454,21 @@ class GradingService:
         key = self._key(key)
         on = (not self.is_bypassed(key)) if on is None else bool(on)
         t = self.target(key)
-        self._deliver(key, lambda transact: python_result_wrapper(
-            scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], not on, transact, nth=t["nth"])),
-            transact=True, what="switch")
+        if on and not self.is_bypassed(key) and not self.enabled.get(key, True):
+            raise GradingProblem(f"Grading is switched off on {t['name']}, so there is nothing to bypass")
+        partial = None
+        try:
+            self._deliver(key, lambda transact: python_result_wrapper(
+                scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], not on, transact,
+                                            nth=t["nth"])), transact=True, what="switch")
+        except GradingPartial as exc:
+            partial = exc
         self.bypass.set(key, on)
         with self._lock:
             self.enabled[key] = not on
         self.bus.publish("grading.bypass", key=key, on=on)
+        if partial:
+            raise partial
         return on
 
     def _end_bypass(self, key: str) -> None:
@@ -450,13 +480,19 @@ class GradingService:
         def run():
             k = self._key(key)
             t = self.target(k)
-            self._deliver(k, lambda transact: python_result_wrapper(
-                scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], True, transact, master=True,
-                                            nth=t["nth"])), transact=True, what="switch")
+            partial = None
+            try:
+                self._deliver(k, lambda transact: python_result_wrapper(
+                    scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], True, transact, master=True,
+                                                nth=t["nth"])), transact=True, what="switch")
+            except GradingPartial as exc:
+                partial = exc
             self.bypass.set(k, False)
             with self._lock:
                 self.enabled[k] = True
             self.bus.publish("grading.bypass", key=k, on=False)
+            if partial:
+                raise partial
             return "Grading enabled"
         return self._guard(run)
 
