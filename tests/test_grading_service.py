@@ -8,7 +8,7 @@ from operator_board.core.config import AppConfig
 from operator_board.core.events import EventBus
 from operator_board.core.grading import Grade
 from operator_board.core.looks import BypassState, Look, LookStore, target_key
-from operator_board.remote.grading import GradingService
+from operator_board.remote.grading import GradingProblem, GradingService
 from operator_board.remote.rc_client import RemoteControlError
 from operator_board.remote.targets import TargetResolver
 
@@ -30,10 +30,19 @@ class FakeClient:
         self.grade = (grade or Grade.neutral()).to_dict()
         self.enabled = True
         self.lock = threading.Lock()
+        self.delay = 0.0        # seconds an unreachable call takes (a connect timeout)
+        self.fail_with = None   # an error other than "unreachable" (a script error, a blocked call)
+        self.on_call = None     # called with the script before it runs
 
     def run_python(self, script):
+        if self.on_call:
+            self.on_call(script)
         if self.down:
+            if self.delay:
+                time.sleep(self.delay)
             raise RemoteControlError(f"Remote Control unreachable at http://{self.host}:30010: refused")
+        if self.fail_with:
+            raise RemoteControlError(self.fail_with)
         with self.lock:
             self.scripts.append(script)
         for actor in self.gone:
@@ -285,3 +294,133 @@ def test_restore_bypassed_ends_bypass_and_forgets_gone_targets(tmp_path):
     assert "t.set_enabled(True, False)" in ed.scripts[-1]
     assert svc.bypass.bypassed() == []
     assert not ok and "Deleted PPV" in msg
+
+
+# ---- review fixes ------------------------------------------------------------------------------------
+def test_stale_selection_is_a_problem_not_another_target():
+    svc, ed, ns, _, events = make()
+    svc.select(PPV)
+    svc.targets_list = [t for t in svc.targets_list if t["key"] != PPV]  # PPV deleted, list refreshed
+    ok, msg = svc.nudge("gain", 0.02)
+    assert not ok and "Stage PPV" in msg
+    assert not ed.writes() and not any(n.writes() for n in ns)
+
+
+def test_retry_keeps_newer_values_missed_while_it_was_sending():
+    svc, ed, ns, *_ = make()
+    ns[1].down = True
+    svc.nudge("tint", 0.05, PPV)
+    fired = []
+
+    def flap(script):
+        # While the retrier sends the old value, a drag step misses node1 again with a newer one.
+        if not fired and "_g_write" in script:
+            fired.append(True)
+            svc.current[PPV] = svc.current[PPV].set("tint", 0.3)
+            svc._remember_missed(PPV, [ns[1]], "grade", svc._write_script(PPV, {"tint": 0.3}))
+    ns[1].on_call = flap
+    ns[1].down = False
+    assert wait_for(lambda: any("0.3" in w for w in ns[1].writes()))
+
+
+def test_dead_node_does_not_slow_the_drag():
+    svc, ed, ns, *_ = make()
+    ns[1].down, ns[1].delay = True, 0.3
+    svc.begin_gesture(PPV)
+    for i in range(10):
+        svc.send(PPV, {"tint": i / 100})
+        time.sleep(0.06)
+    svc.end_gesture(PPV, "Tint")
+    plain = [w for w in ed.writes() if "), False)" in w]
+    assert len(plain) >= 6
+    ns[1].down = False
+    assert wait_for(lambda: any("0.09" in w for w in ns[1].writes()))
+
+
+def test_begin_gesture_never_raises():
+    svc, ed, ns, _, events = make()
+    for c in [ed] + ns:
+        c.gone.add("Stage PPV")
+    grade = svc.begin_gesture(PPV)
+    assert isinstance(grade, Grade)
+    assert any(t == "grading.problem" and "Stage PPV" in p["message"] for t, p in events)
+
+
+def test_node_script_error_is_reported_not_retried():
+    svc, ed, ns, _, events = make()
+    ns[1].fail_with = "Python: something broke"
+    ok, _ = svc.nudge("tint", 0.05, PPV)
+    assert ok
+    assert any(t == "grading.problem" and "node1" in p["message"] for t, p in events)
+    ns[1].fail_with = None
+    time.sleep(0.3)
+    assert not ns[1].writes() and not svc._missed
+
+
+def test_missed_entries_for_a_removed_target_are_dropped():
+    svc, ed, ns, *_ = make()
+    ns[1].down = True
+    svc.nudge("tint", 0.05, PPV)
+    assert svc._missed
+    saved = list(TARGETS["targets"])
+    TARGETS["targets"][:] = [t for t in saved if t["actor"] != "Stage PPV"]
+    try:
+        svc.refresh_targets()
+    finally:
+        TARGETS["targets"][:] = saved
+    assert not svc._missed
+
+
+def test_editor_script_error_during_drag_still_reaches_nodes():
+    svc, ed, ns, _, events = make()
+    ed.fail_with = "Python Editor Script Plugin is off"
+    svc.begin_gesture(PPV)
+    svc.send(PPV, {"tint": 0.1})
+    assert wait_for(lambda: all(n.writes() for n in ns))
+    svc.end_gesture(PPV, "Tint")
+    assert any(t == "grading.problem" and "Plugin is off" in p["message"] for t, p in events)
+
+
+def test_missed_bypass_is_resent_as_a_bypass():
+    svc, _, ns, *_ = make(editor=False)
+    ns[1].down = True
+    svc.set_bypass(PPV, True)
+    ns[1].down = False
+    assert wait_for(lambda: any("t.set_enabled(False" in s_ for s_ in ns[1].scripts))
+    assert not ns[1].writes()
+
+
+def test_nothing_loaded_and_unreal_down_is_a_plain_failure():
+    svc, ed, ns, *_ = make()
+    svc.targets_list = []
+    for c in [ed] + ns:
+        c.down = True
+    ok, msg = svc.nudge("gain", 0.02)
+    assert not ok and msg
+    with pytest.raises(GradingProblem):
+        svc.set_bypass("", True)
+
+
+def test_recall_look_loads_targets_first():
+    svc, ed, *_ = make()
+    svc.targets_list = []
+    svc.looks.save(Look("Warm", {PPV: Grade.neutral().set("temp", 5600)}))
+    assert svc.recall_look("Warm") == []
+    assert any("5600" in w for w in ed.writes()) and svc.active_look == "Warm"
+
+
+def test_recall_look_with_nothing_applied_is_not_active():
+    svc, *_ = make()
+    svc.looks.save(Look("Old", {target_key("ppv", "Gone PPV"): Grade.neutral()}))
+    assert svc.recall_look("Old")
+    assert svc.active_look == ""
+
+
+def test_editor_lost_mid_drag_release_goes_to_nodes_in_a_transaction():
+    svc, ed, ns, *_ = make()
+    svc.begin_gesture(PPV)
+    svc.send(PPV, {"tint": 0.1})
+    svc.flush(PPV)
+    ed.down = True
+    svc.end_gesture(PPV, "Tint")
+    assert all(any("), True)" in w for w in n.writes()) for n in ns)

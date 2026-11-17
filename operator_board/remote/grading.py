@@ -4,8 +4,14 @@ the editor and the nDisplay nodes, bypass, reset, looks and nudges.
 Delivery (spec "Delivery during a drag"): every change goes to the primary editor (plain set, no
 transaction) and straight to every running nDisplay node, so the wall follows a drag even when
 multi-user is slow or absent. When the gesture ends the editor records the final values once
-inside an editor transaction. With no editor, changes go to every node. A node that misses a
-change is named in a ``grading.problem`` event and is sent the latest values again until it answers.
+inside an editor transaction. With no editor, changes go to every node. A node that cannot be
+reached is named in a ``grading.problem`` event and is sent the latest change again until it answers;
+during a drag it is skipped meanwhile, so one switched-off machine does not slow the wall. Any other
+error (a script error, a blocked call) is reported once and not retried. An editor that answers with
+an error does not stop a drag reaching the nodes.
+
+``begin_gesture`` never raises (a problem is published instead); ``end_gesture`` and ``flush`` wait
+for Unreal, so call them off the UI thread.
 
 Events: ``grading.targets``, ``grading.selected`` (key), ``grading.changed`` (key, grade),
 ``grading.bypass`` (key, on), ``grading.problem`` (message).
@@ -63,17 +69,19 @@ class GradingService:
         self._sender: Optional[threading.Thread] = None
         self._gesture_start: Dict[str, Grade] = {}
         self._gesture_values: Dict[str, Dict[str, Any]] = {}
-        self._missed: Dict[Tuple[str, str], Tuple[Any, Dict[str, Any]]] = {}  # (client, key) -> (client, values)
+        # (client name, key, "grade" | "switch") -> (client, script_for, stamp): changes to send again
+        self._missed: Dict[Tuple[str, str, str], Tuple[Any, Callable[[bool], str], int]] = {}
+        self._stamp = 0
+        self.active_look = ""  # the look last recalled ("" once the grade is changed by hand)
         self._retrier: Optional[threading.Thread] = None
 
     # ---- targets and selection ---------------------------------------------------------------
     @property
     def selected(self) -> str:
         chosen = self.config.grading.selected
-        keys = [t["key"] for t in self.targets_list]
-        if chosen in keys or not keys:
-            return chosen
-        return keys[0]
+        if chosen:
+            return chosen  # even when it has gone: grading some other target instead would be worse
+        return self.targets_list[0]["key"] if self.targets_list else ""
 
     def select(self, key: str) -> None:
         self.config.grading.selected = key
@@ -81,7 +89,10 @@ class GradingService:
 
     def refresh_targets(self) -> List[Dict[str, Any]]:
         script = python_result_wrapper(scripts.list_grading_targets())
-        result = self.targets.editor_or_nodes(lambda c: c.run_python(script))[0]
+        try:
+            result = self.targets.editor_or_nodes(lambda c: c.run_python(script))[0]
+        except RemoteControlError as exc:
+            raise GradingProblem(str(exc)) from exc
         found = []
         for t in (result or {}).get("targets", []):
             t = dict(t)
@@ -91,6 +102,9 @@ class GradingService:
         with self._lock:
             self.targets_list = found
             self.missing = dict((result or {}).get("missing") or {})
+            keys = {t["key"] for t in found}
+            for entry in [e for e in self._missed if e[1] not in keys]:
+                del self._missed[entry]
         self.bus.publish("grading.targets", targets=found, missing=self.missing)
         return found
 
@@ -125,40 +139,55 @@ class GradingService:
         return grade
 
     # ---- delivery -----------------------------------------------------------------------------
-    def _deliver(self, key: str, script_for: Callable[[bool], str], transact: bool, nodes: bool = True) -> None:
-        """Run a change on the editor (``transact``) and on every running node. Raises
-        GradingProblem when nobody took it or the target is gone; a node that misses it is retried."""
+    def _deliver(self, key: str, script_for: Callable[[bool], str], transact: bool, nodes: bool = True,
+                 what: str = "grade", live: bool = False) -> None:
+        """Run a change on the editor (``transact``) and on every running node. Raises GradingProblem
+        when nobody took it, the target is gone, or the editor answered with an error (the nodes still
+        get the change). ``what`` is "grade" or "switch" (bypass / enable), so a node that could not be
+        reached is later sent the same kind of change. ``live``: part of a drag, so nodes already known
+        to be unreachable are left to the retrier instead of costing a timeout on every step."""
         editor = None
         try:
             editor = self.targets.primary()
         except LookupError:
             editor = None
         took = 0
+        editor_error = ""
         if editor is not None:
             try:
                 editor.run_python(script_for(transact))
                 took += 1
             except RemoteControlError as exc:
                 if not _unreachable(exc):
-                    raise GradingProblem(str(exc)) from exc
+                    editor_error = str(exc)
                 editor = None
         if not nodes and editor is not None:
             return
-        missed = []
+        missed, skipped, errors = [], [], []
         for client in self.targets.resolve(TARGET_NDISPLAY):
+            entry = (_client_name(client), key, what)
+            if live and entry in self._missed:
+                skipped.append(client)
+                continue
             try:
                 client.run_python(script_for(transact and editor is None))
                 took += 1
                 with self._lock:
-                    self._missed.pop((_client_name(client), key), None)
+                    self._missed.pop(entry, None)
             except RemoteControlError as exc:
-                if not _unreachable(exc) and editor is None:
-                    raise GradingProblem(str(exc)) from exc
-                missed.append(client)
+                if _unreachable(exc):
+                    missed.append(client)
+                else:
+                    errors.append(f"{_client_name(client)}: {exc}")
+        if missed or skipped:
+            self._remember_missed(key, missed + skipped, what, script_for, quiet=not missed)
+        if editor_error:
+            raise GradingProblem(editor_error + (" (the nDisplay nodes got the change)" if took else ""))
         if not took:
-            raise GradingProblem("No editor or nDisplay node answered, so the grade was not changed")
-        if missed:
-            self._remember_missed(key, missed)
+            raise GradingProblem("; ".join(errors) if errors else
+                                 "No editor or nDisplay node answered, so the grade was not changed")
+        if errors:
+            self.bus.publish("grading.problem", message="Not changed on " + "; ".join(errors))
 
     def _write_script(self, key: str, values: Dict[str, Any]) -> Callable[[bool], str]:
         t = self.target(key)
@@ -166,19 +195,26 @@ class GradingService:
         return lambda transact: python_result_wrapper(
             scripts.write_grade(t["kind"], t["actor"], t["applies_to"], vals, transact, nth=t["nth"]))
 
-    def _remember_missed(self, key: str, clients) -> None:
-        names = ", ".join(_client_name(c) for c in clients)
+    def _remember_missed(self, key: str, clients, what: str, script_for: Callable[[bool], str],
+                         quiet: bool = False) -> None:
+        """Send these clients the change again until they answer. A grade is re-sent as every value
+        Operator Board last set on the target, so the newest values win."""
+        if what == "grade" and self.current.get(key) is not None:
+            try:
+                script_for = self._write_script(key, self._latest_values(key))
+            except GradingProblem:
+                pass
         with self._lock:
             for c in clients:
-                old = self._missed.get((_client_name(c), key))
-                values = dict(old[1]) if old else {}
-                values.update(self._latest_values(key))
-                self._missed[(_client_name(c), key)] = (c, values)
+                self._stamp += 1
+                self._missed[(_client_name(c), key, what)] = (c, script_for, self._stamp)
             if self._retrier is None or not self._retrier.is_alive():
                 self._retrier = threading.Thread(target=self._retry_worker, daemon=True, name="grading-retry")
                 self._retrier.start()
-        self.bus.publish("grading.problem", message=f"{names} did not get the grade change; "
-                                                    f"it will be sent again when they answer")
+        if not quiet:
+            names = ", ".join(_client_name(c) for c in clients)
+            self.bus.publish("grading.problem", message=f"{names} did not get the grade change; "
+                                                        f"it will be sent again when they answer")
 
     def _latest_values(self, key: str) -> Dict[str, Any]:
         """Every value of the target as Operator Board last set it (overrides; others reset)."""
@@ -195,20 +231,39 @@ class GradingService:
                 if not items:
                     self._retrier = None
                     return
-            for (name, key), (client, values) in items:
+            for entry, (client, script_for, stamp) in items:
                 try:
-                    client.run_python(self._write_script(key, values)(False))
-                except Exception:  # noqa: BLE001 - still away; try again next round
-                    continue
+                    client.run_python(script_for(False))
+                except RemoteControlError as exc:
+                    if _unreachable(exc):
+                        continue  # still away; try again next round
+                    problem = f"{entry[0]}: {exc}"
+                except Exception as exc:  # noqa: BLE001 - never retry what cannot work
+                    problem = f"{entry[0]}: {exc}"
+                else:
+                    problem = ""
                 with self._lock:
-                    self._missed.pop((name, key), None)
-                self.bus.publish("grading.problem", message="")
+                    if self._missed.get(entry, (None, None, None))[2] == stamp:  # not replaced meanwhile
+                        del self._missed[entry]
+                    left = bool(self._missed)
+                if problem:
+                    self.bus.publish("grading.problem", message="Not changed on " + problem)
+                elif not left:
+                    self.bus.publish("grading.problem", message="")
 
     # ---- live sending during a gesture ----------------------------------------------------------
     def begin_gesture(self, key: str) -> Grade:
-        """Re-read the target before a drag so it starts from Unreal's real value."""
-        grade = self.read(key)
-        self._end_bypass(key)
+        """Re-read the target before a drag so it starts from Unreal's real value, and end a bypass.
+        Never raises: a problem is published and the drag goes on from the last known grade."""
+        try:
+            grade = self.read(key)
+        except GradingProblem as exc:
+            self.bus.publish("grading.problem", message=str(exc))
+            grade = self.current.get(key) or Grade.neutral()
+        try:
+            self._end_bypass(key)
+        except GradingProblem as exc:
+            self.bus.publish("grading.problem", message=str(exc))
         with self._lock:
             self._gesture_start[key] = grade
             self._gesture_values[key] = {}
@@ -240,7 +295,7 @@ class GradingService:
                 self._busy.add(key)
             started = time.time()
             try:
-                self._deliver(key, self._write_script(key, values), transact=False)
+                self._deliver(key, self._write_script(key, values), transact=False, live=True)
             except Exception as exc:  # noqa: BLE001 - reported, the drag goes on
                 self.bus.publish("grading.problem", message=str(exc))
             finally:
@@ -356,7 +411,7 @@ class GradingService:
         t = self.target(key)
         self._deliver(key, lambda transact: python_result_wrapper(
             scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], not on, transact, nth=t["nth"])),
-            transact=True)
+            transact=True, what="switch")
         self.bypass.set(key, on)
         with self._lock:
             self.enabled[key] = not on
@@ -374,7 +429,7 @@ class GradingService:
             t = self.target(k)
             self._deliver(k, lambda transact: python_result_wrapper(
                 scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], True, transact, master=True,
-                                            nth=t["nth"])), transact=True)
+                                            nth=t["nth"])), transact=True, what="switch")
             self.bypass.set(k, False)
             with self._lock:
                 self.enabled[k] = True
@@ -423,7 +478,13 @@ class GradingService:
         """Apply a look (from the store, or embedded in a settings preset); returns warnings for the
         targets it could not apply."""
         warnings = []
+        if not self.targets_list and look.grades:
+            try:
+                self.refresh_targets()
+            except GradingProblem as exc:
+                warnings.append(str(exc))
         keys = {t["key"] for t in self.targets_list}
+        applied = 0
         for key, grade in look.grades.items():
             if key not in keys:
                 warnings.append(f"{GONE}: {key.split('|')[1] if '|' in key else key} (skipped)")
@@ -431,11 +492,12 @@ class GradingService:
             try:
                 self._change(key, f"Look {look.name}",
                              {k: (grade.get(k) if k in grade.overrides else None) for k in ALL_KEYS})
+                applied += 1
             except GradingProblem as exc:
                 warnings.append(str(exc))
         if warnings:
             self.bus.publish("grading.problem", message="; ".join(warnings))
-        self.active_look = look.name
+        if applied or not look.grades:
+            self.active_look = look.name
         return warnings
 
-    active_look = ""
