@@ -48,6 +48,8 @@ class FakeGrading:
         self.bypass = _Bypassed(self._bypassed)
         self._selected = ""
         self.active_look = ""
+        self.read_delay = {}   # key -> seconds a read of it takes
+        self.record = None     # the change log's record (set by the fixture), as the service logs
 
     # targets and selection
     @property
@@ -65,6 +67,7 @@ class FakeGrading:
         return self.targets_list
 
     def read(self, key):
+        time.sleep(self.read_delay.get(key, 0))
         self.calls.append(("read", key))
         if key not in self.current:
             from operator_board.remote.grading import GradingProblem
@@ -95,6 +98,9 @@ class FakeGrading:
 
     def apply(self, key, grade_dict):
         self.calls.append(("apply", key, grade_dict))
+        if self.record:
+            self.record("Colour Grading", key, "Set grade", value=grade_dict, previous={"was": "before set"},
+                        kind="grade", ref={"key": key})
 
     def is_bypassed(self, key):
         return key in self._bypassed
@@ -148,6 +154,7 @@ def opened():
     ctx = AppContext(AppConfig(led_processors=[LEDProcessorConfig(name="Sim", profile_id="simulator")]))
     ctx.grading.stop()
     fake = FakeGrading(ctx.bus)
+    fake.record = ctx.changes.record
     ctx.grading = fake
     window = MainWindow(ctx)
     window.resize(1500, 950)
@@ -312,7 +319,7 @@ def test_undo_puts_back_the_last_grade_change(opened):
 def test_bypass_lights_and_marks_the_target(opened):
     _app, _ctx, _window, page, fake = opened
     pick(page, PPV)
-    wait_until(lambda: ("select", PPV) in fake.calls)
+    assert wait_until(lambda: page.gain.isEnabled())  # its grade has been read
     page.bypass_button.click()
     assert wait_until(lambda: "bypassed" in page.target_picker.itemText(page.target_picker.findData(PPV)))
     assert ("bypass", PPV, True) in fake.calls and page.bypass_button.isChecked()
@@ -356,7 +363,7 @@ def test_picking_a_look_recalls_it(opened):
     page.looks_picker.activated.emit(page.looks_picker.findText("Night"))
     assert wait_until(lambda: ("recall_look", "Night") in fake.calls)
     assert wait_until(lambda: page.looks_picker.currentText() == "Night")
-    page._delete_look(confirm=False)
+    page._delete_look("Night", confirm=False)
     assert ctx.looks.names() == []
 
 
@@ -397,3 +404,90 @@ def test_greyed_controls_look_greyed(opened):
     pick(page, PPV)
     assert wait_until(lambda: page.gain.isEnabled())
     assert page.gain.graphicsEffect() is None or not page.gain.graphicsEffect().isEnabled()
+
+
+# ---- found in review ----------------------------------------------------------------------------------
+def test_picking_a_target_while_a_slow_read_runs_reads_it_and_greys_until_then(opened):
+    _app, _ctx, _window, page, fake = opened
+    pick(page, PPV)
+    assert wait_until(lambda: page.gain.value() == (1.2, 1.0, 0.8, 1.1))
+    fake.read_delay[PPV] = 0.4
+    page._reread()                                   # a slow timer read of the PPV is running
+    pick(page, CAMERA)
+    QtWidgets.QApplication.processEvents()
+    assert not page.gain.isEnabled()                 # the PPV's values are still shown: not usable
+    assert wait_until(lambda: ("read", CAMERA) in fake.calls)
+    assert wait_until(lambda: page.gain.isEnabled() and page.gain.value() == (1.0, 1.0, 1.0, 1.0))
+
+
+def test_a_re_read_waits_for_the_end_of_a_gesture(opened):
+    _app, _ctx, _window, page, fake = opened
+    pick(page, PPV)
+    assert wait_until(lambda: page.gain.isEnabled() and ("read", PPV) in fake.calls)
+    time.sleep(0.2)
+    QtWidgets.QApplication.processEvents()          # every earlier read has finished
+    fake.calls.clear()
+    page.gain.gestureStarted.emit()
+    page.gain.changed.emit((1.3, 1.0, 0.8, 1.1))
+    page.gain.gestureFinished.emit()
+    page._reread()                                   # the timer fires while end_gesture is still queued
+    assert wait_until(lambda: calls(fake, "end") and calls(fake, "read"))
+    names = [c[0] for c in fake.calls if c[0] in ("begin", "send", "end", "read")]
+    assert names.index("read") > names.index("end")
+
+
+def test_overlapping_gestures_on_one_target_are_one_gesture(opened):
+    _app, _ctx, _window, page, fake = opened
+    pick(page, PPV)
+    assert wait_until(lambda: page.gain.isEnabled())
+    fake.calls.clear()
+    page.gain.gestureStarted.emit()                  # a scroll on Gain still open...
+    page.gain.changed.emit((1.3, 1.0, 0.8, 1.1))
+    page.lift.gestureStarted.emit()                  # ...when Lift is dragged
+    page.lift.changed.emit((0.0, 0.0, 0.05, 0.0))
+    page.gain.gestureFinished.emit()
+    page.lift.changed.emit((0.0, 0.0, 0.06, 0.0))
+    page.lift.gestureFinished.emit()
+    assert wait_until(lambda: calls(fake, "end"))
+    gesture = calls(fake, "begin", "send", "end")
+    assert [c[0] for c in gesture].count("begin") == 1 and [c[0] for c in gesture].count("end") == 1
+    assert gesture[0][0] == "begin" and gesture[-1][0] == "end"
+    assert "Gain" in gesture[-1][2] and "Lift" in gesture[-1][2]
+
+
+def test_bypass_is_not_offered_on_a_target_with_grading_switched_off(opened):
+    _app, _ctx, _window, page, _fake = opened
+    pick(page, VIEWPORT)
+    assert wait_until(lambda: not page.enable_button.isHidden())
+    assert not page.bypass_button.isEnabled()
+
+
+def test_a_look_can_be_deleted_without_recalling_it(opened):
+    from operator_board.core.looks import Look
+    _app, ctx, _window, page, fake = opened
+    ctx.looks.save(Look("Night", {}))
+    ctx.looks.save(Look("Day", {}))
+    assert wait_until(lambda: page.looks_picker.count() == 2)
+    menu = page.delete_look_button.menu()
+    assert menu is not None and sorted(a.text() for a in menu.actions()) == ["Day", "Night"]
+    page._delete_look("Night", confirm=False)
+    assert ctx.looks.names() == ["Day"] and calls(fake, "recall_look") == []
+
+
+def test_undo_walks_back_and_is_shared_by_every_copy_of_the_page(opened):
+    from operator_board.ui.pages.grading import GradingPage
+    _app, ctx, window, page, fake = opened
+    g0, g1 = {"step": 0}, {"step": 1}
+    ctx.changes.record("Colour Grading", "PPV", "Gain", value=g1, previous=g0, kind="grade", ref={"key": PPV})
+    ctx.changes.record("Colour Grading", "PPV", "Lift", value={"step": 2}, previous=g1, kind="grade",
+                       ref={"key": PPV})
+    page.refresh()
+    page.undo_button.click()
+    assert not page.undo_button.isEnabled()          # no double undo while it runs
+    assert wait_until(lambda: ("apply", PPV, g1) in fake.calls and page.undo_button.isEnabled())
+    other = GradingPage(ctx, window)                 # as a custom page's copy of this page
+    other.refresh()
+    other.undo_button.click()
+    assert wait_until(lambda: ("apply", PPV, g0) in fake.calls)
+    assert [c for c in calls(fake, "apply")] == [("apply", PPV, g1), ("apply", PPV, g0)]
+    other.deleteLater()

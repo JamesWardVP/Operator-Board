@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from operator_board.core.grading import ADVANCED, NEUTRAL, NEUTRAL_TEMP, NEUTRAL_TINT, PRIMARIES, RANGES, Control
 from operator_board.qt import QtCore, QtWidgets, Qt, exec_
@@ -68,26 +68,53 @@ def _target_name(key: str) -> str:
     return parts[1] if len(parts) > 1 else key
 
 
-class _InOrder:
-    """Runs grading calls one after another on a worker thread, in the order they were asked for."""
+class _Shared(QtCore.QObject):
+    """What the page and its copies on custom pages share (one per app context):
+
+    - one worker that runs grading calls in the order they were asked for, reads included, so a read
+      never lands in the middle of a gesture and a change never overtakes the read that starts it;
+    - the gestures open on each target, so overlapping controls (a scroll on Gain still open while Lift
+      is dragged, or two copies of the page) make one gesture: one begin, one end;
+    - the grade changes already undone.
+    """
+    _finished = QtCore.Signal(object, object)  # (callback, value), delivered on the UI thread
 
     def __init__(self) -> None:
-        self._queue: "queue.Queue[Callable[[], Any]]" = queue.Queue()
+        super().__init__()
+        self._finished.connect(lambda callback, value: callback(value))
+        self._queue: "queue.Queue[Tuple[Callable[[], Any], Any, Any]]" = queue.Queue()
         self._thread: Optional[threading.Thread] = None
+        self.open: Dict[str, Dict[str, Any]] = {}  # target key -> {"count": n, "labels": [...]}
+        self.undone: set = set()
 
-    def put(self, fn: Callable[[], Any]) -> None:
-        self._queue.put(fn)
+    def put(self, fn: Callable[[], Any], done: Optional[Callable[[Any], None]] = None,
+            failed: Optional[Callable[[Exception], None]] = None) -> None:
+        self._queue.put((fn, done, failed))
         if self._thread is None:
             self._thread = threading.Thread(target=self._work, daemon=True, name="grading-page")
             self._thread.start()
 
     def _work(self) -> None:
         while True:
-            fn = self._queue.get()
+            fn, done, failed = self._queue.get()
             try:
-                fn()
-            except Exception:  # noqa: BLE001 - the service publishes problems; anything else is logged
-                log.exception("Colour grading change failed")
+                value = fn()
+            except Exception as exc:  # noqa: BLE001 - the service publishes problems; the rest is logged
+                if failed is not None:
+                    self._finished.emit(failed, exc)
+                else:
+                    log.exception("Colour grading change failed")
+                continue
+            if done is not None:
+                self._finished.emit(done, value)
+
+
+def _shared(ctx) -> _Shared:
+    found = getattr(ctx, "_grading_page_shared", None)
+    if found is None:
+        found = _Shared()
+        ctx._grading_page_shared = found
+    return found
 
 
 class _Columns(QtWidgets.QWidget):
@@ -180,12 +207,14 @@ class GradingPage(BasePage):
 
     def __init__(self, ctx, window) -> None:
         super().__init__(ctx, window)
-        self._in_order = _InOrder()
+        self._shared = _shared(ctx)
         self._gesture_keys: Dict[int, str] = {}
         self._reading = False
-        self._shown_key = ""
+        self._want = ""         # the target whose grade should be read next
+        self._shown_key = ""    # the target whose grade the controls show
+        self._read_error = ""
+        self._undoing = False
         self._filling = False
-        self._undone = set()
         self.control_labels = self._labels()
 
         lay = QtWidgets.QVBoxLayout(self)
@@ -298,8 +327,8 @@ class GradingPage(BasePage):
         self.save_look_button.setToolTip("Keep the grade of every target under a name, in this project")
         self.save_look_button.clicked.connect(self._ask_save_look)
         self.delete_look_button = QtWidgets.QPushButton("Delete")
-        self.delete_look_button.setToolTip("Delete the look shown above (the grade on the wall stays)")
-        self.delete_look_button.clicked.connect(lambda: self._delete_look())
+        self.delete_look_button.setToolTip("Choose a look to delete (the grade on the wall stays as it is)")
+        self.delete_look_button.setMenu(QtWidgets.QMenu(self.delete_look_button))
         row = QtWidgets.QHBoxLayout()
         row.addWidget(self.save_look_button)
         row.addWidget(self.delete_look_button)
@@ -409,12 +438,13 @@ class GradingPage(BasePage):
         target = self._target(key) if key else None
         bypassed = bool(target) and grading.is_bypassed(key)
         enabled = bool(target) and bool(getattr(grading, "enabled", {}).get(key, target.get("enabled", True)))
-        usable = bool(target) and (enabled or bypassed)
+        usable = bool(target) and (enabled or bypassed) and self._shown_key == key
         for widget in self._grade_widgets():
             widget.setEnabled(usable)
             self._dim(widget, not usable)
-        for button in (self.bypass_button, self.reset_button):
-            button.setEnabled(bool(target))
+        self.reset_button.setEnabled(bool(target))
+        # Ending a bypass switches grading on, so a target whose grading is off cannot be bypassed.
+        self.bypass_button.setEnabled(bool(target) and (enabled or bypassed))
         self.bypass_button.setChecked(bypassed)
         self.enable_button.setVisible(bool(target) and not enabled and not bypassed)
         if not grading.targets_list:
@@ -423,6 +453,10 @@ class GradingPage(BasePage):
             note = f"{_target_name(key)} is {GONE}. Pick another target." if key else "Pick a target to grade."
         elif not enabled and not bypassed:
             note = "Colour grading is switched off on this target in Unreal, so the controls are greyed."
+        elif self._shown_key != key and self._read_error:
+            note = f"Could not read this target's grade, so the controls are greyed: {self._read_error}"
+        elif self._shown_key != key:
+            note = "Reading this target's grade from Unreal…"
         else:
             note = ""
         self.target_note.setText(note)
@@ -454,26 +488,36 @@ class GradingPage(BasePage):
                                                             ("highlights_max", "highlights end at")) if k in limits]
         self._limits.setText(("Tonal range limits on this target: " + ", ".join(parts) + ".") if parts else "")
 
-    def _read(self, key: str, quiet: bool = True) -> None:
+    def _busy(self) -> bool:
+        return any(w.busy() for w in self._grade_widgets())
+
+    def _read(self, key: str) -> None:
+        """Read ``key``'s grade (after any gesture still being sent). Asked again while a read runs,
+        the newest target is read when it finishes."""
+        self._want = key
         if self._reading:
             return
         self._reading = True
+        grading = self.ctx.grading
 
-        def done(grade) -> None:
+        def finish(grade, error: str) -> None:
             self._reading = False
-            if key == self.ctx.grading.selected:
-                self._shown_key = key
-                self._show_grade(grade)
-                self._update_state()
-
-        def failed(exc) -> None:
-            self._reading = False
+            if key == grading.selected:
+                self._read_error = error
+                if grade is not None and not self._busy():  # a moving control ignores it: read again after
+                    self._shown_key = key
+                    self._show_grade(grade)
             self._update_state()
-        self.background(lambda: self.ctx.grading.read(key), done, "Reading the grade", quiet, failed)
+            wanted = self._want
+            if wanted and wanted != key and wanted == grading.selected and wanted != self._shown_key:
+                self._read(wanted)
+
+        self._shared.put(lambda: grading.read(key), lambda grade: finish(grade, ""),
+                         lambda exc: finish(None, str(exc)))
 
     def _reread(self) -> None:
         """Every 3 seconds: show changes made in Unreal, unless a control is being moved."""
-        if not self.is_live() or self._reading or any(w.busy() for w in self._grade_widgets()):
+        if not self.is_live() or self._reading or self._busy() or self._shared.open:
             return
         key = self._usable_key()
         if key:
@@ -495,13 +539,17 @@ class GradingPage(BasePage):
 
     def on_event(self, topic: str, payload: Dict[str, Any]) -> None:
         if topic in ("grading.targets", "grading.selected", "grading.bypass"):
+            if topic == "grading.selected" and payload.get("key") != self._shown_key:
+                self._shown_key = ""  # the controls show another target's grade until this one is read
+                self._read_error = ""
             self._fill_targets()
             self._update_state()
             key = self._usable_key()
             if key and (topic == "grading.selected" or key != self._shown_key):
                 self._read(key)
         elif topic == "grading.changed":
-            if payload.get("key") == self.ctx.grading.selected and payload.get("grade") is not None:
+            if payload.get("key") == self.ctx.grading.selected and payload.get("grade") is not None \
+                    and self._shown_key == payload.get("key"):
                 self._show_grade(payload["grade"])
             self._update_undo()
         elif topic == "grading.problem":
@@ -513,11 +561,17 @@ class GradingPage(BasePage):
 
     # ---- gestures: start, changes and end go to Unreal in order, off the UI thread ------------------
     def _gesture_started(self, widget) -> None:
-        key = self._usable_key()
+        key = self._usable_key() if self._shown_key == self.ctx.grading.selected else ""
         self._gesture_keys[id(widget)] = key
-        if key:
+        if not key:
+            return
+        gesture = self._shared.open.setdefault(key, {"count": 0, "labels": []})
+        gesture["count"] += 1
+        if _label(widget.control) not in gesture["labels"]:
+            gesture["labels"].append(_label(widget.control))
+        if gesture["count"] == 1:
             grading = self.ctx.grading
-            self._in_order.put(lambda: grading.begin_gesture(key))
+            self._shared.put(lambda: grading.begin_gesture(key))
 
     def _gesture_changed(self, widget, value) -> None:
         key = self._gesture_keys.get(id(widget))
@@ -526,13 +580,21 @@ class GradingPage(BasePage):
         control = widget.control
         values = {control.key: None if _is_neutral(control, value) else value}
         grading = self.ctx.grading
-        self._in_order.put(lambda: grading.send(key, values))
+        self._shared.put(lambda: grading.send(key, values))
 
     def _gesture_finished(self, widget) -> None:
         key = self._gesture_keys.pop(id(widget), "")
-        if key:
-            grading, label = self.ctx.grading, _label(widget.control)
-            self._in_order.put(lambda: grading.end_gesture(key, label))
+        gesture = self._shared.open.get(key) if key else None
+        if gesture is None:
+            return
+        gesture["count"] -= 1
+        if gesture["count"] <= 0:
+            del self._shared.open[key]
+            grading, label = self.ctx.grading, ", ".join(gesture["labels"])
+            self._shared.put(lambda: grading.end_gesture(key, label))
+        selected = self._usable_key()
+        if selected and selected != self._shown_key and not self._busy():
+            self._read(selected)  # the target changed during the gesture
 
     # ---- buttons -----------------------------------------------------------------------------------
     def _result(self, result) -> None:
@@ -566,10 +628,10 @@ class GradingPage(BasePage):
 
     def _undoable(self) -> list:
         return [r for r in self.ctx.session_changes() if r.kind == "grade" and r.result == "ok"
-                and r.previous is not None and id(r) not in self._undone]
+                and r.previous is not None and id(r) not in self._shared.undone]
 
     def _update_undo(self) -> None:
-        self.undo_button.setEnabled(bool(self._undoable()))
+        self.undo_button.setEnabled(not self._undoing and bool(self._undoable()))
 
     def _undo(self) -> None:
         records = self._undoable()
@@ -577,14 +639,23 @@ class GradingPage(BasePage):
             return
         rec = records[-1]
         before = len(self.ctx.changes.records)
+        self._undoing = True
+        self._update_undo()
+
+        def finished() -> None:
+            self._undoing = False
+            self._update_undo()
 
         def done(_result) -> None:
-            # The undo itself is logged as a change; it is not one to undo next.
-            for made in [rec] + list(self.ctx.changes.records[before:]):
-                self._undone.add(id(made))
+            # The undo is logged as a "Set grade" of the same target; that is not a change to undo next.
+            self._shared.undone.add(id(rec))
+            for made in self.ctx.changes.records[before:]:
+                if made.kind == "grade" and made.ref.get("key") == rec.ref.get("key") and made.setting == "Set grade":
+                    self._shared.undone.add(id(made))
             self.notify(f"Undone: {rec.setting} on {rec.item}")
-            self._update_undo()
-        self.background(lambda: self.ctx.apply_setting("grade", rec.ref, rec.previous), done, "Undo")
+            finished()
+        self.background(lambda: self.ctx.apply_setting("grade", rec.ref, rec.previous), done, "Undo",
+                        failed=lambda _exc: finished())
 
     # ---- looks -------------------------------------------------------------------------------------
     def _fill_looks(self) -> None:
@@ -594,6 +665,10 @@ class GradingPage(BasePage):
         self.looks_picker.addItems(names)
         self.looks_picker.setCurrentIndex(self.looks_picker.findText(self.ctx.grading.active_look))
         self.looks_picker.blockSignals(False)
+        menu = self.delete_look_button.menu()
+        menu.clear()
+        for name in names:
+            menu.addAction(name, lambda n=name: self._delete_look(n))
         self.delete_look_button.setEnabled(bool(names))
 
     def _look_picked(self, index: int) -> None:
@@ -631,11 +706,7 @@ class GradingPage(BasePage):
             self._fill_looks()
         self.background(lambda: self.ctx.grading.save_look(name, keys), done, f"Save look '{name}'")
 
-    def _delete_look(self, confirm: bool = True) -> None:
-        name = self.looks_picker.currentText()
-        if not name:
-            self.notify("Pick the look to delete first", False)
-            return
+    def _delete_look(self, name: str, confirm: bool = True) -> None:
         if confirm and QtWidgets.QMessageBox.question(
                 self, "Delete look", f"Delete the look '{name}'? The grade on the wall stays as it is.") \
                 != QtWidgets.QMessageBox.Yes:
