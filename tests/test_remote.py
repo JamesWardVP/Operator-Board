@@ -93,5 +93,8 @@ def test_camera_scripts_compile():
     from operator_board.remote import scripts
     for script in (scripts.list_camera_targets(), scripts.get_actor_transform("Cine'Cam"),
                    scripts.set_actor_transform("/Game/M.M:PersistentLevel.Cam", [1, 2, 3], [4, 5, 6]),
-                   scripts.take_recorder_save("", "Scene's", 3)):
+                   scripts.take_recorder_save("", "Scene's", 3), scripts.list_grading_targets(),
+                   scripts.read_grade("ppv", "Cam's PPV", []),
+                   scripts.write_grade("ndisplay_viewport", "Root", ["VP'1"], {"global.gain": [1, 1, 1, 1]}, True),
+                   scripts.set_grading_enabled("ccr", "It's", [], False, True)):
         compile(script, "<editor>", "exec")

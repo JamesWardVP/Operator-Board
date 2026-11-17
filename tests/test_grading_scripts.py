@@ -131,3 +131,77 @@ def test_scripts_compile_with_awkward_names():
 def test_write_only_mentions_given_keys():
     body = scripts.write_grade("ppv", "PPV", [], {"global.gain": [1, 1, 1, 1]}, True)
     assert "global.gamma" not in body and "midtones.gain" not in body
+
+
+def test_bypass_leaves_master_switch_alone(ue):
+    mod, level = ue
+    stage = level.root.current_config_data.stage_settings
+    stage.enable_color_grading = False
+    run(mod, scripts.set_grading_enabled("ndisplay_viewport", "nDisplay Root", ["VP_0", "VP_1"], False, False))
+    run(mod, scripts.set_grading_enabled("ndisplay_viewport", "nDisplay Root", ["VP_0", "VP_1"], True, False))
+    stage = level.root.current_config_data.stage_settings
+    assert stage.enable_color_grading is False
+    assert stage.per_viewport_color_grading[0].is_enabled is True
+
+
+def test_enable_with_master_switches_master_on(ue):
+    mod, level = ue
+    level.cam.camera_settings.enable_inner_frustum_color_grading = False
+    level.cam.camera_settings.all_nodes_color_grading.enable_inner_frustum_all_nodes_color_grading = False
+    out = run(mod, scripts.set_grading_enabled("icvfx_all_nodes", "nDisplay Root/ICVFXCamera", [], True, False,
+                                               master=True))
+    assert out["enabled"] is True
+    assert level.cam.camera_settings.enable_inner_frustum_color_grading is True
+
+
+def test_read_reports_entry_and_master_switches(ue):
+    mod, level = ue
+    level.root.current_config_data.stage_settings.enable_color_grading = False
+    out = run(mod, scripts.read_grade("ndisplay_cluster", "nDisplay Root", []))
+    assert out["enabled"] is False and out["entry_enabled"] is True and out["master_enabled"] is False
+
+
+def test_duplicate_entries_are_told_apart(ue):
+    mod, level = ue
+    stage = level.root.current_config_data.stage_settings
+    stage.per_viewport_color_grading = [fu.PerViewport(), fu.PerViewport()]
+    out = run(mod, scripts.list_grading_targets())
+    vps = [t for t in out["targets"] if t["kind"] == "ndisplay_viewport"]
+    assert [t["nth"] for t in vps] == [0, 1] and vps[0]["name"] != vps[1]["name"]
+    run(mod, scripts.write_grade("ndisplay_viewport", "nDisplay Root", [], {"tint": 0.4}, False, nth=1))
+    entries = level.root.current_config_data.stage_settings.per_viewport_color_grading
+    assert entries[0].color_grading_settings.white_balance.white_tint == 0.0
+    assert entries[1].color_grading_settings.white_balance.white_tint == 0.4
+
+
+def test_window_shape_comes_from_window_type():
+    mod = fu.build_module()
+    level = fu.stage()
+    level.actors.append(fu.ColorCorrectionWindow("CCW_1", "Window"))
+    out = run(mod, scripts.list_grading_targets())
+    assert out["targets"][-1]["name"] == "Window (square window)"
+
+
+@pytest.mark.parametrize("kind,actor,applies", [
+    ("ndisplay_cluster", "nDisplay Root", []),
+    ("icvfx_node", "nDisplay Root/ICVFXCamera", ["Node_0"]),
+    ("ppv", "Stage PPV", []),
+])
+def test_reset_unticks_ranges_and_white_balance(ue, kind, actor, applies):
+    mod, _ = ue
+    run(mod, scripts.write_grade(kind, actor, applies, {"midtones.gamma": [0.8, 1, 1, 1], "temp": 5000.0,
+                                                      "tint": 0.2}, False))
+    run(mod, scripts.write_grade(kind, actor, applies, {"midtones.gamma": None, "temp": None, "tint": None}, False))
+    g = run(mod, scripts.read_grade(kind, actor, applies))["grade"]
+    assert g["overrides"] == [] and g["values"]["midtones.gamma"] == [1, 1, 1, 1]
+    assert (g["temp"], g["tint"]) == (6500.0, 0.0)
+
+
+def test_icvfx_reference_without_camera_is_plain_error(ue):
+    mod, _ = ue
+    out = run(mod, scripts.read_grade("icvfx_all_nodes", "nDisplay Root", []))
+    assert out["error"].startswith("Target no longer in the level")
+
+
+def test_scripts_are_ascii():
+    assert scripts.list_grading_targets().isascii()

@@ -44,7 +44,7 @@ class FakeClient:
         if "result = {'grade': _g_read(t)" in script:
             return {"grade": self.grade, "enabled": self.enabled}
         if "_g_run(lambda: t.set_enabled(" in script:
-            self.enabled = "t.set_enabled(True)" in script
+            self.enabled = "t.set_enabled(True" in script
             return {"ok": True, "enabled": self.enabled}
         return {"ok": True}
 
@@ -176,10 +176,10 @@ def test_bypass_toggle_saved_and_touch_ends_it(tmp_path):
     svc, ed, *_ = make(tmp_path=tmp_path)
     assert svc.set_bypass(PPV, None) is True
     assert svc.is_bypassed(PPV) and BypassState(str(tmp_path / "bypass.json")).bypassed() == [PPV]
-    assert "t.set_enabled(False)" in ed.scripts[-1]
+    assert "t.set_enabled(False" in ed.scripts[-1]
     ed.scripts.clear()
     svc.nudge("gain", 0.02, PPV)
-    enable = next(i for i, s in enumerate(ed.scripts) if "t.set_enabled(True)" in s)
+    enable = next(i for i, s in enumerate(ed.scripts) if "t.set_enabled(True" in s)
     write = next(i for i, s in enumerate(ed.scripts) if "_g_run(lambda: _g_write(t" in s)
     assert enable < write and not svc.is_bypassed(PPV)
 
@@ -199,7 +199,7 @@ def test_recall_look_while_bypassed_ends_bypass_first(tmp_path):
     svc.set_bypass(PPV, True)
     ed.scripts.clear()
     svc.recall_look("Warm")
-    enable = next(i for i, s in enumerate(ed.scripts) if "t.set_enabled(True)" in s)
+    enable = next(i for i, s in enumerate(ed.scripts) if "t.set_enabled(True" in s)
     write = next(i for i, s in enumerate(ed.scripts) if "_g_run(lambda: _g_write(t" in s)
     assert enable < write
     assert not svc.is_bypassed(PPV)
@@ -251,3 +251,27 @@ def test_apply_used_by_undo_raises_when_nothing_answers():
         n.down = True
     with pytest.raises(RuntimeError):
         svc.apply(PPV, Grade.neutral().to_dict())
+
+
+def test_enable_switches_master_bypass_does_not():
+    svc, ed, *_ = make()
+    svc.set_bypass(PPV, True)
+    assert "t.set_enabled(False, False)" in ed.scripts[-1]
+    svc.set_bypass(PPV, False)
+    assert "t.set_enabled(True, False)" in ed.scripts[-1]
+    svc.enable(PPV)
+    assert "t.set_enabled(True, True)" in ed.scripts[-1]
+
+
+def test_duplicate_entries_get_distinct_keys():
+    svc, ed, *_ = make()
+    TARGETS["targets"].extend([
+        {"kind": "ndisplay_viewport", "actor": "Root", "applies_to": [], "nth": 0, "name": "a", "enabled": True},
+        {"kind": "ndisplay_viewport", "actor": "Root", "applies_to": [], "nth": 1, "name": "b", "enabled": True}])
+    try:
+        keys = [t["key"] for t in svc.refresh_targets()]
+    finally:
+        del TARGETS["targets"][-2:]
+    assert keys[-2] != keys[-1] and keys[-1].endswith("#2")
+    svc.nudge("tint", 0.05, keys[-1])
+    assert "}, False, nth=" not in ed.writes()[-1] and ", 1)" in ed.writes()[-1]

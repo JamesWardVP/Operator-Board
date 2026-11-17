@@ -85,7 +85,8 @@ class GradingService:
         found = []
         for t in (result or {}).get("targets", []):
             t = dict(t)
-            t["key"] = target_key(t["kind"], t["actor"], t.get("applies_to") or [])
+            t["nth"] = int(t.get("nth") or 0)
+            t["key"] = target_key(t["kind"], t["actor"], t.get("applies_to") or []) + (f"#{t['nth'] + 1}" if t["nth"] else "")
             found.append(t)
         with self._lock:
             self.targets_list = found
@@ -112,7 +113,7 @@ class GradingService:
     # ---- reading -------------------------------------------------------------------------------
     def read(self, key: str) -> Grade:
         t = self.target(key)
-        script = python_result_wrapper(scripts.read_grade(t["kind"], t["actor"], t["applies_to"]))
+        script = python_result_wrapper(scripts.read_grade(t["kind"], t["actor"], t["applies_to"], t["nth"]))
         try:
             result = self.targets.editor_or_nodes(lambda c: c.run_python(script))[0]
         except RemoteControlError as exc:
@@ -163,7 +164,7 @@ class GradingService:
         t = self.target(key)
         vals = copy.deepcopy(values)
         return lambda transact: python_result_wrapper(
-            scripts.write_grade(t["kind"], t["actor"], t["applies_to"], vals, transact))
+            scripts.write_grade(t["kind"], t["actor"], t["applies_to"], vals, transact, nth=t["nth"]))
 
     def _remember_missed(self, key: str, clients) -> None:
         names = ", ".join(_client_name(c) for c in clients)
@@ -354,7 +355,8 @@ class GradingService:
         on = (not self.is_bypassed(key)) if on is None else bool(on)
         t = self.target(key)
         self._deliver(key, lambda transact: python_result_wrapper(
-            scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], not on, transact)), transact=True)
+            scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], not on, transact, nth=t["nth"])),
+            transact=True)
         self.bypass.set(key, on)
         with self._lock:
             self.enabled[key] = not on
@@ -371,7 +373,8 @@ class GradingService:
             k = self._key(key)
             t = self.target(k)
             self._deliver(k, lambda transact: python_result_wrapper(
-                scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], True, transact)), transact=True)
+                scripts.set_grading_enabled(t["kind"], t["actor"], t["applies_to"], True, transact, master=True,
+                                            nth=t["nth"])), transact=True)
             self.bypass.set(k, False)
             with self._lock:
                 self.enabled[k] = True

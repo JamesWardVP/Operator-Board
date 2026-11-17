@@ -177,7 +177,7 @@ class ColorCorrectionRegion(ColorCorrectRegion):
 
 
 class ColorCorrectionWindow(ColorCorrectRegion):
-    pass
+    _fields = dict(ColorCorrectRegion._fields, window_type="SQUARE")
 
 
 class World:
