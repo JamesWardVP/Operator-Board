@@ -15,6 +15,7 @@ from operator_board.ui.pages.custom import CustomPageView
 from operator_board.ui.pages.custom_pages import CustomPagesPage
 from operator_board.ui.pages.devices import DevicesPage
 from operator_board.ui.pages.dlss import DLSSPage
+from operator_board.ui.pages.grading import GradingPage
 from operator_board.ui.pages.led_setup import LEDSetupPage
 from operator_board.ui.pages.led_walls import LEDProcessorsPage
 from operator_board.ui.pages.saved_settings import SavedSettingsPage
@@ -29,12 +30,12 @@ from operator_board.ui.pages.takes import TakesPage
 from operator_board.ui.theme import COLORS, STYLESHEET
 from operator_board.ui.widgets import scroll
 
-PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, LEDProcessorsPage, DLSSPage, AnalyticsPage, SurfacesPage,
+PAGES = [OperatePage, TakesPage, LevelsPage, ObjectsPage, GradingPage, LEDProcessorsPage, DLSSPage, AnalyticsPage, SurfacesPage,
          SyncPage, SavedSettingsPage, LEDSetupPage, StagePage, DevicesPage, CustomPagesPage, SettingsPage]
 # The sidebar: ungrouped pages at the top and bottom, collapsible groups in between (open by default).
 # The operator's custom pages go above all of these, in a "Custom" group.
 NAV = ["Operate", "Takes", "Cameras & Levels",
-       ("Advanced", ["Remote Objects", "LED Processors", "DLSS", "Analytics", "Control Surfaces", "File Sync",
+       ("Advanced", ["Remote Objects", "Colour Grading", "LED Processors", "DLSS", "Analytics", "Control Surfaces", "File Sync",
                      "Saved Settings"]),
        ("Setup", ["LED Processor Setup", "Switchboard Configs", "Devices", "Custom Pages"]),
        "Settings"]

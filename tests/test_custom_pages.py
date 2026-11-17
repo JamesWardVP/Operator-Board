@@ -342,6 +342,32 @@ def test_single_controls_can_be_placed_on_their_own():
     ctx.shutdown()
 
 
+def test_colour_grading_controls_are_offered_one_by_one():
+    app, ctx, window = _window()
+    catalogue = {title: (dict(panels), {key: (card, label) for card, key, label in found})
+                 for title, _setup, panels, found in window.panel_catalogue()}
+    panels, controls = catalogue["Colour Grading"]
+    assert {"Target", "Looks", "Primaries", "tab:Primaries", "tab:Advanced: tonal ranges"} <= set(panels)
+    assert {"ctl:gain", "ctl:temperature", "ctl:target_picker", "ctl:looks_picker", "ctl:bypass_button",
+            "ctl:reset_button", "ctl:lift", "ctl:tint", "ctl:shadows_gain"} <= set(controls)
+    assert controls["ctl:gain"][0] == "Primaries" and controls["ctl:bypass_button"][0] == "Target"
+    assert "Gain" in controls["ctl:gain"][1] and "Temperature" in controls["ctl:temperature"][1]
+
+    ctx.custom_pages.add("Grade")
+    window.show_page("Grade")
+    view = window.current_page()
+    view.set_editing(True)
+    gain = view.add_panel("Colour Grading", "ctl:gain")
+    view.add_panel("Colour Grading", "ctl:bypass_button")
+    assert gain is not None and len(view.controllers) == 1
+    view.set_editing(False)
+    app.processEvents()
+    controller = view.controllers[0]
+    assert controller.gain.isVisible() and controller.is_live() and not controller.isVisible()
+    _close(app, window)
+    ctx.shutdown()
+
+
 def test_button_dialog_checks_what_is_typed():
     from operator_board.surfaces.layout import ButtonBinding
     from operator_board.ui.button_dialog import ButtonDialog

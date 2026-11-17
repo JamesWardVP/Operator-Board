@@ -101,7 +101,128 @@ def demo_context():
         t = now - (450 - k) * 2
         ctx.metrics.add("Stage", "Running instances", len(cfg.devices), t)
         ctx.metrics.add("Stage", "Multi-user clients", len(cfg.devices) if k > 30 else k // 8, t)
+
+    # Colour grading: targets of every kind, a warm grade on the whole wall and two saved looks
+    from operator_board.core.looks import Look
+    ctx.grading.stop()
+    ctx.grading = SimulatedGrading(ctx.bus, cfg)
+    ctx.grading.looks = ctx.looks
+    first = ctx.grading.targets_list[0]["key"]
+    for name in ("Day ext warm", "Night city blue"):
+        ctx.looks.save(Look(name, {first: ctx.grading.current[first]}))
+    cfg.grading.active_look = "Day ext warm"
     return ctx
+
+
+class SimulatedGrading:
+    """Stands in for GradingService on the demo stage: grading targets of all four kinds, kept in
+    memory. Nothing is sent anywhere."""
+
+    def __init__(self, bus, config):
+        from operator_board.core.grading import Grade
+        from operator_board.core.looks import BypassState
+        self.bus = bus
+        self.config = config
+        dot = " · "
+        self.targets_list = []
+        for kind, actor, name, applies_to in [
+                ("ndisplay_cluster", "nDisplay_Stage", "nDisplay_Stage" + dot + "Entire cluster", []),
+                ("ndisplay_viewport", "nDisplay_Stage", "nDisplay_Stage" + dot + "VP_Wall_L, VP_Wall_R", ["VP_Wall_L", "VP_Wall_R"]),
+                ("ndisplay_viewport", "nDisplay_Stage", "nDisplay_Stage" + dot + "VP_Ceiling", ["VP_Ceiling"]),
+                ("icvfx_all_nodes", "nDisplay_Stage/ICVFXCamera", "ICVFXCamera" + dot + "All nodes", []),
+                ("ppv", "PPV_Global", "PPV_Global (global)", []),
+                ("ppv", "PPV_CarInterior", "PPV_CarInterior (local)", []),
+                ("ccr", "CCR_SkyWarm", "CCR_SkyWarm (sphere)", []),
+                ("ccr", "CCW_Window", "CCW_Window (window, box)", [])]:
+            from operator_board.core.looks import target_key
+            key = target_key(kind, actor, applies_to)
+            self.targets_list.append({"key": key, "kind": kind, "actor": actor, "applies_to": applies_to, "nth": 0,
+                                      "name": name, "enabled": kind != "ndisplay_viewport" or "Ceiling" not in name})
+        self.missing = {"ndisplay": "", "ccr": ""}
+        self.current = {t["key"]: Grade.neutral() for t in self.targets_list}
+        warm = (Grade.neutral().set("global.gain", (1.08, 1.0, 0.9, 1.04)).set("shadows.offset", (0.0, 0.01, 0.03, -0.01))
+                .set("global.saturation", (1.0, 1.0, 1.0, 1.1)).set("temp", 5900.0).set("tint", 0.02))
+        warm.limits = {"shadows_max": 0.09, "highlights_min": 0.5, "highlights_max": 1.0}
+        self.current[self.targets_list[0]["key"]] = warm
+        self.enabled = {t["key"]: t["enabled"] for t in self.targets_list}
+        self.bypass = BypassState(None)
+
+    @property
+    def active_look(self):
+        return self.config.grading.active_look
+
+    @active_look.setter
+    def active_look(self, name):
+        self.config.grading.active_look = name
+        self.bus.publish("grading.look", name=name)
+
+    @property
+    def selected(self):
+        return self.config.grading.selected or self.targets_list[0]["key"]
+
+    def select(self, key):
+        self.config.grading.selected = key
+        self.bus.publish("grading.selected", key=key)
+
+    def refresh_targets(self):
+        self.bus.publish("grading.targets", targets=self.targets_list, missing=self.missing)
+        return self.targets_list
+
+    def read(self, key):
+        return self.current[key]
+
+    def begin_gesture(self, key):
+        return self.current[key]
+
+    def send(self, key, values):
+        grade = self.current[key]
+        for k, v in values.items():
+            grade = grade.reset(k) if v is None else grade.set(k, v)
+        self.current[key] = grade
+
+    def end_gesture(self, key, label):
+        self.active_look = ""
+        self.bus.publish("grading.changed", key=key, grade=self.current[key])
+
+    def reset(self, key="", control_id=None):
+        from operator_board.core.grading import CONTROLS
+        key = key or self.selected
+        self.send(key, {CONTROLS[control_id].key: None} if control_id else {k: None for k in self.current[key].overrides})
+        self.bus.publish("grading.changed", key=key, grade=self.current[key])
+        return True, "Reset grade"
+
+    def is_bypassed(self, key):
+        return key in self.bypass.bypassed()
+
+    def set_bypass(self, key="", on=None):
+        key = key or self.selected
+        on = (not self.is_bypassed(key)) if on is None else on
+        self.bypass.set(key, on)
+        self.bus.publish("grading.bypass", key=key, on=on)
+        return on
+
+    def enable(self, key=""):
+        self.enabled[key or self.selected] = True
+        self.bus.publish("grading.bypass", key=key or self.selected, on=False)
+        return True, "Grading enabled"
+
+    def restore_bypassed(self):
+        for key in self.bypass.bypassed():
+            self.set_bypass(key, False)
+        return True, "Restored"
+
+    def save_look(self, name, keys):
+        from operator_board.core.looks import Look
+        look = Look(name, {k: self.current[k] for k in keys})
+        self.looks.save(look)
+        return look
+
+    def recall_look(self, name):
+        self.active_look = name
+        return []
+
+    def stop(self):
+        pass
 
 
 def link_switchboard_config(ctx):
@@ -189,6 +310,7 @@ def main() -> int:
     shot("Analytics", "analytics.png", analytics)
     shot("Control Surfaces", "control_surfaces.png")
     shot("DLSS", "dlss.png")
+    shot("Colour Grading", "colour_grading.png")
 
     window.skip_save_on_close = True
     window.close()
